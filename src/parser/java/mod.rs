@@ -1,10 +1,10 @@
 use crate::error::{NaviscopeError, Result};
-use crate::model::graph::EdgeType;
+use crate::model::graph::{EdgeType, GraphNode, Range};
 use crate::model::lang::java::{
     JavaClass, JavaElement, JavaField, JavaInterface, JavaMethod, JavaParameter,
 };
 use std::collections::{HashMap, HashSet};
-use tree_sitter::{Parser, Query, QueryCursor, QueryMatch};
+use tree_sitter::{Parser, Query, QueryCursor, QueryMatch, StreamingIterator};
 
 mod constants;
 use constants::*;
@@ -22,7 +22,8 @@ pub struct JavaParser {
 }
 
 pub struct JavaParseResult {
-    pub elements: Vec<JavaElement>,
+    pub package_name: Option<String>,
+    pub nodes: Vec<GraphNode>,
     pub relations: Vec<(String, String, EdgeType)>,
 }
 
@@ -42,7 +43,7 @@ impl JavaParser {
         })
     }
 
-    pub fn parse_file(&self, source_code: &str) -> Result<JavaParseResult> {
+    pub fn parse_file(&self, source_code: &str, file_path: Option<&std::path::Path>) -> Result<JavaParseResult> {
         let mut parser = Parser::new();
         parser
             .set_language(&self.language)
@@ -62,8 +63,9 @@ impl JavaParser {
             tree.root_node(),
             source_code.as_bytes(),
         );
+        let mut matches = matches;
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             self.process_match(
                 mat,
                 source_code,
@@ -74,15 +76,25 @@ impl JavaParser {
             );
         }
 
+        let nodes = elements_map
+            .into_values()
+            .map(|e| GraphNode::java(e, file_path.map(|p| p.to_path_buf())))
+            .collect();
+
         Ok(JavaParseResult {
-            elements: elements_map.into_values().collect(),
+            package_name: if package_name.is_empty() {
+                None
+            } else {
+                Some(package_name)
+            },
+            nodes,
             relations: relations.into_iter().collect(),
         })
     }
 
     fn process_match(
         &self,
-        mat: QueryMatch,
+        mat: &QueryMatch,
         source: &str,
         idx: &JavaIndices,
         pkg_name: &mut String,
@@ -149,7 +161,7 @@ impl JavaParser {
 
     fn handle_definition(
         &self,
-        mat: QueryMatch,
+        mat: &QueryMatch,
         source: &str,
         idx: &JavaIndices,
         pkg: &str,
@@ -190,6 +202,14 @@ impl JavaParser {
                 .unwrap_or("")
                 .to_string();
 
+            let node_range = anchor.node.range();
+            let range = Some(Range {
+                start_line: node_range.start_point.row,
+                start_col: node_range.start_point.column,
+                end_line: node_range.end_point.row,
+                end_col: node_range.end_point.column,
+            });
+
             let entry = elements.entry(fqn.clone()).or_insert_with(|| {
                 let e = match kind {
                     KIND_LABEL_CLASS => JavaElement::Class(JavaClass {
@@ -198,12 +218,14 @@ impl JavaParser {
                         modifiers: vec![],
                         superclass: None,
                         interfaces: vec![],
+                        range: range.clone(),
                     }),
                     KIND_LABEL_INTERFACE => JavaElement::Interface(JavaInterface {
                         id: fqn.clone(),
                         name: name.clone(),
                         modifiers: vec![],
                         extends: vec![],
+                        range: range.clone(),
                     }),
                     KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => JavaElement::Method(JavaMethod {
                         id: fqn.clone(),
@@ -212,12 +234,14 @@ impl JavaParser {
                         parameters: vec![],
                         modifiers: vec![],
                         is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
+                        range: range.clone(),
                     }),
                     KIND_LABEL_FIELD => JavaElement::Field(JavaField {
                         id: fqn.clone(),
                         name: name.clone(),
                         type_name: "".to_string(),
                         modifiers: vec![],
+                        range: range.clone(),
                     }),
                     _ => unreachable!(),
                 };
@@ -235,7 +259,7 @@ impl JavaParser {
 
     fn merge_metadata(
         &self,
-        mat: QueryMatch,
+        mat: &QueryMatch,
         source: &str,
         idx: &JavaIndices,
         fqn: &str,
@@ -398,13 +422,22 @@ impl JavaParser {
         source_code: &str,
         package_name: &str,
     ) -> String {
-        let mut parts = vec![
+        let mut parts = Vec::new();
+        let mut curr = name_node;
+
+        // Push the name of the entity itself
+        parts.push(
             name_node
                 .utf8_text(source_code.as_bytes())
                 .unwrap_or("")
                 .to_string(),
-        ];
-        let mut curr = name_node;
+        );
+
+        // Move to the parent of the declaration that contains this name node
+        if let Some(decl) = curr.parent() {
+            curr = decl;
+        }
+
         while let Some(parent) = curr.parent() {
             match parent.kind() {
                 KIND_CLASS_DECL | KIND_INTERFACE_DECL | KIND_ENUM_DECL | KIND_METHOD_DECL
@@ -414,9 +447,7 @@ impl JavaParser {
                             .utf8_text(source_code.as_bytes())
                             .unwrap_or("")
                             .to_string();
-                        if parts.last().unwrap() != &text {
-                            parts.push(text);
-                        }
+                        parts.push(text);
                     }
                 }
                 _ => {}
@@ -462,9 +493,9 @@ mod tests {
             class OtherClass {}
         "#;
         let parser = JavaParser::new().unwrap();
-        let result = parser.parse_file(source).unwrap();
+        let result = parser.parse_file(source, Some(std::path::Path::new("Test.java"))).unwrap();
 
-        let mut ids: Vec<_> = result.elements.iter().map(|e| e.id().to_string()).collect();
+        let mut ids: Vec<_> = result.nodes.iter().map(|e| e.fqn().to_string()).collect();
         ids.sort();
 
         assert!(ids.contains(&"com.example.Test".to_string()));
@@ -476,15 +507,17 @@ mod tests {
             && *e == EdgeType::Contains));
 
         let m1 = result
-            .elements
+            .nodes
             .iter()
-            .find(|e| e.id() == "com.example.Test.method1")
+            .find(|e| e.fqn() == "com.example.Test.method1")
             .unwrap();
-        if let JavaElement::Method(m) = m1 {
-            assert_eq!(m.modifiers.contains(&"public".to_string()), true);
-            assert_eq!(m.parameters.len(), 2);
-        } else {
-            panic!("Expected method");
+        
+        match m1 {
+            GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Method(m), .. }) => {
+                assert_eq!(m.modifiers.contains(&"public".to_string()), true);
+                assert_eq!(m.parameters.len(), 2);
+            }
+            _ => panic!("Expected Java method node"),
         }
     }
 }

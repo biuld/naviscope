@@ -1,3 +1,4 @@
+use crate::model::graph::Range;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -39,6 +40,17 @@ impl JavaElement {
             JavaElement::Field(e) => &e.name,
         }
     }
+
+    pub fn range(&self) -> Option<&Range> {
+        match self {
+            JavaElement::Class(e) => e.range.as_ref(),
+            JavaElement::Interface(e) => e.range.as_ref(),
+            JavaElement::Enum(e) => e.range.as_ref(),
+            JavaElement::Annotation(e) => e.range.as_ref(),
+            JavaElement::Method(e) => e.range.as_ref(),
+            JavaElement::Field(e) => e.range.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -48,6 +60,7 @@ pub struct JavaClass {
     pub modifiers: Vec<String>,
     pub superclass: Option<String>,
     pub interfaces: Vec<String>,
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -56,6 +69,7 @@ pub struct JavaInterface {
     pub id: String, // FQN
     pub modifiers: Vec<String>,
     pub extends: Vec<String>,
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -65,6 +79,7 @@ pub struct JavaEnum {
     pub modifiers: Vec<String>,
     pub interfaces: Vec<String>,
     pub constants: Vec<String>,
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -72,6 +87,7 @@ pub struct JavaAnnotation {
     pub name: String,
     pub id: String,
     pub modifiers: Vec<String>,
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -80,6 +96,7 @@ pub struct JavaField {
     pub id: String,
     pub type_name: String,
     pub modifiers: Vec<String>,
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -90,6 +107,7 @@ pub struct JavaMethod {
     pub parameters: Vec<JavaParameter>,
     pub modifiers: Vec<String>,
     pub is_constructor: bool,
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -1,6 +1,6 @@
 use crate::error::{NaviscopeError, Result};
 use crate::model::lang::gradle::GradleDependency;
-use tree_sitter::{Parser, QueryCursor};
+use tree_sitter::{Parser, QueryCursor, StreamingIterator};
 
 unsafe extern "C" {
     fn tree_sitter_groovy() -> tree_sitter::Language;
@@ -29,11 +29,11 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
 
     let mut query_cursor = QueryCursor::new();
     let mut item_cursor = QueryCursor::new();
-    let matches = query_cursor.matches(&query, tree.root_node(), source_code.as_bytes());
+    let mut matches = query_cursor.matches(&query, tree.root_node(), source_code.as_bytes());
 
     let mut dependencies = Vec::new();
 
-    for mat in matches {
+    while let Some(mat) = matches.next() {
         // Look for the dependencies block match
         let block_node = if let Some(cap) = mat.captures.iter().find(|c| c.index == indices.block) {
             cap.node
@@ -42,9 +42,9 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
         };
 
         // 2. Query for items within the blocks
-        let item_matches = item_cursor.matches(&query, block_node, source_code.as_bytes());
+        let mut item_matches = item_cursor.matches(&query, block_node, source_code.as_bytes());
 
-        for i_mat in item_matches {
+        while let Some(i_mat) = item_matches.next() {
             let string_node = if let Some(cap) = i_mat
                 .captures
                 .iter()
