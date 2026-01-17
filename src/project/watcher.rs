@@ -30,5 +30,11 @@ impl Watcher {
         }
     }
 
-    // Add non-blocking try_next?
+    /// Tries to receive an event without blocking.
+    pub fn try_next_event(&self) -> Option<Event> {
+        match self.rx.try_recv() {
+            Ok(Ok(event)) => Some(event),
+            _ => None,
+        }
+    }
 }
