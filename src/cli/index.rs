@@ -1,15 +1,10 @@
 use naviscope::index::Naviscope;
 use std::path::PathBuf;
 
-pub fn run(path: PathBuf, output: Option<PathBuf>, debug: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut naviscope = Naviscope::new(path.clone());
     println!("Indexing project at: {}...", path.display());
     naviscope.build_index()?;
-
-    if let Some(final_output) = output {
-        println!("Exporting index to: {}...", final_output.display());
-        naviscope.save_to_file(&final_output)?;
-    }
 
     if debug {
         let json_path = PathBuf::from("naviscope_debug.json");

@@ -30,10 +30,6 @@ pub enum Commands {
         #[arg(value_name = "PROJECT_PATH")]
         path: PathBuf,
 
-        /// Optional: Specific output path for the index file (.bin)
-        #[arg(short, long, value_name = "FILE")]
-        output: Option<PathBuf>,
-
         /// Save a human-readable JSON version for debugging purposes
         #[arg(long)]
         debug: bool,
@@ -49,10 +45,6 @@ pub enum Commands {
         /// Structured query in JSON format (e.g., '{"command": "grep", "pattern": "MyClass"}')
         #[arg(value_name = "JSON_QUERY")]
         query: String,
-
-        /// Optional: Direct path to a specific index file (overrides automatic lookup)
-        #[arg(short, long, value_name = "INDEX_FILE")]
-        index: Option<PathBuf>,
     },
     /// Show the JSON schema/examples for GraphQuery
     Schema,
@@ -76,10 +68,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::Index {
             path,
-            output,
             debug,
-        } => index::run(path, output, debug),
-        Commands::Query { path, query, index } => query::run(path, query, index),
+        } => index::run(path, debug),
+        Commands::Query { path, query } => query::run(path, query),
         Commands::Schema => schema::run(),
         Commands::Watch { path, debug } => watch::run(path, debug),
     }

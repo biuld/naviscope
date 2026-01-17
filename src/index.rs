@@ -92,7 +92,7 @@ impl Naviscope {
     /// Saves the index to the fixed storage path.
     pub fn save(&self) -> Result<()> {
         let path = self.get_project_index_path();
-        
+
         // Ensure directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
