@@ -1,7 +1,7 @@
 use crate::model::graph::{BuildElement, CodeElement, GraphNode};
 use serde::Serialize;
 
-/// 节点的摘要信息，旨在为 Agent 提供精简的上下文
+/// Summary information of a node, intended to provide a concise context for the Agent
 #[derive(Serialize, Debug)]
 pub struct NodeSummary {
     pub fqn: String,

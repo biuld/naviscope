@@ -49,15 +49,15 @@ impl<'a> QueryEngine<'a> {
                 if let Some(target_fqn) = fqn {
                     self.traverse_neighbors(target_fqn, &[EdgeType::Contains], Direction::Outgoing, kind)
                 } else {
-                    // 缺省 FQN 时，列出所有的顶级模块 (具有文件路径的 Gradle Package 节点)
+                    // When FQN is missing, list all top-level modules (Gradle Package nodes with file paths)
                     let mut results = Vec::new();
                     for node in self.index.graph.node_weights() {
                         if let crate::model::graph::GraphNode::Build(crate::model::graph::BuildElement::Gradle { 
                             element: crate::model::lang::gradle::GradleElement::Package(_), 
                             file_path 
                         }) = node {
-                            // 只有真正的项目模块节点才会关联 build.gradle 的 file_path
-                            // Java 的 package 节点虽然也用 GradleElement::Package 但没有 file_path
+                            // Only actual project module nodes are associated with the file_path of build.gradle
+                            // Java package nodes also use GradleElement::Package but do not have a file_path
                             if file_path.is_some() {
                                 let summary = NodeSummary::from(node);
                                 if kind.is_empty() || kind.contains(&summary.kind) {
