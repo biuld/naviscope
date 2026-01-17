@@ -1,10 +1,12 @@
 use crate::error::{NaviscopeError, Result};
-use crate::model::graph::GradleDependency;
-use tree_sitter::{Parser, Query, QueryCursor};
+use crate::model::lang::gradle::GradleDependency;
+use tree_sitter::{Parser, QueryCursor};
 
 unsafe extern "C" {
     fn tree_sitter_groovy() -> tree_sitter::Language;
 }
+
+use crate::parser::queries::gradle_definitions::GradleIndices;
 
 pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
     let mut parser = Parser::new();
@@ -17,37 +19,41 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
         .parse(source_code, None)
         .ok_or_else(|| NaviscopeError::Parsing("Failed to parse gradle file".to_string()))?;
 
-    // 1. Find all `dependencies { ... }` blocks
-    let block_query_str = include_str!("queries/gradle_block.scm");
-    let block_query = Query::new(&language, block_query_str)
-        .map_err(|e| NaviscopeError::Parsing(format!("Invalid block query: {:?}", e)))?;
+    // 1. Load the unified query
+    let query = crate::parser::utils::load_query(
+        &language,
+        include_str!("queries/gradle_definitions.scm"),
+    )?;
 
-    // 2. Query for items within the blocks
-    let item_query_str = include_str!("queries/gradle_item.scm");
-    let item_query = Query::new(&language, item_query_str)
-        .map_err(|e| NaviscopeError::Parsing(format!("Invalid item query: {:?}", e)))?;
-
-    let dep_string_idx = item_query.capture_index_for_name("dep_string").unwrap();
+    let indices = GradleIndices::new(&query)?;
 
     let mut query_cursor = QueryCursor::new();
     let mut item_cursor = QueryCursor::new();
-    let matches = query_cursor.matches(&block_query, tree.root_node(), source_code.as_bytes());
+    let matches = query_cursor.matches(&query, tree.root_node(), source_code.as_bytes());
 
     let mut dependencies = Vec::new();
 
     for mat in matches {
-        // Find the closure or the whole block to search within
-        let block_node = mat.captures[0].node;
+        // Look for the dependencies block match
+        let block_node = if let Some(cap) = mat.captures.iter().find(|c| c.index == indices.block) {
+            cap.node
+        } else {
+            continue;
+        };
 
-        let item_matches = item_cursor.matches(&item_query, block_node, source_code.as_bytes());
+        // 2. Query for items within the blocks
+        let item_matches = item_cursor.matches(&query, block_node, source_code.as_bytes());
 
         for i_mat in item_matches {
-            let string_node = i_mat
+            let string_node = if let Some(cap) = i_mat
                 .captures
                 .iter()
-                .find(|c| c.index == dep_string_idx)
-                .unwrap()
-                .node;
+                .find(|c| c.index == indices.dep_string)
+            {
+                cap.node
+            } else {
+                continue;
+            };
 
             // Parse content
             let range = string_node.byte_range();
