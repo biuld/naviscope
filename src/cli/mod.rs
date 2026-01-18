@@ -2,6 +2,7 @@ mod index;
 mod query;
 mod schema;
 mod watch;
+mod clear;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -60,6 +61,14 @@ pub enum Commands {
         #[arg(long)]
         debug: bool,
     },
+    /// Clear built indices
+    #[command(long_about = "Removes built index files. If a path is provided, only that project's index \
+                            is removed. Otherwise, all indices are cleared.")]
+    Clear {
+        /// Path to the project root directory to clear (optional)
+        #[arg(value_name = "PROJECT_PATH")]
+        path: Option<PathBuf>,
+    },
     /// Start the Model Context Protocol (MCP) server
     Mcp,
 }
@@ -75,6 +84,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Query { path, query } => query::run(path, query),
         Commands::Schema => schema::run(),
         Commands::Watch { path, debug } => watch::run(path, debug),
+        Commands::Clear { path } => clear::run(path),
         Commands::Mcp => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {

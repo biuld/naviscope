@@ -99,13 +99,31 @@ impl Naviscope {
     }
 
     /// Gets the base directory for storing indices, supporting NAVISCOPE_INDEX_DIR env var.
-    fn get_base_index_dir() -> PathBuf {
+    pub fn get_base_index_dir() -> PathBuf {
         if let Ok(env_dir) = std::env::var("NAVISCOPE_INDEX_DIR") {
             return PathBuf::from(env_dir);
         }
 
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         Path::new(&home).join(DEFAULT_INDEX_DIR)
+    }
+
+    /// Clears all built indices by removing the base index directory.
+    pub fn clear_all_indices() -> Result<()> {
+        let base_dir = Self::get_base_index_dir();
+        if base_dir.exists() {
+            std::fs::remove_dir_all(&base_dir)?;
+        }
+        Ok(())
+    }
+
+    /// Clears the index for the current project.
+    pub fn clear_project_index(&self) -> Result<()> {
+        let path = self.get_project_index_path();
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
     }
 
     /// Gets the index file path for the current project.
