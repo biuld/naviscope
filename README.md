@@ -27,8 +27,7 @@ Naviscope processes code through three distinct phases:
 
 ### Installation
 ```bash
-cd naviscope
-cargo build --release
+cargo install --path .
 ```
 
 ### Basic Usage
@@ -38,6 +37,33 @@ naviscope index /path/to/java-project
 
 # Execute a structured query on the indexed project
 naviscope query /path/to/java-project '{"command": "grep", "pattern": "UserService", "kind": ["Class"]}'
+```
+
+### Model Context Protocol (MCP) Support
+Naviscope implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), allowing LLM agents like Cursor and Claude to directly use its code knowledge graph.
+
+#### Configuring in Cursor
+To use Naviscope in Cursor:
+1. Open **Cursor Settings** (Cmd + Shift + J on macOS).
+2. Navigate to **Features** -> **MCP**.
+3. Click **+ Add New MCP Server**.
+4. Configure as follows:
+   - **Name**: `Naviscope`
+   - **Type**: `command`
+   - **Command**: `naviscope mcp`
+5. Click **Save**. Cursor will now automatically index your project when you ask questions.
+
+#### Configuring in Claude Desktop
+Add the following entry to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "naviscope": {
+      "command": "naviscope",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
 ## 🛠️ Query API Examples

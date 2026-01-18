@@ -1,6 +1,7 @@
 use super::lang::gradle::GradleElement;
 use super::lang::java::JavaElement;
 use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 
 use std::path::PathBuf;
 
@@ -86,7 +87,7 @@ impl GraphNode {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
 pub enum EdgeType {
     // Structural relationships
     Contains,

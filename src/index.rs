@@ -81,10 +81,8 @@ impl Naviscope {
             return Ok(());
         }
 
-        let file = std::fs::File::open(path)?;
-        let mut reader = std::io::BufReader::new(file);
-        let config = bincode::config::standard();
-        self.index = bincode::serde::decode_from_std_read(&mut reader, config)
+        let bytes = std::fs::read(path)?;
+        self.index = postcard::from_bytes(&bytes)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
         Ok(())
     }
@@ -98,11 +96,9 @@ impl Naviscope {
             std::fs::create_dir_all(parent)?;
         }
 
-        let file = std::fs::File::create(path)?;
-        let mut writer = std::io::BufWriter::new(file);
-        let config = bincode::config::standard();
-        bincode::serde::encode_into_std_write(&self.index, &mut writer, config)
+        let bytes = postcard::to_stdvec(&self.index)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
+        std::fs::write(path, bytes)?;
         Ok(())
     }
 
@@ -117,10 +113,8 @@ impl Naviscope {
 
     /// Loads an index from a specific file path.
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        let mut reader = std::io::BufReader::new(file);
-        let config = bincode::config::standard();
-        let index: NaviscopeIndex = bincode::serde::decode_from_std_read(&mut reader, config)
+        let bytes = std::fs::read(path)?;
+        let index: NaviscopeIndex = postcard::from_bytes(&bytes)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
         Ok(Self {
             index,
@@ -130,11 +124,9 @@ impl Naviscope {
 
     /// Saves the index to a specific file path.
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let file = std::fs::File::create(path)?;
-        let mut writer = std::io::BufWriter::new(file);
-        let config = bincode::config::standard();
-        bincode::serde::encode_into_std_write(&self.index, &mut writer, config)
+        let bytes = postcard::to_stdvec(&self.index)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
+        std::fs::write(path, bytes)?;
         Ok(())
     }
 

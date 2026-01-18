@@ -60,6 +60,8 @@ pub enum Commands {
         #[arg(long)]
         debug: bool,
     },
+    /// Start the Model Context Protocol (MCP) server
+    Mcp,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -73,5 +75,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Query { path, query } => query::run(path, query),
         Commands::Schema => schema::run(),
         Commands::Watch { path, debug } => watch::run(path, debug),
+        Commands::Mcp => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                naviscope::mcp::run_server().await
+            })?;
+            Ok(())
+        }
     }
 }

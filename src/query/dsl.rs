@@ -1,7 +1,8 @@
 use crate::model::graph::EdgeType;
 use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum GraphQuery {
     Grep {
