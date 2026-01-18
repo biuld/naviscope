@@ -51,6 +51,17 @@ impl JavaElement {
             JavaElement::Field(e) => e.range.as_ref(),
         }
     }
+
+    pub fn name_range(&self) -> Option<&Range> {
+        match self {
+            JavaElement::Class(e) => e.name_range.as_ref(),
+            JavaElement::Interface(e) => e.name_range.as_ref(),
+            JavaElement::Enum(e) => e.name_range.as_ref(),
+            JavaElement::Annotation(e) => e.name_range.as_ref(),
+            JavaElement::Method(e) => e.name_range.as_ref(),
+            JavaElement::Field(e) => e.name_range.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -61,6 +72,7 @@ pub struct JavaClass {
     pub superclass: Option<String>,
     pub interfaces: Vec<String>,
     pub range: Option<Range>,
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -70,6 +82,7 @@ pub struct JavaInterface {
     pub modifiers: Vec<String>,
     pub extends: Vec<String>,
     pub range: Option<Range>,
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -80,6 +93,7 @@ pub struct JavaEnum {
     pub interfaces: Vec<String>,
     pub constants: Vec<String>,
     pub range: Option<Range>,
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -88,6 +102,7 @@ pub struct JavaAnnotation {
     pub id: String,
     pub modifiers: Vec<String>,
     pub range: Option<Range>,
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -97,6 +112,7 @@ pub struct JavaField {
     pub type_name: String,
     pub modifiers: Vec<String>,
     pub range: Option<Range>,
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -108,6 +124,7 @@ pub struct JavaMethod {
     pub modifiers: Vec<String>,
     pub is_constructor: bool,
     pub range: Option<Range>,
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

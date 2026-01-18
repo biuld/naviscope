@@ -231,6 +231,14 @@ impl JavaParser {
                 end_col: node_range.end_point.column,
             });
 
+            let name_ts_range = name_node.range();
+            let name_range = Some(Range {
+                start_line: name_ts_range.start_point.row,
+                start_col: name_ts_range.start_point.column,
+                end_line: name_ts_range.end_point.row,
+                end_col: name_ts_range.end_point.column,
+            });
+
             let entry = elements.entry(fqn.clone()).or_insert_with(|| {
                 let e = match kind {
                     KIND_LABEL_CLASS => JavaElement::Class(JavaClass {
@@ -240,6 +248,7 @@ impl JavaParser {
                         superclass: None,
                         interfaces: vec![],
                         range: range.clone(),
+                        name_range: name_range.clone(),
                     }),
                     KIND_LABEL_INTERFACE => JavaElement::Interface(JavaInterface {
                         id: fqn.clone(),
@@ -247,6 +256,7 @@ impl JavaParser {
                         modifiers: vec![],
                         extends: vec![],
                         range: range.clone(),
+                        name_range: name_range.clone(),
                     }),
                     KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => JavaElement::Method(JavaMethod {
                         id: fqn.clone(),
@@ -256,6 +266,7 @@ impl JavaParser {
                         modifiers: vec![],
                         is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
                         range: range.clone(),
+                        name_range: name_range.clone(),
                     }),
                     KIND_LABEL_FIELD => JavaElement::Field(JavaField {
                         id: fqn.clone(),
@@ -263,6 +274,7 @@ impl JavaParser {
                         type_name: "".to_string(),
                         modifiers: vec![],
                         range: range.clone(),
+                        name_range: name_range.clone(),
                     }),
                     _ => unreachable!(),
                 };

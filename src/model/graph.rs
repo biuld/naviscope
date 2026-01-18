@@ -93,6 +93,13 @@ impl GraphNode {
         }
     }
 
+    pub fn name_range(&self) -> Option<&Range> {
+        match self {
+            GraphNode::Code(CodeElement::Java { element, .. }) => element.name_range(),
+            GraphNode::Build(_) => None,
+        }
+    }
+
     pub fn java(element: JavaElement, file_path: Option<PathBuf>) -> Self {
         GraphNode::Code(CodeElement::Java { element, file_path })
     }

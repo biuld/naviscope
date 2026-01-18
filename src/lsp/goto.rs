@@ -1,9 +1,7 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use crate::lsp::Backend;
-use crate::lsp::util::uri_to_path;
-use std::path::PathBuf;
-
+use crate::lsp::util::{uri_to_path, get_word_at};
 use crate::model::lang::java::JavaElement;
 
 pub async fn definition(backend: &Backend, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
@@ -23,24 +21,44 @@ pub async fn definition(backend: &Backend, params: GotoDefinitionParams) -> Resu
 
     let index = naviscope.index();
     
-    // 1. Check if it's a reference/call (edge at position)
-    if let Some((_from, to_idx, _edge)) = index.find_edge_at(&path, position.line as usize, position.character as usize) {
-        if let Some(target_node) = index.graph.node_weight(to_idx) {
-            if let (Some(target_path), Some(range)) = (target_node.file_path(), target_node.range()) {
-                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+    // 1. Get the word under cursor
+    let word = match get_word_at(&path, position.line as usize, position.character as usize) {
+        Some(w) => w,
+        None => {
+            backend.client.log_message(MessageType::LOG, "No word found at cursor").await;
+            return Ok(None);
+        }
+    };
+    backend.client.log_message(MessageType::LOG, format!("Searching definition for word: '{}'", word)).await;
+
+    // 2. Find all nodes with this name
+    if let Some(nodes) = index.name_map.get(&word) {
+        let mut locations = Vec::new();
+        for &idx in nodes {
+            let node = &index.graph[idx];
+            if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
+                // Heuristic: If we are at a definition site, we don't want to just return ourselves
+                // unless there are NO other definitions.
+                locations.push(Location {
                     uri: Url::from_file_path(target_path).unwrap(),
                     range: Range {
                         start: Position::new(range.start_line as u32, range.start_col as u32),
                         end: Position::new(range.end_line as u32, range.end_col as u32),
                     },
-                })));
+                });
+            }
+        }
+        
+        if !locations.is_empty() {
+            backend.client.log_message(MessageType::LOG, format!("Found {} definitions", locations.len())).await;
+            if locations.len() == 1 {
+                return Ok(Some(GotoDefinitionResponse::Scalar(locations[0].clone())));
+            } else {
+                return Ok(Some(GotoDefinitionResponse::Array(locations)));
             }
         }
     }
 
-    // 2. Check if it's a node definition (definition at position) - although GD usually means jumping *to* here,
-    // sometimes GD on a name jumps to itself or we might want to handle it.
-    
     Ok(None)
 }
 
@@ -61,113 +79,53 @@ pub async fn type_definition(backend: &Backend, params: GotoDefinitionParams) ->
 
     let index = naviscope.index();
     
-    if let Some(node_idx) = index.find_node_at(&path, position.line as usize, position.character as usize) {
-        let node = &index.graph[node_idx];
-        let mut type_fqn = None;
+    // Heuristic: 
+    // 1. If on a variable/field name, find its definition node, get type name, then find type's definition.
+    // 2. If on a type name itself, just use the word to find definition.
+    
+    let word = match get_word_at(&path, position.line as usize, position.character as usize) {
+        Some(w) => w,
+        None => return Ok(None),
+    };
 
-        if let crate::model::graph::GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = node {
-            match element {
-                JavaElement::Field(f) => {
-                    type_fqn = Some(f.type_name.clone());
+    let mut type_names = Vec::new();
+
+    // Check if we are on a node that has an explicit type
+    if let Some(nodes) = index.name_map.get(&word) {
+        for &idx in nodes {
+            let node = &index.graph[idx];
+            if let crate::model::graph::GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = node {
+                match element {
+                    JavaElement::Field(f) => type_names.push(f.type_name.clone()),
+                    JavaElement::Method(m) => type_names.push(m.return_type.clone()),
+                    _ => type_names.push(word.clone()), // Fallback to name itself
                 }
-                JavaElement::Method(m) => {
-                    type_fqn = Some(m.return_type.clone());
-                }
-                _ => {}
             }
         }
+    } else {
+        type_names.push(word);
+    }
 
-        if let Some(fqn) = type_fqn {
-            // Best effort resolution: check if it's a full FQN in map, or try to find a node with this name
-            if let Some(&target_idx) = index.fqn_map.get(&fqn) {
-                let target_node = &index.graph[target_idx];
-                if let (Some(target_path), Some(range)) = (target_node.file_path(), target_node.range()) {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                        uri: Url::from_file_path(target_path).unwrap(),
+    let mut locations = Vec::new();
+    for name in type_names {
+        if let Some(nodes) = index.name_map.get(&name) {
+            for &idx in nodes {
+                let target = &index.graph[idx];
+                if let (Some(tp), Some(tr)) = (target.file_path(), target.range()) {
+                    locations.push(Location {
+                        uri: Url::from_file_path(tp).unwrap(),
                         range: Range {
-                            start: Position::new(range.start_line as u32, range.start_col as u32),
-                            end: Position::new(range.end_line as u32, range.end_col as u32),
+                            start: Position::new(tr.start_line as u32, tr.start_col as u32),
+                            end: Position::new(tr.end_line as u32, tr.end_col as u32),
                         },
-                    })));
-                }
-            } else {
-                // If not found as full FQN, it might be a short name. 
-                // We could search for nodes ending with ".ShortName" or exactly "ShortName"
-                for (name, &idx) in &index.fqn_map {
-                    if name == &fqn || name.ends_with(&format!(".{}", fqn)) {
-                        let target_node = &index.graph[idx];
-                        if let (Some(target_path), Some(range)) = (target_node.file_path(), target_node.range()) {
-                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                uri: Url::from_file_path(target_path).unwrap(),
-                                range: Range {
-                                    start: Position::new(range.start_line as u32, range.start_col as u32),
-                                    end: Position::new(range.end_line as u32, range.end_col as u32),
-                                },
-                            })));
-                        }
-                    }
+                    });
                 }
             }
         }
     }
 
-    Ok(None)
-}
-
-pub async fn document_highlight(backend: &Backend, params: DocumentHighlightParams) -> Result<Option<Vec<DocumentHighlight>>> {
-    let uri = params.text_document_position_params.text_document.uri;
-    let position = params.text_document_position_params.position;
-    
-    let path = match uri_to_path(&uri) {
-        Some(p) => p,
-        None => return Ok(None),
-    };
-
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match &*naviscope_lock {
-        Some(n) => n,
-        None => return Ok(None),
-    };
-
-    let index = naviscope.index();
-    
-    if let Some(node_idx) = index.find_node_at(&path, position.line as usize, position.character as usize) {
-        let mut highlights = Vec::new();
-        let target_node = &index.graph[node_idx];
-
-        // 1. The definition itself if in same file
-        if let (Some(p), Some(range)) = (target_node.file_path(), target_node.range()) {
-            if p == &path {
-                highlights.push(DocumentHighlight {
-                    range: Range {
-                        start: Position::new(range.start_line as u32, range.start_col as u32),
-                        end: Position::new(range.end_line as u32, range.end_col as u32),
-                    },
-                    kind: Some(DocumentHighlightKind::WRITE),
-                });
-            }
-        }
-
-        // 2. All references in same file (incoming edges with range)
-        let mut incoming = index.graph.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
-        while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
-            let edge = &index.graph[edge_idx];
-            let source_node = &index.graph[neighbor_idx];
-            
-            if let (Some(source_path), Some(range)) = (source_node.file_path(), &edge.range) {
-                if source_path == &path {
-                    highlights.push(DocumentHighlight {
-                        range: Range {
-                            start: Position::new(range.start_line as u32, range.start_col as u32),
-                            end: Position::new(range.end_line as u32, range.end_col as u32),
-                        },
-                        kind: Some(DocumentHighlightKind::READ),
-                    });
-                }
-            }
-        }
-        
-        return Ok(Some(highlights));
+    if !locations.is_empty() {
+        return Ok(Some(GotoDefinitionResponse::Array(locations)));
     }
 
     Ok(None)
@@ -190,26 +148,57 @@ pub async fn references(backend: &Backend, params: ReferenceParams) -> Result<Op
 
     let index = naviscope.index();
     
-    if let Some(node_idx) = index.find_node_at(&path, position.line as usize, position.character as usize) {
-        let mut locations = Vec::new();
-        
-        let mut incoming = index.graph.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
-        while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
-            let edge = &index.graph[edge_idx];
-            let source_node = &index.graph[neighbor_idx];
-            
+    let word = match get_word_at(&path, position.line as usize, position.character as usize) {
+        Some(w) => w,
+        None => return Ok(None),
+    };
+    backend.client.log_message(MessageType::LOG, format!("Finding references for word: '{}'", word)).await;
+
+    let mut all_locations = Vec::new();
+
+    // 1. Precise references from established edges
+    if let Some(target_nodes) = index.name_map.get(&word) {
+        for &node_idx in target_nodes {
+            let mut incoming = index.graph.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
+            while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
+                let edge = &index.graph[edge_idx];
+                let source_node = &index.graph[neighbor_idx];
+                if let (Some(source_path), Some(range)) = (source_node.file_path(), &edge.range) {
+                    all_locations.push(Location {
+                        uri: Url::from_file_path(source_path).unwrap(),
+                        range: Range {
+                            start: Position::new(range.start_line as u32, range.start_col as u32),
+                            end: Position::new(range.end_line as u32, range.end_col as u32),
+                        },
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. Heuristic: Find all edges that point to any node named 'word'
+    // This catches edges that were formed even if the exact FQN didn't match perfectly.
+    let heuristic_refs = index.find_references_by_name(&word);
+    for (source_node_idx, edge) in heuristic_refs {
+        if let Some(source_node) = index.graph.node_weight(source_node_idx) {
             if let (Some(source_path), Some(range)) = (source_node.file_path(), &edge.range) {
-                locations.push(Location {
+                let loc = Location {
                     uri: Url::from_file_path(source_path).unwrap(),
                     range: Range {
                         start: Position::new(range.start_line as u32, range.start_col as u32),
                         end: Position::new(range.end_line as u32, range.end_col as u32),
                     },
-                });
+                };
+                if !all_locations.contains(&loc) {
+                    all_locations.push(loc);
+                }
             }
         }
-        
-        return Ok(Some(locations));
+    }
+
+    if !all_locations.is_empty() {
+        backend.client.log_message(MessageType::LOG, format!("Found {} references", all_locations.len())).await;
+        return Ok(Some(all_locations));
     }
 
     Ok(None)
@@ -219,7 +208,7 @@ pub async fn implementation(backend: &Backend, params: GotoDefinitionParams) -> 
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
     
-    let path: PathBuf = match uri_to_path(&uri) {
+    let path = match uri_to_path(&uri) {
         Some(p) => p,
         None => return Ok(None),
     };
@@ -231,29 +220,34 @@ pub async fn implementation(backend: &Backend, params: GotoDefinitionParams) -> 
     };
 
     let index = naviscope.index();
-    
-    if let Some(node_idx) = index.find_node_at(&path, position.line as usize, position.character as usize) {
+    let word = match get_word_at(&path, position.line as usize, position.character as usize) {
+        Some(w) => w,
+        None => return Ok(None),
+    };
+
+    if let Some(target_nodes) = index.name_map.get(&word) {
         let mut locations = Vec::new();
-        
-        let mut incoming = index.graph.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
-        while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
-            let edge = &index.graph[edge_idx];
-            let source_node = &index.graph[neighbor_idx];
-            
-            if edge.edge_type == crate::model::graph::EdgeType::Implements || edge.edge_type == crate::model::graph::EdgeType::InheritsFrom {
-                if let (Some(source_path), Some(range)) = (source_node.file_path(), source_node.range()) {
-                    locations.push(Location {
-                        uri: Url::from_file_path(source_path).unwrap(),
-                        range: Range {
-                            start: Position::new(range.start_line as u32, range.start_col as u32),
-                            end: Position::new(range.end_line as u32, range.end_col as u32),
-                        },
-                    });
+        for &node_idx in target_nodes {
+            let mut incoming = index.graph.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
+            while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
+                let edge = &index.graph[edge_idx];
+                if edge.edge_type == crate::model::graph::EdgeType::Implements || edge.edge_type == crate::model::graph::EdgeType::InheritsFrom {
+                    let source_node = &index.graph[neighbor_idx];
+                    if let (Some(source_path), Some(range)) = (source_node.file_path(), source_node.range()) {
+                        locations.push(Location {
+                            uri: Url::from_file_path(source_path).unwrap(),
+                            range: Range {
+                                start: Position::new(range.start_line as u32, range.start_col as u32),
+                                end: Position::new(range.end_line as u32, range.end_col as u32),
+                            },
+                        });
+                    }
                 }
             }
         }
-        
-        return Ok(Some(GotoDefinitionResponse::Array(locations)));
+        if !locations.is_empty() {
+            return Ok(Some(GotoDefinitionResponse::Array(locations)));
+        }
     }
 
     Ok(None)

@@ -68,18 +68,25 @@ Add the following entry to your `claude_desktop_config.json`:
 ```
 
 ### Language Server Protocol (LSP) Support
-Naviscope acts as a high-performance LSP server for Java, offering a lightweight alternative to JDTLS.
+Naviscope acts as a high-performance LSP server for Java, offering a lightweight alternative to JDTLS. It uses a **Heuristic Name-based Navigation** strategy, ensuring high availability even when full semantic analysis is unavailable.
 
 #### Features
-- **Go to Definition**: Instant jump to symbol definitions.
-- **Find References**: Fast, global reference tracking.
-- **Call Hierarchy**: Visualize incoming and outgoing method calls.
-- **Hover**: View FQN and metadata for any symbol.
-- **Document Symbol**: Navigate class structures within a file.
-- **Workspace Symbol**: Global fuzzy search for classes and methods.
+- **Go to Definition**: Instant jump to symbol definitions using precise edge tracking and name-based heuristics.
+- **Find References**: Global reference tracking, catching usages even across complex type hierarchies.
+- **Call Hierarchy**: Visualize incoming and outgoing method calls through the knowledge graph.
+- **Go to Type Definition**: Jump to the class definition of variables or method return types.
+- **Go to Implementation**: Quickly find all implementations of an interface or overrides of a method.
+- **Document Symbol**: Navigate class structures (classes, methods, fields) within a file.
+- **Workspace Symbol**: Fast, global fuzzy search for classes and methods across the entire project.
 
 #### Usage in VSCode / NeoVim
-Simply point your LSP client to the `naviscope lsp` command.
+- **VSCode**: A dedicated extension is available in the `editors/vscode` directory. Follow the instructions there to install and debug.
+- **Other Editors**: Simply point your LSP client to the `naviscope lsp` command.
+
+#### Why Naviscope LSP?
+- **Zero JVM Overhead**: No more "Java Language Server is indexing..." hanging your UI.
+- **Resilient**: Works even if your code has syntax errors or missing dependencies.
+- **Unified Knowledge**: Shares the same core graph used by MCP for LLM agents.
 
 ## 🛠️ Query API Examples
 
@@ -95,7 +102,8 @@ For LLM agents, Naviscope exposes commands designed for structured exploration:
 - [x] Java & Gradle Parser (Tree-sitter driven)
 - [x] Shell-like Query DSL Engine
 - [x] Parallel Indexing & Incremental Updates
-- [x] LSP Support (Definition, References, Call Hierarchy)
+- [x] LSP Support (Definition, References, Call Hierarchy, Type Definition)
+- [x] VSCode Extension (Initial version)
 - [ ] Maven Support (Coming Soon)
 - [ ] Python/Rust Language Strategies (Planned)
 

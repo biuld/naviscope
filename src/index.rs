@@ -3,6 +3,7 @@ use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
 use crate::project::scanner::Scanner;
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
+use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ pub struct NaviscopeIndex {
     pub version: u32,
     pub graph: StableDiGraph<GraphNode, GraphEdge>,
     pub fqn_map: HashMap<String, NodeIndex>,
+    pub name_map: HashMap<String, Vec<NodeIndex>>,
     pub file_map: HashMap<PathBuf, SourceFile>,
     pub path_to_nodes: HashMap<PathBuf, Vec<NodeIndex>>,
 }
@@ -26,6 +28,7 @@ impl NaviscopeIndex {
             version: CURRENT_VERSION,
             graph: StableDiGraph::new(),
             fqn_map: HashMap::new(),
+            name_map: HashMap::new(),
             file_map: HashMap::new(),
             path_to_nodes: HashMap::new(),
         }
@@ -36,32 +39,27 @@ impl NaviscopeIndex {
             // Optional: Update node data if needed
             idx
         } else {
+            let name = node_data.name().to_string();
             let idx = self.graph.add_node(node_data);
             self.fqn_map.insert(id.to_string(), idx);
+            self.name_map.entry(name).or_default().push(idx);
             idx
         }
     }
 
     pub fn find_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
         let nodes = self.path_to_nodes.get(path)?;
-        let mut best_node = None;
-        let mut best_range_size = usize::MAX;
-
+        
         for &idx in nodes {
             if let Some(node) = self.graph.node_weight(idx) {
-                if let Some(range) = node.range() {
+                if let Some(range) = node.name_range() {
                     if range.contains(line, col) {
-                        // Calculate range size to find the most specific one
-                        let size = (range.end_line - range.start_line) * 1000 + (range.end_col.saturating_sub(range.start_col));
-                        if size < best_range_size {
-                            best_range_size = size;
-                            best_node = Some(idx);
-                        }
+                        return Some(idx);
                     }
                 }
             }
         }
-        best_node
+        None
     }
 
     /// Finds an edge whose range contains the given position.
@@ -82,6 +80,28 @@ impl NaviscopeIndex {
             }
         }
         None
+    }
+
+    /// Finds all edges in the graph that "look like" a reference to nodes with this name.
+    /// This is a heuristic for when precise FQN edges are missing.
+    pub fn find_references_by_name(&self, name: &str) -> Vec<(NodeIndex, &GraphEdge)> {
+        let mut refs = Vec::new();
+        for node_idx in self.graph.node_indices() {
+            let edges = self.graph.edges_directed(node_idx, petgraph::Direction::Outgoing);
+            for edge_ref in edges {
+                let edge = edge_ref.weight();
+                // If the edge has a range, it's a usage site.
+                // We check if the intended target name matches.
+                if edge.range.is_some() {
+                    if let Some(target_node) = self.graph.node_weight(edge_ref.target()) {
+                        if target_node.name() == name {
+                            refs.push((node_idx, edge));
+                        }
+                    }
+                }
+            }
+        }
+        refs
     }
 }
 
@@ -286,7 +306,14 @@ impl Naviscope {
                         // Get FQN before removing from graph
                         if let Some(node) = self.index.graph.node_weight(node_idx) {
                             let fqn = node.fqn();
+                            let name = node.name().to_string();
                             self.index.fqn_map.remove(&fqn);
+                            if let Some(nodes_with_name) = self.index.name_map.get_mut(&name) {
+                                nodes_with_name.retain(|&idx| idx != node_idx);
+                                if nodes_with_name.is_empty() {
+                                    self.index.name_map.remove(&name);
+                                }
+                            }
                         }
                         self.index.graph.remove_node(node_idx);
                     }
