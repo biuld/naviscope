@@ -1,5 +1,6 @@
 pub mod error;
 pub mod index;
+pub mod lsp;
 pub mod mcp;
 pub mod model;
 pub mod parser;

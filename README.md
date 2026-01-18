@@ -10,6 +10,7 @@ Unlike traditional text search, Naviscope provides a deep, structured understand
 - **LLM-Friendly DSL**: A shell-like query interface (e.g., `grep`, `ls`, `inspect`, `incoming`) that returns structured JSON data optimized for LLM agents.
 - **High-Performance Indexing**: A robust 3-phase processing pipeline (Scan & Parse → Resolve → Apply) utilizing Rust's concurrency for maximum speed.
 - **Incremental Updates**: Real-time graph synchronization via file system watching (`notify`), ensuring the graph stays up-to-date with your changes.
+- **Language Server Protocol (LSP)**: Provides IDE features like Go to Definition, Find References, and Call Hierarchy with zero JVM overhead.
 - **Extensible Architecture**: Language-neutral core with a strategy-based resolver. Currently focused on **Java + Gradle (V1)**, with plans for Rust, Python, and more.
 
 ## 🏗️ Architecture
@@ -66,6 +67,20 @@ Add the following entry to your `claude_desktop_config.json`:
 }
 ```
 
+### Language Server Protocol (LSP) Support
+Naviscope acts as a high-performance LSP server for Java, offering a lightweight alternative to JDTLS.
+
+#### Features
+- **Go to Definition**: Instant jump to symbol definitions.
+- **Find References**: Fast, global reference tracking.
+- **Call Hierarchy**: Visualize incoming and outgoing method calls.
+- **Hover**: View FQN and metadata for any symbol.
+- **Document Symbol**: Navigate class structures within a file.
+- **Workspace Symbol**: Global fuzzy search for classes and methods.
+
+#### Usage in VSCode / NeoVim
+Simply point your LSP client to the `naviscope lsp` command.
+
 ## 🛠️ Query API Examples
 
 For LLM agents, Naviscope exposes commands designed for structured exploration:
@@ -80,6 +95,7 @@ For LLM agents, Naviscope exposes commands designed for structured exploration:
 - [x] Java & Gradle Parser (Tree-sitter driven)
 - [x] Shell-like Query DSL Engine
 - [x] Parallel Indexing & Incremental Updates
+- [x] LSP Support (Definition, References, Call Hierarchy)
 - [ ] Maven Support (Coming Soon)
 - [ ] Python/Rust Language Strategies (Planned)
 

@@ -71,6 +71,8 @@ pub enum Commands {
     },
     /// Start the Model Context Protocol (MCP) server
     Mcp,
+    /// Start the Language Server Protocol (LSP) server
+    Lsp,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -89,6 +91,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 naviscope::mcp::run_server().await
+            })?;
+            Ok(())
+        }
+        Commands::Lsp => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                naviscope::lsp::run_server().await
             })?;
             Ok(())
         }
