@@ -1,7 +1,7 @@
 pub mod strategy;
 
 use crate::error::Result;
-use crate::model::graph::{EdgeType, GraphNode};
+use crate::model::graph::{GraphEdge, GraphNode};
 use crate::project::scanner::ParsedFile;
 use crate::project::source::{BuildTool, Language};
 use strategy::{BuildResolver, LangResolver, ProjectContext};
@@ -21,7 +21,7 @@ pub enum GraphOp {
     AddEdge {
         from_id: String,
         to_id: String,
-        edge_type: EdgeType,
+        edge: GraphEdge,
     },
     /// Remove all nodes and edges associated with a specific file path
     RemovePath { path: PathBuf },
@@ -43,11 +43,11 @@ impl ResolvedUnit {
         self.ops.push(GraphOp::AddNode { id, data });
     }
 
-    pub fn add_edge(&mut self, from_id: String, to_id: String, edge_type: EdgeType) {
+    pub fn add_edge(&mut self, from_id: String, to_id: String, edge: GraphEdge) {
         self.ops.push(GraphOp::AddEdge {
             from_id,
             to_id,
-            edge_type,
+            edge,
         });
     }
 }

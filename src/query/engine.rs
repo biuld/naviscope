@@ -108,7 +108,7 @@ impl<'a> QueryEngine<'a> {
 
         while let Some((edge_idx, neighbor_idx)) = edges.next(&self.index.graph) {
             let edge_data = &self.index.graph[edge_idx];
-            if edge_filter.is_empty() || edge_filter.contains(edge_data) {
+            if edge_filter.is_empty() || edge_filter.contains(&edge_data.edge_type) {
                 let neighbor_node = &self.index.graph[neighbor_idx];
                 let summary = NodeSummary::from(neighbor_node);
 

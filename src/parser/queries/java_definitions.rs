@@ -24,4 +24,5 @@ crate::decl_indices!(JavaIndices, {
     call_name => "call_name",
     inst => "instantiation",
     inst_type => "inst_type",
+    import_name => "import_name",
 });

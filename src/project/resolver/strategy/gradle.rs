@@ -1,6 +1,6 @@
 use super::{BuildResolver, ProjectContext};
 use crate::error::Result;
-use crate::model::graph::{EdgeType, GraphNode};
+use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
 use crate::model::lang::gradle::{GradleElement, GradlePackage};
 use crate::project::resolver::ResolvedUnit;
 use crate::project::scanner::{ParsedContent, ParsedFile};
@@ -58,7 +58,7 @@ impl BuildResolver for GradleResolver {
                     );
 
                     // Link: Module uses this dependency
-                    unit.add_edge(module_id.clone(), dep_id, EdgeType::UsesDependency);
+                    unit.add_edge(module_id.clone(), dep_id, GraphEdge::new(EdgeType::UsesDependency));
                 }
             }
         }

@@ -1,5 +1,5 @@
 use crate::error::{NaviscopeError, Result};
-use crate::model::graph::{EdgeType, GraphNode};
+use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
 use crate::project::scanner::Scanner;
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -14,7 +14,7 @@ pub const DEFAULT_INDEX_DIR: &str = ".naviscope/indices";
 #[derive(Serialize, Deserialize)]
 pub struct NaviscopeIndex {
     pub version: u32,
-    pub graph: StableDiGraph<GraphNode, EdgeType>,
+    pub graph: StableDiGraph<GraphNode, GraphEdge>,
     pub fqn_map: HashMap<String, NodeIndex>,
     pub file_map: HashMap<PathBuf, SourceFile>,
     pub path_to_nodes: HashMap<PathBuf, Vec<NodeIndex>>,
@@ -40,6 +40,48 @@ impl NaviscopeIndex {
             self.fqn_map.insert(id.to_string(), idx);
             idx
         }
+    }
+
+    pub fn find_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
+        let nodes = self.path_to_nodes.get(path)?;
+        let mut best_node = None;
+        let mut best_range_size = usize::MAX;
+
+        for &idx in nodes {
+            if let Some(node) = self.graph.node_weight(idx) {
+                if let Some(range) = node.range() {
+                    if range.contains(line, col) {
+                        // Calculate range size to find the most specific one
+                        let size = (range.end_line - range.start_line) * 1000 + (range.end_col.saturating_sub(range.start_col));
+                        if size < best_range_size {
+                            best_range_size = size;
+                            best_node = Some(idx);
+                        }
+                    }
+                }
+            }
+        }
+        best_node
+    }
+
+    /// Finds an edge whose range contains the given position.
+    /// This is used to find references from source code.
+    pub fn find_edge_at(&self, path: &Path, line: usize, col: usize) -> Option<(NodeIndex, NodeIndex, &GraphEdge)> {
+        let nodes = self.path_to_nodes.get(path)?;
+        
+        for &node_idx in nodes {
+            // Check outgoing edges from nodes in this file
+            let mut edges = self.graph.neighbors_directed(node_idx, petgraph::Direction::Outgoing).detach();
+            while let Some((edge_idx, neighbor_idx)) = edges.next(&self.graph) {
+                let edge = &self.graph[edge_idx];
+                if let Some(range) = &edge.range {
+                    if range.contains(line, col) {
+                        return Some((node_idx, neighbor_idx, edge));
+                    }
+                }
+            }
+        }
+        None
     }
 }
 
@@ -199,16 +241,24 @@ impl Naviscope {
             GraphOp::AddEdge {
                 from_id,
                 to_id,
-                edge_type,
+                edge,
             } => {
                 // Look up node indices
                 let from_idx = self.index.fqn_map.get(&from_id).cloned();
                 let to_idx = self.index.fqn_map.get(&to_id).cloned();
 
                 if let (Some(s_idx), Some(t_idx)) = (from_idx, to_idx) {
-                    // Only add edge if it doesn't exist
-                    if !self.index.graph.contains_edge(s_idx, t_idx) {
-                        self.index.graph.add_edge(s_idx, t_idx, edge_type);
+                    // For structural edges (Contains), avoid duplicates
+                    if edge.edge_type == EdgeType::Contains {
+                        let already_exists = self.index.graph
+                            .edges_connecting(s_idx, t_idx)
+                            .any(|e| e.weight().edge_type == EdgeType::Contains);
+                        if !already_exists {
+                            self.index.graph.add_edge(s_idx, t_idx, edge);
+                        }
+                    } else {
+                        // For other edges (Calls, References, etc.), always add to capture multiple occurrences
+                        self.index.graph.add_edge(s_idx, t_idx, edge);
                     }
                 }
             }

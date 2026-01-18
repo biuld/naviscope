@@ -3,7 +3,7 @@ use crate::model::graph::{EdgeType, GraphNode, Range};
 use crate::model::lang::java::{
     JavaClass, JavaElement, JavaField, JavaInterface, JavaMethod, JavaParameter,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use tree_sitter::{Parser, Query, QueryCursor, QueryMatch, StreamingIterator};
 
 mod constants;
@@ -23,8 +23,9 @@ pub struct JavaParser {
 
 pub struct JavaParseResult {
     pub package_name: Option<String>,
+    pub imports: Vec<String>,
     pub nodes: Vec<GraphNode>,
-    pub relations: Vec<(String, String, EdgeType)>,
+    pub relations: Vec<(String, String, EdgeType, Option<Range>)>,
 }
 
 impl JavaParser {
@@ -54,8 +55,9 @@ impl JavaParser {
             .ok_or_else(|| NaviscopeError::Parsing("Failed to parse Java file".to_string()))?;
 
         let mut package_name = String::new();
+        let mut imports = Vec::new();
         let mut elements_map: HashMap<String, JavaElement> = HashMap::new();
-        let mut relations = HashSet::new();
+        let mut relations = Vec::new();
 
         let mut cursor = QueryCursor::new();
         let matches = cursor.matches(
@@ -71,6 +73,7 @@ impl JavaParser {
                 source_code,
                 &self.indices,
                 &mut package_name,
+                &mut imports,
                 &mut elements_map,
                 &mut relations,
             );
@@ -87,8 +90,9 @@ impl JavaParser {
             } else {
                 Some(package_name)
             },
+            imports,
             nodes,
-            relations: relations.into_iter().collect(),
+            relations,
         })
     }
 
@@ -98,8 +102,9 @@ impl JavaParser {
         source: &str,
         idx: &JavaIndices,
         pkg_name: &mut String,
+        imports: &mut Vec<String>,
         elements: &mut HashMap<String, JavaElement>,
-        relations: &mut HashSet<(String, String, EdgeType)>,
+        relations: &mut Vec<(String, String, EdgeType, Option<Range>)>,
     ) {
         if let Some(cap) = mat.captures.iter().find(|c| c.index == idx.pkg) {
             *pkg_name = cap
@@ -107,6 +112,16 @@ impl JavaParser {
                 .utf8_text(source.as_bytes())
                 .unwrap_or("")
                 .to_string();
+            return;
+        }
+
+        if let Some(cap) = mat.captures.iter().find(|c| c.index == idx.import_name) {
+            let imp = cap
+                .node
+                .utf8_text(source.as_bytes())
+                .unwrap_or("")
+                .to_string();
+            imports.push(imp);
             return;
         }
 
@@ -127,34 +142,40 @@ impl JavaParser {
         }
 
         if let Some(call_cap) = mat.captures.iter().find(|c| c.index == idx.call) {
-            if let (Some(target), Some(source_fqn)) = (
+            if let (Some(target_node), Some(source_fqn)) = (
                 mat.captures
                     .iter()
                     .find(|c| c.index == idx.call_name)
-                    .map(|c| {
-                        c.node
-                            .utf8_text(source.as_bytes())
-                            .unwrap_or("")
-                            .to_string()
-                    }),
+                    .map(|c| c.node),
                 self.find_enclosing_element(call_cap.node, source, pkg_name),
             ) {
-                relations.insert((source_fqn, target, EdgeType::Calls));
+                let target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
+                let r = target_node.range();
+                let range = Range {
+                    start_line: r.start_point.row,
+                    start_col: r.start_point.column,
+                    end_line: r.end_point.row,
+                    end_col: r.end_point.column,
+                };
+                relations.push((source_fqn, target, EdgeType::Calls, Some(range)));
             }
         } else if let Some(inst_cap) = mat.captures.iter().find(|c| c.index == idx.inst) {
-            if let (Some(target), Some(source_fqn)) = (
+            if let (Some(target_node), Some(source_fqn)) = (
                 mat.captures
                     .iter()
                     .find(|c| c.index == idx.inst_type)
-                    .map(|c| {
-                        c.node
-                            .utf8_text(source.as_bytes())
-                            .unwrap_or("")
-                            .to_string()
-                    }),
+                    .map(|c| c.node),
                 self.find_enclosing_element(inst_cap.node, source, pkg_name),
             ) {
-                relations.insert((source_fqn, target, EdgeType::Instantiates));
+                let target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
+                let r = target_node.range();
+                let range = Range {
+                    start_line: r.start_point.row,
+                    start_col: r.start_point.column,
+                    end_line: r.end_point.row,
+                    end_col: r.end_point.column,
+                };
+                relations.push((source_fqn, target, EdgeType::Instantiates, Some(range)));
             }
         }
     }
@@ -166,7 +187,7 @@ impl JavaParser {
         idx: &JavaIndices,
         pkg: &str,
         elements: &mut HashMap<String, JavaElement>,
-        relations: &mut HashSet<(String, String, EdgeType)>,
+        relations: &mut Vec<(String, String, EdgeType, Option<Range>)>,
         anchor: &tree_sitter::QueryCapture,
     ) {
         let kind = if anchor.index == idx.class_def {
@@ -247,7 +268,7 @@ impl JavaParser {
                 };
                 if let Some(parent) = self.find_enclosing_element(anchor.node, source, pkg) {
                     if parent != fqn {
-                        relations.insert((parent, fqn.clone(), EdgeType::Contains));
+                        relations.push((parent, fqn.clone(), EdgeType::Contains, None));
                     }
                 }
                 e
@@ -264,7 +285,7 @@ impl JavaParser {
         idx: &JavaIndices,
         fqn: &str,
         element: &mut JavaElement,
-        relations: &mut HashSet<(String, String, EdgeType)>,
+        relations: &mut Vec<(String, String, EdgeType, Option<Range>)>,
     ) {
         for cap in mat.captures.iter().filter(|c| c.index == idx.mods) {
             let m = cap
@@ -311,7 +332,7 @@ impl JavaParser {
                     })
                 {
                     c.superclass = Some(s.clone());
-                    relations.insert((fqn.to_string(), s, EdgeType::InheritsFrom));
+                    relations.push((fqn.to_string(), s, EdgeType::InheritsFrom, None));
                 }
                 for cc in mat.captures.iter().filter(|c| c.index == idx.class_inter) {
                     let i = cc
@@ -321,7 +342,7 @@ impl JavaParser {
                         .to_string();
                     if !c.interfaces.contains(&i) {
                         c.interfaces.push(i.clone());
-                        relations.insert((fqn.to_string(), i, EdgeType::Implements));
+                        relations.push((fqn.to_string(), i, EdgeType::Implements, None));
                     }
                 }
             }
@@ -334,7 +355,7 @@ impl JavaParser {
                         .to_string();
                     if !i.extends.contains(&e) {
                         i.extends.push(e.clone());
-                        relations.insert((fqn.to_string(), e, EdgeType::InheritsFrom));
+                        relations.push((fqn.to_string(), e, EdgeType::InheritsFrom, None));
                     }
                 }
             }
@@ -502,7 +523,7 @@ mod tests {
         assert!(ids.contains(&"com.example.Test.method1".to_string()));
 
         let rels = result.relations;
-        assert!(rels.iter().any(|(f, t, e)| f == "com.example.Test"
+        assert!(rels.iter().any(|(f, t, e, _)| f == "com.example.Test"
             && t == "com.example.Test.method1"
             && *e == EdgeType::Contains));
 

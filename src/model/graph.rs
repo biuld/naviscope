@@ -5,12 +5,27 @@ use schemars::JsonSchema;
 
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
 pub struct Range {
     pub start_line: usize,
     pub start_col: usize,
     pub end_line: usize,
     pub end_col: usize,
+}
+
+impl Range {
+    pub fn contains(&self, line: usize, col: usize) -> bool {
+        if line < self.start_line || line > self.end_line {
+            return false;
+        }
+        if line == self.start_line && col < self.start_col {
+            return false;
+        }
+        if line == self.end_line && col > self.end_col {
+            return false;
+        }
+        true
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -100,4 +115,26 @@ pub enum EdgeType {
     Instantiates,
     // Build system relationships
     UsesDependency,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+pub struct GraphEdge {
+    pub edge_type: EdgeType,
+    pub range: Option<Range>,
+}
+
+impl GraphEdge {
+    pub fn new(edge_type: EdgeType) -> Self {
+        Self {
+            edge_type,
+            range: None,
+        }
+    }
+
+    pub fn with_range(edge_type: EdgeType, range: Range) -> Self {
+        Self {
+            edge_type,
+            range: Some(range),
+        }
+    }
 }
