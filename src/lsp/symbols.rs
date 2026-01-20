@@ -9,7 +9,17 @@ pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) ->
         Some(p) => p,
         None => return Ok(None),
     };
+    
+    // 1. Try real-time AST-based symbols first (supports unsaved changes)
+    if let Some(doc) = backend.document_states.get(&uri) {
+        let symbols = doc.extract_symbols();
+        if !symbols.is_empty() {
+            let lsp_symbols = convert_symbols(symbols);
+            return Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)));
+        }
+    }
 
+    // 2. Fallback to index-based symbols
     let naviscope_lock = backend.naviscope.read().await;
     let naviscope = match &*naviscope_lock {
         Some(n) => n,
@@ -52,6 +62,44 @@ pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) ->
     }
 
     Ok(None)
+}
+
+fn convert_symbols(symbols: Vec<crate::parser::DocumentSymbol>) -> Vec<DocumentSymbol> {
+    symbols.into_iter().map(convert_symbol).collect()
+}
+
+fn convert_symbol(sym: crate::parser::DocumentSymbol) -> DocumentSymbol {
+    let range = Range {
+        start: Position::new(sym.range.start_line as u32, sym.range.start_col as u32),
+        end: Position::new(sym.range.end_line as u32, sym.range.end_col as u32),
+    };
+    let selection_range = Range {
+        start: Position::new(sym.selection_range.start_line as u32, sym.selection_range.start_col as u32),
+        end: Position::new(sym.selection_range.end_line as u32, sym.selection_range.end_col as u32),
+    };
+
+    #[allow(deprecated)]
+    DocumentSymbol {
+        name: sym.name,
+        detail: None,
+        kind: match sym.kind.as_str() {
+            "class" => SymbolKind::CLASS,
+            "interface" => SymbolKind::INTERFACE,
+            "method" => SymbolKind::METHOD,
+            "constructor" => SymbolKind::CONSTRUCTOR,
+            "field" => SymbolKind::FIELD,
+            _ => SymbolKind::VARIABLE,
+        },
+        tags: None,
+        deprecated: None,
+        range,
+        selection_range,
+        children: if sym.children.is_empty() {
+            None
+        } else {
+            Some(convert_symbols(sym.children))
+        },
+    }
 }
 
 pub async fn workspace_symbol(backend: &Backend, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {

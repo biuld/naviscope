@@ -81,14 +81,12 @@ impl LangResolver for JavaResolver {
                         resolved_target = full_fqn.to_string();
                     } else if let Some(prefix) = &current_pkg_prefix {
                         // Assume it might be in the same package (best effort)
-                        // Note: In a real LSP, we'd verify if this FQN exists in the index
-                        // but here we generate the edge and let the graph link them if it exists.
                         resolved_target = format!("{}{}", prefix, target_fqn);
                     }
                 }
 
                 let mut edge = GraphEdge::new(edge_type.clone());
-                edge.range = range.clone();
+                edge.range = *range;
                 unit.add_edge(source_fqn.clone(), resolved_target, edge);
             }
         }

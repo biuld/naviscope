@@ -17,6 +17,18 @@
   (extends_interfaces (type_list [ (type_identifier) (generic_type) (scoped_type_identifier) ] @interface_extends))?
 ) @interface_def
 
+(enum_declaration
+  (modifiers ("public" @modifiers)?)
+  name: (identifier) @enum_name
+  interfaces: (super_interfaces (type_list [ (type_identifier) (generic_type) (scoped_type_identifier) ] @enum_interface))?
+  body: (enum_body (enum_constant name: (identifier) @enum_constant)?)
+) @enum_def
+
+(annotation_type_declaration
+  (modifiers ("public" @modifiers)?)
+  name: (identifier) @annotation_name
+) @annotation_def
+
 (method_declaration
   (modifiers ("public" @modifiers)?)
   type: [ (type_identifier) (generic_type) (scoped_type_identifier) (void_type) (integral_type) (floating_point_type) (boolean_type) ] @method_return_type

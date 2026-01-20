@@ -1,8 +1,11 @@
 pub mod capabilities;
 pub mod goto;
 pub mod hierarchy;
+pub mod highlight;
+pub mod hover;
 pub mod symbols;
 pub mod util;
+pub mod indexer;
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -10,10 +13,13 @@ use tower_lsp::{Client, LanguageServer};
 use crate::index::Naviscope;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use dashmap::DashMap;
+use crate::lsp::util::Document;
 
 pub struct Backend {
     client: Client,
     pub naviscope: Arc<RwLock<Option<Naviscope>>>,
+    pub document_states: DashMap<Url, Arc<Document>>,
 }
 
 impl Backend {
@@ -21,7 +27,86 @@ impl Backend {
         Self {
             client,
             naviscope: Arc::new(RwLock::new(None)),
+            document_states: DashMap::new(),
         }
+    }
+
+    pub fn get_parser_for_uri(&self, uri: &Url) -> Option<Arc<dyn crate::parser::LspParser>> {
+        let path = uri.to_file_path().ok()?;
+        let ext = path.extension()?.to_str()?;
+        if ext == "java" {
+            Some(Arc::new(crate::parser::java::JavaParser::new().ok()?))
+        } else {
+            None
+        }
+    }
+
+    pub fn utf16_col_to_byte_col(&self, text: &str, line: usize, utf16_col: usize) -> usize {
+        let line_content = text.lines().nth(line).unwrap_or("");
+        let mut curr_utf16 = 0;
+        let mut curr_byte = 0;
+
+        for c in line_content.chars() {
+            if curr_utf16 >= utf16_col {
+                break;
+            }
+            curr_utf16 += c.len_utf16();
+            curr_byte += c.len_utf8();
+        }
+        curr_byte
+    }
+
+    fn point_at(&self, text: &str, offset: usize) -> tree_sitter::Point {
+        let mut row = 0;
+        let mut col = 0;
+        for (i, c) in text.char_indices() {
+            if i >= offset {
+                break;
+            }
+            if c == '\n' {
+                row += 1;
+                col = 0;
+            } else {
+                col += c.len_utf8();
+            }
+        }
+        tree_sitter::Point::new(row, col)
+    }
+
+    fn offset_at(&self, text: &str, position: Position) -> usize {
+        let mut line = 0;
+        let mut offset = 0;
+        let mut chars = text.chars().peekable();
+
+        while line < position.line as usize {
+            if let Some(c) = chars.next() {
+                offset += c.len_utf8();
+                if c == '\n' {
+                    line += 1;
+                } else if c == '\r' {
+                    if chars.peek() == Some(&'\n') {
+                        offset += chars.next().unwrap().len_utf8();
+                    }
+                    line += 1;
+                }
+            } else {
+                return offset;
+            }
+        }
+
+        let mut utf16_count = 0;
+        while utf16_count < position.character as usize {
+            if let Some(c) = chars.next() {
+                if c == '\n' || c == '\r' {
+                    break;
+                }
+                utf16_count += c.len_utf16();
+                offset += c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        offset
     }
 }
 
@@ -31,28 +116,11 @@ impl LanguageServer for Backend {
         let root_path = params.root_uri.and_then(|uri| uri.to_file_path().ok());
         
         if let Some(path) = root_path {
-            let naviscope_lock = self.naviscope.clone();
-            let client = self.client.clone();
-            
-            // Initial indexing in background
-            tokio::spawn(async move {
-                let start = std::time::Instant::now();
-                client.log_message(MessageType::INFO, format!("Naviscope indexing started for {:?}", path)).await;
-                let mut navi = Naviscope::new(path);
-                if let Err(e) = navi.build_index() {
-                    client.log_message(MessageType::ERROR, format!("Indexing failed: {}", e)).await;
-                } else {
-                    let duration = start.elapsed();
-                    let stats = {
-                        let n = navi.index().graph.node_count();
-                        let e = navi.index().graph.edge_count();
-                        format!("Indexing complete in {:?}: {} nodes, {} edges", duration, n, e)
-                    };
-                    client.log_message(MessageType::INFO, stats).await;
-                    let mut lock = naviscope_lock.write().await;
-                    *lock = Some(navi);
-                }
-            });
+            indexer::spawn_indexer(
+                path,
+                self.client.clone(),
+                self.naviscope.clone(),
+            );
         }
 
         Ok(InitializeResult {
@@ -68,25 +136,167 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let uri = params.text_document.uri;
+        self.client.log_message(MessageType::LOG, format!("LSP Event: did_open uri={}", uri)).await;
+        let content = params.text_document.text;
+        
+        if let Some(parser) = self.get_parser_for_uri(&uri) {
+            if let Some(tree) = parser.parse(&content, None) {
+                self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser)));
+            }
+        }
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri;
+        self.client.log_message(MessageType::LOG, format!("LSP Event: did_change uri={}", uri)).await;
+        let (mut content, mut tree, parser) = {
+            let state = match self.document_states.get(&uri) {
+                Some(s) => s,
+                None => return,
+            };
+            (state.content.clone(), state.tree.clone(), state.parser.clone())
+        };
+
+        for change in params.content_changes {
+            if let Some(range) = change.range {
+                let start_byte = self.offset_at(&content, range.start);
+                let old_end_byte = self.offset_at(&content, range.end);
+                
+                let start_point = tree_sitter::Point::new(
+                    range.start.line as usize,
+                    self.utf16_col_to_byte_col(&content, range.start.line as usize, range.start.character as usize)
+                );
+                let old_end_point = tree_sitter::Point::new(
+                    range.end.line as usize,
+                    self.utf16_col_to_byte_col(&content, range.end.line as usize, range.end.character as usize)
+                );
+
+                content.replace_range(start_byte..old_end_byte, &change.text);
+                
+                let new_end_byte = start_byte + change.text.len();
+                let new_end_point = self.point_at(&content, new_end_byte);
+
+                let edit = tree_sitter::InputEdit {
+                    start_byte,
+                    old_end_byte,
+                    new_end_byte,
+                    start_position: start_point,
+                    old_end_position: old_end_point,
+                    new_end_position: new_end_point,
+                };
+                tree.edit(&edit);
+            } else {
+                content = change.text;
+                if let Some(new_tree) = parser.parse(&content, None) {
+                    tree = new_tree;
+                }
+            }
+        }
+        
+        if let Some(new_tree) = parser.parse(&content, Some(&tree)) {
+            tree = new_tree;
+        }
+        
+        self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser)));
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.client.log_message(MessageType::LOG, format!("LSP Event: did_close uri={}", params.text_document.uri)).await;
+        self.document_states.remove(&params.text_document.uri);
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/hover uri={} pos={}:{}", uri, pos.line, pos.character)
+        ).await;
+        let result = hover::hover(self, params).await;
+        match &result {
+            Ok(Some(_)) => self.client.log_message(MessageType::LOG, "LSP Response: found hover content").await,
+            Ok(None) => self.client.log_message(MessageType::LOG, "LSP Response: no hover content").await,
+            Err(e) => self.client.log_message(MessageType::ERROR, format!("LSP Error: {}", e)).await,
+        }
+        result
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/documentHighlight uri={} pos={}:{}", uri, pos.line, pos.character)
+        ).await;
+        let result = highlight::highlight(self, params).await;
+        if let Ok(Some(h)) = &result {
+            self.client.log_message(MessageType::LOG, format!("LSP Response: found {} highlights", h.len())).await;
+        }
+        result
+    }
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: textDocument/definition").await;
-        goto::definition(self, params).await
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/definition uri={} pos={}:{}", uri, pos.line, pos.character)
+        ).await;
+        let result = goto::definition(self, params).await;
+        match &result {
+            Ok(Some(resp)) => {
+                let count = match resp {
+                    GotoDefinitionResponse::Scalar(_) => 1,
+                    GotoDefinitionResponse::Array(v) => v.len(),
+                    GotoDefinitionResponse::Link(v) => v.len(),
+                };
+                self.client.log_message(MessageType::LOG, format!("LSP Response: found {} locations", count)).await;
+            }
+            Ok(None) => self.client.log_message(MessageType::LOG, "LSP Response: no definition found").await,
+            Err(e) => self.client.log_message(MessageType::ERROR, format!("LSP Error: {}", e)).await,
+        }
+        result
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: textDocument/references").await;
-        goto::references(self, params).await
+        let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/references uri={} pos={}:{}", uri, pos.line, pos.character)
+        ).await;
+        let result = goto::references(self, params).await;
+        if let Ok(Some(locs)) = &result {
+            self.client.log_message(MessageType::LOG, format!("LSP Response: found {} references", locs.len())).await;
+        }
+        result
     }
 
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: textDocument/documentSymbol").await;
-        symbols::document_symbol(self, params).await
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/documentSymbol uri={}", params.text_document.uri)
+        ).await;
+        let result = symbols::document_symbol(self, params).await;
+        if let Ok(Some(resp)) = &result {
+            let count = match resp {
+                DocumentSymbolResponse::Flat(v) => v.len(),
+                DocumentSymbolResponse::Nested(v) => v.len(),
+            };
+            self.client.log_message(MessageType::LOG, format!("LSP Response: found {} symbols", count)).await;
+        }
+        result
     }
 
     async fn symbol(
@@ -94,47 +304,92 @@ impl LanguageServer for Backend {
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
         self.client.log_message(MessageType::LOG, format!("LSP Request: workspace/symbol query='{}'", params.query)).await;
-        symbols::workspace_symbol(self, params).await
+        let result = symbols::workspace_symbol(self, params).await;
+        if let Ok(Some(syms)) = &result {
+            self.client.log_message(MessageType::LOG, format!("LSP Response: found {} symbols", syms.len())).await;
+        }
+        result
     }
 
     async fn goto_implementation(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: textDocument/implementation").await;
-        goto::implementation(self, params).await
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/implementation uri={} pos={}:{}", uri, pos.line, pos.character)
+        ).await;
+        let result = goto::implementation(self, params).await;
+        if let Ok(Some(_)) = &result {
+            self.client.log_message(MessageType::LOG, "LSP Response: found implementations").await;
+        }
+        result
     }
 
     async fn goto_type_definition(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: textDocument/typeDefinition").await;
-        goto::type_definition(self, params).await
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/typeDefinition uri={} pos={}:{}", uri, pos.line, pos.character)
+        ).await;
+        let result = goto::type_definition(self, params).await;
+        if let Ok(Some(_)) = &result {
+            self.client.log_message(MessageType::LOG, "LSP Response: found type definitions").await;
+        }
+        result
     }
 
     async fn prepare_call_hierarchy(
         &self,
         params: CallHierarchyPrepareParams,
     ) -> Result<Option<Vec<CallHierarchyItem>>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: textDocument/prepareCallHierarchy").await;
-        hierarchy::prepare_call_hierarchy(self, params).await
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: textDocument/prepareCallHierarchy uri={} pos={}:{}", uri, pos.line, pos.character)
+        ).await;
+        let result = hierarchy::prepare_call_hierarchy(self, params).await;
+        if let Ok(Some(items)) = &result {
+            self.client.log_message(MessageType::LOG, format!("LSP Response: prepared {} items", items.len())).await;
+        }
+        result
     }
 
     async fn incoming_calls(
         &self,
         params: CallHierarchyIncomingCallsParams,
     ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: callHierarchy/incomingCalls").await;
-        hierarchy::incoming_calls(self, params).await
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: callHierarchy/incomingCalls item={}", params.item.name)
+        ).await;
+        let result = hierarchy::incoming_calls(self, params).await;
+        if let Ok(Some(calls)) = &result {
+            self.client.log_message(MessageType::LOG, format!("LSP Response: found {} incoming calls", calls.len())).await;
+        }
+        result
     }
 
     async fn outgoing_calls(
         &self,
         params: CallHierarchyOutgoingCallsParams,
     ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
-        self.client.log_message(MessageType::LOG, "LSP Request: callHierarchy/outgoingCalls").await;
-        hierarchy::outgoing_calls(self, params).await
+        self.client.log_message(
+            MessageType::LOG,
+            format!("LSP Request: callHierarchy/outgoingCalls item={}", params.item.name)
+        ).await;
+        let result = hierarchy::outgoing_calls(self, params).await;
+        if let Ok(Some(calls)) = &result {
+            self.client.log_message(MessageType::LOG, format!("LSP Response: found {} outgoing calls", calls.len())).await;
+        }
+        result
     }
 }
 

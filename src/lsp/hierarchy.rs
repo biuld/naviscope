@@ -1,64 +1,62 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use crate::lsp::Backend;
-use crate::lsp::util::{uri_to_path, get_word_at};
 use crate::model::graph::EdgeType;
+
 
 pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrepareParams) -> Result<Option<Vec<CallHierarchyItem>>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
     
-    let path = match uri_to_path(&uri) {
-        Some(p) => p,
+    let doc = match backend.document_states.get(&uri) {
+        Some(d) => d.clone(),
+        None => return Ok(None),
+    };
+
+    // 1. Precise resolution using AST
+    let resolution = match doc.resolve_symbol(position.line as usize, position.character as usize) {
+        Some(r) => r,
         None => return Ok(None),
     };
 
     let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match &*naviscope_lock {
+    let naviscope = match naviscope_lock.as_ref() {
         Some(n) => n,
         None => return Ok(None),
     };
-
     let index = naviscope.index();
-    
-    // Find target nodes by name under cursor
-    let word = match get_word_at(&path, position.line as usize, position.character as usize) {
-        Some(w) => w,
-        None => return Ok(None),
-    };
 
-    if let Some(nodes) = index.name_map.get(&word) {
-        let mut items = Vec::new();
-        for &idx in nodes {
-            let node = &index.graph[idx];
-            let kind = node.kind();
-            
-            if kind == "method" || kind == "constructor" {
-                if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
-                    let lsp_range = Range {
-                        start: Position::new(range.start_line as u32, range.start_col as u32),
-                        end: Position::new(range.end_line as u32, range.end_col as u32),
-                    };
-                    
-                    items.push(CallHierarchyItem {
-                        name: node.name().to_string(),
-                        kind: SymbolKind::METHOD,
-                        tags: None,
-                        detail: Some(node.fqn()),
-                        uri: Url::from_file_path(target_path).unwrap(),
-                        range: lsp_range,
-                        selection_range: lsp_range,
-                        data: Some(serde_json::to_value(node.fqn()).unwrap()),
-                    });
-                }
+    let mut items = Vec::new();
+    let matches = index.find_matches(&resolution);
+
+    for idx in matches {
+        let node = &index.graph[idx];
+        let kind = node.kind();
+        if kind == "method" || kind == "constructor" {
+            if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
+                let lsp_range = Range {
+                    start: Position::new(range.start_line as u32, range.start_col as u32),
+                    end: Position::new(range.end_line as u32, range.end_col as u32),
+                };
+                items.push(CallHierarchyItem {
+                    name: node.name().to_string(),
+                    kind: SymbolKind::METHOD,
+                    tags: None,
+                    detail: Some(node.fqn()),
+                    uri: Url::from_file_path(target_path).unwrap(),
+                    range: lsp_range,
+                    selection_range: lsp_range,
+                    data: Some(serde_json::to_value(node.fqn()).unwrap()),
+                });
             }
-        }
-        if !items.is_empty() {
-            return Ok(Some(items));
         }
     }
 
-    Ok(None)
+    if !items.is_empty() {
+        Ok(Some(items))
+    } else {
+        Ok(None)
+    }
 }
 
 pub async fn incoming_calls(backend: &Backend, params: CallHierarchyIncomingCallsParams) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {

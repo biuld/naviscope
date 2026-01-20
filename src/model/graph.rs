@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
 pub struct Range {
     pub start_line: usize,
     pub start_col: usize,
@@ -25,6 +25,15 @@ impl Range {
             return false;
         }
         true
+    }
+
+    pub fn from_ts(range: tree_sitter::Range) -> Self {
+        Self {
+            start_line: range.start_point.row,
+            start_col: range.start_point.column,
+            end_line: range.end_point.row,
+            end_col: range.end_point.column,
+        }
     }
 }
 

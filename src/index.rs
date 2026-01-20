@@ -1,5 +1,6 @@
 use crate::error::{NaviscopeError, Result};
 use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
+use crate::parser::{matches_intent, SymbolIntent, SymbolResolution};
 use crate::project::scanner::Scanner;
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -12,7 +13,7 @@ use xxhash_rust::xxh3::xxh3_64;
 pub const CURRENT_VERSION: u32 = 1;
 pub const DEFAULT_INDEX_DIR: &str = ".naviscope/indices";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NaviscopeIndex {
     pub version: u32,
     pub graph: StableDiGraph<GraphNode, GraphEdge>,
@@ -103,8 +104,48 @@ impl NaviscopeIndex {
         }
         refs
     }
+
+    /// Finds nodes matching a symbol resolution result.
+    pub fn find_matches(&self, resolution: &SymbolResolution) -> Vec<NodeIndex> {
+        match resolution {
+            SymbolResolution::Local(_) => vec![], // Handled by Document locally
+            SymbolResolution::Precise(fqn, intent) => {
+                // 1. Try precise FQN match
+                if let Some(&idx) = self.fqn_map.get(fqn) {
+                    if let Some(node) = self.graph.node_weight(idx) {
+                        if matches_intent(node.kind(), *intent) {
+                            return vec![idx];
+                        }
+                    }
+                }
+
+                // 2. Fallback to name-based search if FQN match fails
+                let name = fqn.split('.').last().unwrap_or(fqn);
+                self.find_by_name_and_intent(name, *intent)
+            }
+            SymbolResolution::Heuristic(name, intent) => {
+                self.find_by_name_and_intent(name, *intent)
+            }
+        }
+    }
+
+    /// Finds nodes by name and intent.
+    pub fn find_by_name_and_intent(&self, name: &str, intent: SymbolIntent) -> Vec<NodeIndex> {
+        let mut results = Vec::new();
+        if let Some(indices) = self.name_map.get(name) {
+            for &idx in indices {
+                if let Some(node) = self.graph.node_weight(idx) {
+                    if matches_intent(node.kind(), intent) {
+                        results.push(idx);
+                    }
+                }
+            }
+        }
+        results
+    }
 }
 
+#[derive(Clone)]
 pub struct Naviscope {
     index: NaviscopeIndex,
     project_root: PathBuf,

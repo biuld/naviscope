@@ -12,6 +12,8 @@ pub fn server_capabilities() -> ServerCapabilities {
         implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
         type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
         call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        document_highlight_provider: Some(OneOf::Left(true)),
         ..Default::default()
     }
 }

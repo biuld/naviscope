@@ -2,13 +2,6 @@ use crate::model::graph::Range;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaFile {
-    pub package: Option<String>,
-    pub imports: Vec<String>,
-    pub entities: Vec<JavaElement>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum JavaElement {
     Class(JavaClass),
     Interface(JavaInterface),

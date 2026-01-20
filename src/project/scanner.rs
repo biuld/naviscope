@@ -1,7 +1,8 @@
 use super::source::{BuildTool, Language, SourceFile};
 use crate::model::lang::gradle::GradleParseResult;
 use crate::parser::gradle;
-use crate::parser::java::{JavaParseResult, JavaParser};
+use crate::parser::java::JavaParser;
+use crate::parser::{IndexParser, GlobalParseResult};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -12,7 +13,7 @@ use std::time::SystemTime;
 use xxhash_rust::xxh3::Xxh3;
 
 pub enum ParsedContent {
-    Java(JavaParseResult),
+    Java(GlobalParseResult),
     Gradle(GradleParseResult),
 }
 
@@ -108,28 +109,36 @@ impl Scanner {
             .collect()
     }
 
-    pub fn collect_paths(root: &Path) -> Vec<std::path::PathBuf> {
-        let walker = WalkBuilder::new(root)
-            .git_ignore(true)
-            .hidden(false)
-            .build();
-
-        walker
-            .filter_map(|result| match result {
-                Ok(entry) if entry.file_type().map_or(false, |ft| ft.is_file()) => {
-                    Some(entry.into_path())
+    pub(crate) fn collect_paths(root: &Path) -> Vec<PathBuf> {
+        WalkBuilder::new(root)
+            .build()
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path.extension()?.to_str()?;
+                    if ext == "java" || ext == "gradle" || ext == "kts" {
+                        return Some(path.to_path_buf());
+                    }
                 }
-                _ => None,
+                None
             })
             .collect()
     }
 
-    fn process_file_with_mtime(path: &Path, modified: u64) -> Option<(SourceFile, Vec<u8>)> {
+    fn process_file_with_mtime(path: &Path, mtime: u64) -> Option<(SourceFile, Vec<u8>)> {
         let content = fs::read(path).ok()?;
         let mut hasher = Xxh3::new();
         hasher.write(&content);
         let hash = hasher.finish();
 
-        Some((SourceFile::new(path.to_path_buf(), hash, modified), content))
+        Some((
+            SourceFile {
+                path: path.to_path_buf(),
+                content_hash: hash,
+                last_modified: mtime,
+            },
+            content,
+        ))
     }
 }
