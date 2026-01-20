@@ -1,4 +1,3 @@
-use crate::index::{Naviscope, NaviscopeIndex};
 use crate::parser::LspParser;
 use crate::project::source::Language;
 use std::path::PathBuf;
@@ -125,14 +124,4 @@ pub fn to_lsp_position(point: tree_sitter::Point, content: &str) -> tower_lsp::l
     }
 
     tower_lsp::lsp_types::Position::new(line_idx as u32, utf16_col as u32)
-}
-
-pub struct IndexAccess<'a> {
-    pub naviscope: &'a Naviscope,
-}
-
-impl<'a> IndexAccess<'a> {
-    pub fn index(&self) -> &NaviscopeIndex {
-        self.naviscope.index()
-    }
 }

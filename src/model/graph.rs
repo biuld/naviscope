@@ -3,6 +3,7 @@ use super::lang::java::JavaElement;
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
+use crate::project::source::Language;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
@@ -51,6 +52,13 @@ pub enum BuildElement {
 }
 
 impl GraphNode {
+    pub fn language(&self) -> Language {
+        match self {
+            GraphNode::Code(CodeElement::Java { .. }) => Language::Java,
+            GraphNode::Build(BuildElement::Gradle { .. }) => Language::BuildFile,
+        }
+    }
+
     pub fn fqn(&self) -> &str {
         match self {
             GraphNode::Code(CodeElement::Java { element, .. }) => element.id(),

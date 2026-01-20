@@ -1,15 +1,9 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use crate::lsp::Backend;
-use crate::lsp::util::uri_to_path;
-use crate::project::source::Language;
 
 pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
     let uri = params.text_document.uri;
-    let path = match uri_to_path(&uri) {
-        Some(p) => p,
-        None => return Ok(None),
-    };
     
     // 1. Try real-time AST-based symbols first (supports unsaved changes)
     if let Some(doc) = backend.document_states.get(&uri) {
@@ -18,56 +12,6 @@ pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) ->
             let lsp_symbols = convert_symbols(symbols, doc.parser.as_ref());
             return Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)));
         }
-    }
-
-    // 2. Fallback to index-based symbols
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match &*naviscope_lock {
-        Some(n) => n,
-        None => return Ok(None),
-    };
-
-    let index = naviscope.index();
-    
-    if let Some(nodes) = index.path_to_nodes.get(&path) {
-        let mut symbols = Vec::new();
-        for &idx in nodes {
-            let node = &index.graph[idx];
-            if let Some(range) = node.range() {
-                let lsp_range = Range {
-                    start: Position::new(range.start_line as u32, range.start_col as u32),
-                    end: Position::new(range.end_line as u32, range.end_col as u32),
-                };
-                
-                #[allow(deprecated)]
-                symbols.push(DocumentSymbol {
-                    name: node.name().to_string(),
-                    detail: Some(node.fqn().to_string()),
-                    kind: {
-                        let _resolver = match backend.resolver.get_semantic_resolver(Language::Java) { // Fallback to Java for index symbols
-                            Some(r) => r,
-                            None => return Ok(None),
-                        };
-                        // Note: This is a bit tricky because node.kind() is language-specific.
-                        // For now, we use a simple mapping or we might need a more generic way.
-                        match node.kind() {
-                            "class" => SymbolKind::CLASS,
-                            "interface" => SymbolKind::INTERFACE,
-                            "enum" => SymbolKind::ENUM,
-                            "method" => SymbolKind::METHOD,
-                            "field" => SymbolKind::FIELD,
-                            _ => SymbolKind::VARIABLE,
-                        }
-                    },
-                    tags: None,
-                    deprecated: None,
-                    range: lsp_range,
-                    selection_range: lsp_range,
-                    children: None,
-                });
-            }
-        }
-        return Ok(Some(DocumentSymbolResponse::Nested(symbols)));
     }
 
     Ok(None)
@@ -118,17 +62,14 @@ pub async fn workspace_symbol(backend: &Backend, params: WorkspaceSymbolParams) 
     for node in index.graph.node_weights() {
         if node.name().to_lowercase().contains(&query) || node.fqn().to_string().to_lowercase().contains(&query) {
             if let (Some(path), Some(range)) = (node.file_path(), node.range()) {
+                let kind = backend.resolver.get_lsp_parser(node.language())
+                    .map(|parser| parser.symbol_kind(node.kind()))
+                    .unwrap_or(SymbolKind::VARIABLE);
+
                 #[allow(deprecated)]
                 symbols.push(SymbolInformation {
                     name: node.name().to_string(),
-                    kind: match node.kind() {
-                        "class" => SymbolKind::CLASS,
-                        "interface" => SymbolKind::INTERFACE,
-                        "enum" => SymbolKind::ENUM,
-                        "method" => SymbolKind::METHOD,
-                        "field" => SymbolKind::FIELD,
-                        _ => SymbolKind::VARIABLE,
-                    },
+                    kind,
                     tags: None,
                     deprecated: None,
                     location: Location {
