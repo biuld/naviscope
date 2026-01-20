@@ -9,7 +9,6 @@ mod constants;
 mod lsp;
 mod index;
 mod ast;
-use constants::*;
 
 unsafe extern "C" {
     fn tree_sitter_java() -> tree_sitter::Language;
@@ -51,24 +50,33 @@ impl JavaParser {
 
     // --- Core Atomic Helpers (Shared between Global and Local) ---
 
-    pub fn compute_fqn(&self, name_node: Node, source: &str, package: &str) -> String {
+    /// Gets the full FQN for a definition node.
+    pub fn get_fqn_for_definition(&self, name_node: &Node, source: &str, pkg: Option<&str>) -> String {
         let mut parts = Vec::new();
-        let mut curr = name_node;
+        let mut curr = *name_node;
+        let mut seen_ids = std::collections::HashSet::new();
+
         parts.push(name_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string());
-        if let Some(decl) = curr.parent() { curr = decl; }
-        while let Some(parent) = curr.parent() {
-            match parent.kind() {
-                KIND_CLASS_DECL | KIND_INTERFACE_DECL | KIND_ENUM_DECL | KIND_METHOD_DECL | KIND_CONSTR_DECL => {
-                    if let Some(n_node) = parent.child_by_field_name("name") {
-                        parts.push(n_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string());
+        seen_ids.insert(name_node.id());
+
+        while let Some(parent) = self.find_next_enclosing_definition(curr) {
+            let kind = parent.kind();
+            // FQN for Java elements should only include Packages and Classes/Interfaces/Enums.
+            // Methods and Constructors should be skipped when calculating the FQN of nested elements.
+            if kind.contains("class") || kind.contains("interface") || kind.contains("enum") || kind.contains("annotation") {
+                if let Some(n_node) = parent.child_by_field_name("name") {
+                    if seen_ids.insert(n_node.id()) {
+                        if let Ok(n_text) = n_node.utf8_text(source.as_bytes()) {
+                            parts.push(n_text.to_string());
+                        }
                     }
                 }
-                _ => {}
             }
             curr = parent;
         }
+        
         parts.reverse();
-        let mut fqn = if package.is_empty() { String::new() } else { package.to_string() };
+        let mut fqn = if let Some(p) = pkg { p.to_string() } else { String::new() };
         for p in parts {
             if !fqn.is_empty() { fqn.push('.'); }
             fqn.push_str(&p);
@@ -76,21 +84,38 @@ impl JavaParser {
         fqn
     }
 
-    pub fn find_enclosing_element(&self, node: Node, source: &str, pkg: &str) -> Option<String> {
-        let mut curr = node;
-        while let Some(parent) = curr.parent() {
-            match parent.kind() {
-                KIND_CLASS_DECL | KIND_INTERFACE_DECL | KIND_ENUM_DECL | KIND_METHOD_DECL | KIND_CONSTR_DECL => {
-                    if let Some(name_node) = parent.child_by_field_name("name") {
-                        let fqn = self.compute_fqn(name_node, source, pkg);
-                        if let Some(own_name_node) = node.child_by_field_name("name") {
-                            if let Ok(own_text) = own_name_node.utf8_text(source.as_bytes()) {
-                                if !fqn.ends_with(own_text) { return Some(fqn); }
-                            }
-                        } else { return Some(fqn); }
-                    }
+    /// Returns a list of FQNs for all enclosing classes from inner to outer.
+    pub fn get_enclosing_class_fqns(&self, node: &Node, source: &str, pkg: Option<&str>) -> Vec<String> {
+        let mut fqns = Vec::new();
+        let mut curr = *node;
+        while let Some(container) = self.find_next_enclosing_definition(curr) {
+            let kind = container.kind();
+            if kind.contains("class") || kind.contains("interface") || kind.contains("enum") {
+                if let Some(name_node) = container.child_by_field_name("name") {
+                    fqns.push(self.get_fqn_for_definition(&name_node, source, pkg));
                 }
-                _ => {}
+            }
+            curr = container;
+        }
+        fqns
+    }
+
+    pub fn find_local_declaration(&self, start_node: Node, name: &str, source: &str) -> Option<(Range, Option<String>)> {
+        let mut curr = start_node;
+        while let Some(parent) = curr.parent() {
+            // Check declarations in this scope before the start_node
+            let mut child_cursor = parent.walk();
+            for child in parent.children(&mut child_cursor) {
+                if child.start_byte() >= start_node.start_byte() {
+                    break;
+                }
+                if let Some(res) = self.is_decl_of(&child, name, source) {
+                    return Some(res);
+                }
+            }
+            // Check if parent itself is a declaration (like method parameters)
+            if let Some(res) = self.is_decl_of(&parent, name, source) {
+                return Some(res);
             }
             curr = parent;
         }
@@ -116,10 +141,47 @@ impl JavaParser {
     }
 
     pub fn resolve_type_name_to_fqn_data(&self, type_name: &str, package: Option<&str>, imports: &[String]) -> Option<String> {
-        for imp in imports {
-            if imp.ends_with(&format!(".{}", type_name)) { return Some(imp.clone()); }
+        // 1. Check if it's a primitive type
+        const PRIMITIVES: &[&str] = &["int", "long", "short", "byte", "float", "double", "boolean", "char", "void"];
+        if PRIMITIVES.contains(&type_name) {
+            return Some(type_name.to_string());
         }
-        if let Some(p) = package { return Some(format!("{}.{}", p, type_name)); }
+
+        // 2. Already an FQN?
+        if type_name.contains('.') {
+            return Some(type_name.to_string());
+        }
+
+        // 3. Precise imports
+        for imp in imports {
+            if imp.ends_with(&format!(".{}", type_name)) {
+                return Some(imp.clone());
+            }
+        }
+
+        // 4. Wildcard imports (e.g., import java.util.*;)
+        // Note: This is heuristic-lite but necessary for correctness in Java
+        // We'll return the first one that might match, or wait for index resolution?
+        // Actually, without a full classpath, we can only guess. 
+        // For now, let's focus on java.lang which is always there.
+
+        // 5. java.lang (implicit import)
+        // List of common java.lang classes to avoid false positives? 
+        // Or just assume if not found elsewhere, it might be java.lang
+        const JAVA_LANG_CLASSES: &[&str] = &[
+            "String", "Object", "Integer", "Long", "Double", "Float", "Boolean", "Byte", "Character", "Short",
+            "Exception", "RuntimeException", "Throwable", "Error", "Thread", "System", "Class", "Iterable",
+            "Runnable", "Comparable", "SuppressWarnings", "Override", "Deprecated"
+        ];
+        if JAVA_LANG_CLASSES.contains(&type_name) {
+            return Some(format!("java.lang.{}", type_name));
+        }
+
+        // 6. Current package
+        if let Some(p) = package {
+            return Some(format!("{}.{}", p, type_name));
+        }
+
         Some(type_name.to_string())
     }
 
@@ -158,6 +220,15 @@ impl JavaParser {
                 }
                 SymbolIntent::Type // Likely the receiver/object
             }
+            "class_declaration" | "interface_declaration" | "enum_declaration" | "annotation_type_declaration" => SymbolIntent::Type,
+            "method_declaration" | "constructor_declaration" => {
+                if let Some(name_node) = parent.child_by_field_name("name") {
+                    if name_node.id() == node.id() {
+                        return SymbolIntent::Method;
+                    }
+                }
+                SymbolIntent::Type
+            },
             _ => {
                 if node.kind() == "type_identifier" || node.kind() == "scoped_type_identifier" {
                     SymbolIntent::Type
@@ -168,56 +239,32 @@ impl JavaParser {
         }
     }
 
-    pub fn is_decl_of(&self, node: &Node, name: &str, source: &str) -> Option<Range> {
+    pub fn is_decl_of(&self, node: &Node, name: &str, source: &str) -> Option<(Range, Option<String>)> {
         match node.kind() {
             "variable_declarator" | "formal_parameter" | "catch_formal_parameter" => {
                 if let Some(name_node) = node.child_by_field_name("name") {
                     if name_node.utf8_text(source.as_bytes()).ok()? == name {
-                        return Some(range_from_ts(name_node.range()));
+                        let range = range_from_ts(name_node.range());
+                        let type_node = if node.kind() == "variable_declarator" {
+                            // Type is in the parent local_variable_declaration
+                            node.parent()
+                                .and_then(|p| p.child_by_field_name("type"))
+                        } else {
+                            // Type is a sibling for parameters
+                            node.child_by_field_name("type")
+                        };
+                        let type_name = type_node.and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
+                        return Some((range, type_name));
                     }
                 }
             }
             "local_variable_declaration" | "formal_parameters" | "inferred_parameters" | "enhanced_for_statement" => {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    if let Some(r) = self.is_decl_of(&child, name, source) { return Some(r); }
+                    if let Some(res) = self.is_decl_of(&child, name, source) { return Some(res); }
                 }
             }
             _ => {}
-        }
-        None
-    }
-
-    pub fn resolve_receiver_type(&self, receiver: &Node, tree: &Tree, source: &str) -> Option<String> {
-        let receiver_text = receiver.utf8_text(source.as_bytes()).ok()?;
-
-        if receiver_text == "this" {
-            let (pkg, _) = self.extract_package_and_imports(tree, source);
-            return self.find_enclosing_class_fqn(receiver, source, pkg.as_deref());
-        }
-
-        let mut curr = *receiver;
-        while let Some(parent) = curr.parent() {
-            let mut cursor = parent.walk();
-            for child in parent.children(&mut cursor) {
-                if child.start_byte() >= receiver.start_byte() { break; }
-                if child.kind() == "local_variable_declaration" {
-                    if let Some(type_node) = child.child_by_field_name("type") {
-                        let mut vd_cursor = child.walk();
-                        for vd in child.children(&mut vd_cursor) {
-                            if vd.kind() == "variable_declarator" {
-                                if let Some(name_node) = vd.child_by_field_name("name") {
-                                    if name_node.utf8_text(source.as_bytes()).ok()? == receiver_text {
-                                        let type_name = type_node.utf8_text(source.as_bytes()).ok()?;
-                                        return self.resolve_type_name_to_fqn(type_name, tree, source);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            curr = parent;
         }
         None
     }
@@ -227,14 +274,25 @@ impl JavaParser {
         self.resolve_type_name_to_fqn_data(type_name, pkg.as_deref(), &imports)
     }
 
-    pub fn find_enclosing_class_fqn(&self, node: &Node, source: &str, pkg: Option<&str>) -> Option<String> {
-        let mut curr = *node;
+    // --- Private Helpers ---
+
+    fn is_definition_node(kind: &str) -> bool {
+        matches!(
+            kind,
+            "class_declaration"
+                | "interface_declaration"
+                | "enum_declaration"
+                | "annotation_type_declaration"
+                | "method_declaration"
+                | "constructor_declaration"
+        )
+    }
+
+    pub fn find_next_enclosing_definition<'a>(&self, node: Node<'a>) -> Option<Node<'a>> {
+        let mut curr = node;
         while let Some(parent) = curr.parent() {
-            if parent.kind() == "class_declaration" {
-                if let Some(name_node) = parent.child_by_field_name("name") {
-                    let name = name_node.utf8_text(source.as_bytes()).ok()?;
-                    return Some(if let Some(p) = pkg { format!("{}.{}", p, name) } else { name.to_string() });
-                }
+            if Self::is_definition_node(parent.kind()) {
+                return Some(parent);
             }
             curr = parent;
         }

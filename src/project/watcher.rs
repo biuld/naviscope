@@ -1,17 +1,23 @@
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher};
 use std::path::Path;
-use std::sync::mpsc::{self, Receiver};
+use tokio::sync::mpsc;
 
 pub struct Watcher {
     // Keep watcher alive
     _watcher: RecommendedWatcher,
-    rx: Receiver<notify::Result<Event>>,
+    pub(crate) rx: mpsc::UnboundedReceiver<notify::Result<Event>>,
 }
 
 impl Watcher {
     pub fn new(root: &Path) -> notify::Result<Self> {
-        let (tx, rx) = mpsc::channel();
-        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+        let (tx, rx) = mpsc::unbounded_channel();
+        
+        let mut watcher = RecommendedWatcher::new(
+            move |res| {
+                let _ = tx.send(res);
+            },
+            Config::default(),
+        )?;
 
         // Watch recursively
         watcher.watch(root, RecursiveMode::Recursive)?;
@@ -23,15 +29,15 @@ impl Watcher {
     }
 
     /// Blocks until an event is received.
-    pub fn next_event(&self) -> Option<Event> {
-        match self.rx.recv() {
-            Ok(Ok(event)) => Some(event),
+    pub fn next_event(&mut self) -> Option<Event> {
+        match self.rx.blocking_recv() {
+            Some(Ok(event)) => Some(event),
             _ => None,
         }
     }
 
     /// Tries to receive an event without blocking.
-    pub fn try_next_event(&self) -> Option<Event> {
+    pub fn try_next_event(&mut self) -> Option<Event> {
         match self.rx.try_recv() {
             Ok(Ok(event)) => Some(event),
             _ => None,

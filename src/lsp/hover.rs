@@ -13,6 +13,13 @@ pub async fn hover(backend: &Backend, params: HoverParams) -> Result<Option<Hove
         None => return Ok(None),
     };
 
+    let naviscope_lock = backend.naviscope.read().await;
+    let naviscope = match naviscope_lock.as_ref() {
+        Some(n) => n,
+        None => return Ok(None),
+    };
+    let index = naviscope.index();
+
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
         let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
@@ -20,25 +27,18 @@ pub async fn hover(backend: &Backend, params: HoverParams) -> Result<Option<Hove
             None => return Ok(None),
         };
         let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
             Some(r) => r,
             None => return Ok(None),
         }
     };
 
-    if let SymbolResolution::Local(_) = resolution {
+    if let SymbolResolution::Local(_, _) = resolution {
         return Ok(Some(Hover {
             contents: HoverContents::Scalar(MarkedString::String("**Local variable**".to_string())),
             range: None,
         }));
     }
-
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match naviscope_lock.as_ref() {
-        Some(n) => n,
-        None => return Ok(None),
-    };
-    let index = naviscope.index();
 
     let mut hover_text = String::new();
     let matches = {
@@ -56,6 +56,12 @@ pub async fn hover(backend: &Backend, params: HoverParams) -> Result<Option<Hove
         }
         hover_text.push_str(&format!("**{}** ({})\n\n", node.name(), node.kind()));
         hover_text.push_str(&format!("FQN: `{}`", node.fqn()));
+    }
+
+    if hover_text.is_empty() {
+        if let SymbolResolution::Precise(fqn, _) = resolution {
+            hover_text.push_str(&format!("**External Reference**\n\nFQN: `{}`", fqn));
+        }
     }
 
     if !hover_text.is_empty() {

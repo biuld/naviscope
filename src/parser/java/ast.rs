@@ -42,12 +42,11 @@ impl JavaParser {
             source.as_bytes(),
         );
 
-        let pkg_str = package.as_deref().unwrap_or("");
         let mut entities_map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
         while let Some(mat) = matches.next() {
-            // Find definitions
-            let anchor = mat.captures.iter().find(|c| {
+            // 1. Find definitions (Anchors)
+            let definition_anchor = mat.captures.iter().find(|c| {
                 let i = c.index;
                 i == self.indices.class_def
                     || i == self.indices.inter_def
@@ -56,11 +55,9 @@ impl JavaParser {
                     || i == self.indices.method_def
                     || i == self.indices.constr_def
                     || i == self.indices.field_def
-                    || i == self.indices.method_param_match
-                    || i == self.indices.constr_param_match
             });
 
-            if let Some(anchor) = anchor {
+            if let Some(anchor) = definition_anchor {
                 let anchor_node = anchor.node;
                 let (kind, name_idx) = if anchor.index == self.indices.class_def {
                     (KIND_LABEL_CLASS, self.indices.class_name)
@@ -70,23 +67,21 @@ impl JavaParser {
                     (KIND_LABEL_ENUM, self.indices.enum_name)
                 } else if anchor.index == self.indices.annotation_def {
                     (KIND_LABEL_ANNOTATION, self.indices.annotation_name)
-                } else if anchor.index == self.indices.method_def || anchor.index == self.indices.method_param_match {
+                } else if anchor.index == self.indices.method_def {
                     (KIND_LABEL_METHOD, self.indices.method_name)
-                } else if anchor.index == self.indices.constr_def || anchor.index == self.indices.constr_param_match {
+                } else if anchor.index == self.indices.constr_def {
                     (KIND_LABEL_CONSTRUCTOR, self.indices.constr_name)
                 } else {
                     (KIND_LABEL_FIELD, self.indices.field_name)
                 };
 
                 if let Some(name_node) = mat.captures.iter().find(|c| c.index == name_idx).map(|c| c.node) {
-                    let fqn = self.compute_fqn(name_node, source, pkg_str);
+                    let fqn = self.get_fqn_for_definition(&name_node, source, package.as_deref());
                     let name = name_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
                     let range = range_from_ts(anchor_node.range());
                     let name_range = range_from_ts(name_node.range());
 
-                    let idx = if let Some(&existing_idx) = entities_map.get(&fqn) {
-                        existing_idx
-                    } else {
+                    if !entities_map.contains_key(&fqn) {
                         let new_idx = entities.len();
                         let element = match kind {
                             KIND_LABEL_CLASS => JavaElement::Class(JavaClass {
@@ -123,50 +118,79 @@ impl JavaParser {
                         entities_map.insert(fqn.clone(), new_idx);
 
                         // Structural relation
-                        if let Some(parent) = self.find_enclosing_element(anchor_node, source, pkg_str) {
-                            if parent != fqn {
-                                relations.push(JavaRelation {
-                                    source_fqn: parent,
-                                    target_name: fqn.clone(),
-                                    rel_type: EdgeType::Contains,
-                                    range: None,
-                                });
+                        if let Some(parent_node) = self.find_next_enclosing_definition(anchor_node) {
+                            if let Some(parent_name_node) = parent_node.child_by_field_name("name") {
+                                let parent = self.get_fqn_for_definition(&parent_name_node, source, package.as_deref());
+                                if parent != fqn {
+                                    relations.push(JavaRelation {
+                                        source_fqn: parent,
+                                        target_name: fqn.clone(),
+                                        rel_type: EdgeType::Contains,
+                                        range: None,
+                                    });
+                                }
                             }
                         }
-                        new_idx
-                    };
-
-                    self.merge_metadata_to_model(mat, source, fqn, &mut entities[idx].element, &mut relations);
+                    }
                 }
                 continue;
             }
 
-            // Call/Instantiates relations
+            // 2. Metadata (Modifiers, Types, Params)
+            if let Some(meta_cap) = mat.captures.iter().find(|c| {
+                let i = c.index;
+                i == self.indices.mods
+                    || i == self.indices.class_super
+                    || i == self.indices.class_inter
+                    || i == self.indices.inter_ext
+                    || i == self.indices.enum_interface
+                    || i == self.indices.method_ret
+                    || i == self.indices.field_type
+                    || i == self.indices.param_match
+            }) {
+                if let Some(parent_node) = self.find_next_enclosing_definition(meta_cap.node) {
+                    if let Some(parent_name_node) = parent_node.child_by_field_name("name") {
+                        let enclosing_fqn = self.get_fqn_for_definition(&parent_name_node, source, package.as_deref());
+                        if let Some(&idx) = entities_map.get(&enclosing_fqn) {
+                            self.attach_metadata_to_model(mat, source, enclosing_fqn, &mut entities[idx].element, &mut relations);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // 3. Call/Instantiates relations
             if let Some(call_cap) = mat.captures.iter().find(|c| c.index == self.indices.call) {
-                if let (Some(target_node), Some(source_fqn)) = (
+                if let (Some(target_node), Some(parent_node)) = (
                     mat.captures.iter().find(|c| c.index == self.indices.call_name).map(|c| c.node),
-                    self.find_enclosing_element(call_cap.node, source, pkg_str),
+                    self.find_next_enclosing_definition(call_cap.node),
                 ) {
-                    let target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
-                    relations.push(JavaRelation {
-                        source_fqn,
-                        target_name: target,
-                        rel_type: EdgeType::Calls,
-                        range: Some(range_from_ts(target_node.range())),
-                    });
+                    if let Some(parent_name_node) = parent_node.child_by_field_name("name") {
+                        let source_fqn = self.get_fqn_for_definition(&parent_name_node, source, package.as_deref());
+                        let target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
+                        relations.push(JavaRelation {
+                            source_fqn,
+                            target_name: target,
+                            rel_type: EdgeType::Calls,
+                            range: Some(range_from_ts(target_node.range())),
+                        });
+                    }
                 }
             } else if let Some(inst_cap) = mat.captures.iter().find(|c| c.index == self.indices.inst) {
-                if let (Some(target_node), Some(source_fqn)) = (
+                if let (Some(target_node), Some(parent_node)) = (
                     mat.captures.iter().find(|c| c.index == self.indices.inst_type).map(|c| c.node),
-                    self.find_enclosing_element(inst_cap.node, source, pkg_str),
+                    self.find_next_enclosing_definition(inst_cap.node),
                 ) {
-                    let target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
-                    relations.push(JavaRelation {
-                        source_fqn,
-                        target_name: target,
-                        rel_type: EdgeType::Instantiates,
-                        range: Some(range_from_ts(target_node.range())),
-                    });
+                    if let Some(parent_name_node) = parent_node.child_by_field_name("name") {
+                        let source_fqn = self.get_fqn_for_definition(&parent_name_node, source, package.as_deref());
+                        let target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
+                        relations.push(JavaRelation {
+                            source_fqn,
+                            target_name: target,
+                            rel_type: EdgeType::Instantiates,
+                            range: Some(range_from_ts(target_node.range())),
+                        });
+                    }
                 }
             }
         }
@@ -179,7 +203,7 @@ impl JavaParser {
         }
     }
 
-    fn merge_metadata_to_model(
+    fn attach_metadata_to_model(
         &self,
         mat: &QueryMatch,
         source: &str,
@@ -187,15 +211,21 @@ impl JavaParser {
         element: &mut JavaElement,
         relations: &mut Vec<JavaRelation>,
     ) {
-        for cap in mat.captures.iter().filter(|c| c.index == self.indices.mods) {
-            let m = cap.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-            match element {
-                JavaElement::Class(c) => if !c.modifiers.contains(&m) { c.modifiers.push(m); }
-                JavaElement::Interface(i) => if !i.modifiers.contains(&m) { i.modifiers.push(m); }
-                JavaElement::Enum(e) => if !e.modifiers.contains(&m) { e.modifiers.push(m); }
-                JavaElement::Annotation(a) => if !a.modifiers.contains(&m) { a.modifiers.push(m); }
-                JavaElement::Method(m_node) => if !m_node.modifiers.contains(&m) { m_node.modifiers.push(m); }
-                JavaElement::Field(f) => if !f.modifiers.contains(&m) { f.modifiers.push(m); }
+        // Modifiers
+        if let Some(mods_node) = mat.captures.iter().find(|c| c.index == self.indices.mods).map(|c| c.node) {
+            let mut cursor = mods_node.walk();
+            for child in mods_node.children(&mut cursor) {
+                if let Ok(m) = child.utf8_text(source.as_bytes()) {
+                    let m_str = m.to_string();
+                    match element {
+                        JavaElement::Class(c) => if !c.modifiers.contains(&m_str) { c.modifiers.push(m_str); }
+                        JavaElement::Interface(i) => if !i.modifiers.contains(&m_str) { i.modifiers.push(m_str); }
+                        JavaElement::Enum(e) => if !e.modifiers.contains(&m_str) { e.modifiers.push(m_str); }
+                        JavaElement::Annotation(a) => if !a.modifiers.contains(&m_str) { a.modifiers.push(m_str); }
+                        JavaElement::Method(m_node) => if !m_node.modifiers.contains(&m_str) { m_node.modifiers.push(m_str); }
+                        JavaElement::Field(f) => if !f.modifiers.contains(&m_str) { f.modifiers.push(m_str); }
+                    }
+                }
             }
         }
 
@@ -249,12 +279,6 @@ impl JavaParser {
                             rel_type: EdgeType::Implements,
                             range: None,
                         });
-                    }
-                }
-                if let Some(const_cap) = mat.captures.iter().find(|c| c.index == self.indices.enum_constant) {
-                    let c_name = const_cap.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-                    if !e.constants.contains(&c_name) {
-                        e.constants.push(c_name);
                     }
                 }
             }

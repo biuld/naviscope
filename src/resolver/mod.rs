@@ -14,7 +14,7 @@ pub mod lang;
 /// Core interface for resolving a symbol at a specific position in a document.
 pub trait SemanticResolver: Send + Sync {
     /// Resolve a symbol at a specific position in a document (local view)
-    fn resolve_at(&self, tree: &Tree, source: &str, line: usize, byte_col: usize) -> Option<SymbolResolution>;
+    fn resolve_at(&self, tree: &Tree, source: &str, line: usize, byte_col: usize, index: &NaviscopeIndex) -> Option<SymbolResolution>;
 
     /// Find nodes in the global graph matching a resolution result (global view)
     fn find_matches(&self, index: &NaviscopeIndex, res: &SymbolResolution) -> Vec<NodeIndex>;

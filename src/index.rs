@@ -3,7 +3,6 @@ use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
 use crate::project::scanner::Scanner;
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
-use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -80,28 +79,6 @@ impl NaviscopeIndex {
             }
         }
         None
-    }
-
-    /// Finds all edges in the graph that "look like" a reference to nodes with this name.
-    /// This is a heuristic for when precise FQN edges are missing.
-    pub fn find_references_by_name(&self, name: &str) -> Vec<(NodeIndex, &GraphEdge)> {
-        let mut refs = Vec::new();
-        for node_idx in self.graph.node_indices() {
-            let edges = self.graph.edges_directed(node_idx, petgraph::Direction::Outgoing);
-            for edge_ref in edges {
-                let edge = edge_ref.weight();
-                // If the edge has a range, it's a usage site.
-                // We check if the intended target name matches.
-                if edge.range.is_some() {
-                    if let Some(target_node) = self.graph.node_weight(edge_ref.target()) {
-                        if target_node.name() == name {
-                            refs.push((node_idx, edge));
-                        }
-                    }
-                }
-            }
-        }
-        refs
     }
 
     /// Finds nodes matching a symbol resolution result.

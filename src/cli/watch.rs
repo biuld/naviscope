@@ -10,11 +10,15 @@ pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>>
     naviscope.build_index()?;
     println!("Initial indexing complete. Ready to watch for changes.");
 
-    let watcher = Watcher::new(&path)?;
+    let mut watcher = Watcher::new(&path)?;
     
     loop {
         // Wait for the first event
-        if let Some(_event) = watcher.next_event() {
+        if let Some(event) = watcher.next_event() {
+            if !event.paths.iter().any(|p| naviscope::project::is_relevant_path(p)) {
+                continue;
+            }
+
             // Debounce: wait for more events in the next 500ms
             thread::sleep(Duration::from_millis(500));
             

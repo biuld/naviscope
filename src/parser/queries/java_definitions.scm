@@ -5,66 +5,60 @@
   [(identifier) (scoped_identifier)] @import_name)
 
 (class_declaration
-  (modifiers ("public" @modifiers)?)
-  name: (identifier) @class_name
-  superclass: (superclass [ (type_identifier) (generic_type) (scoped_type_identifier) ] @class_superclass)?
-  interfaces: (super_interfaces (type_list [ (type_identifier) (generic_type) (scoped_type_identifier) ] @class_interface))?
-) @class_def
+  name: (identifier) @class_name) @class_def
 
 (interface_declaration
-  (modifiers ("public" @modifiers)?)
-  name: (identifier) @interface_name
-  (extends_interfaces (type_list [ (type_identifier) (generic_type) (scoped_type_identifier) ] @interface_extends))?
-) @interface_def
+  name: (identifier) @interface_name) @interface_def
 
 (enum_declaration
-  (modifiers ("public" @modifiers)?)
-  name: (identifier) @enum_name
-  interfaces: (super_interfaces (type_list [ (type_identifier) (generic_type) (scoped_type_identifier) ] @enum_interface))?
-  body: (enum_body (enum_constant name: (identifier) @enum_constant)?)
-) @enum_def
+  name: (identifier) @enum_name) @enum_def
 
 (annotation_type_declaration
-  (modifiers ("public" @modifiers)?)
-  name: (identifier) @annotation_name
-) @annotation_def
+  name: (identifier) @annotation_name) @annotation_def
 
 (method_declaration
-  (modifiers ("public" @modifiers)?)
-  type: [ (type_identifier) (generic_type) (scoped_type_identifier) (void_type) (integral_type) (floating_point_type) (boolean_type) ] @method_return_type
-  name: (identifier) @method_name
-) @method_def
-
-(method_declaration
-  name: (identifier) @method_name
-  parameters: (formal_parameters
-    (formal_parameter
-      type: [ (type_identifier) (generic_type) (scoped_type_identifier) (integral_type) (floating_point_type) (boolean_type) ] @param_type
-      name: (identifier) @param_name))
-) @method_param_match
+  name: (identifier) @method_name) @method_def
 
 (constructor_declaration
-  (modifiers ("public" @modifiers)?)
-  name: (identifier) @constructor_name
-) @constructor_def
-
-(constructor_declaration
-  name: (identifier) @constructor_name
-  parameters: (formal_parameters
-    (formal_parameter
-      type: [ (type_identifier) (generic_type) (scoped_type_identifier) (integral_type) (floating_point_type) (boolean_type) ] @param_type
-      name: (identifier) @param_name))
-) @constructor_param_match
+  name: (identifier) @constructor_name) @constructor_def
 
 (field_declaration
-  (modifiers ("private" @modifiers)?)
-  type: [ (type_identifier) (generic_type) (scoped_type_identifier) (integral_type) (floating_point_type) (boolean_type) ] @field_type
   declarator: (variable_declarator
     name: (identifier) @field_name)) @field_def
 
+;; Enum constants
+(enum_constant
+  name: (identifier) @enum_constant)
+
+;; Separate metadata matches to avoid breaking definitions
+(class_declaration
+  superclass: (superclass) @class_superclass)
+
+(class_declaration
+  interfaces: (super_interfaces (type_list (_) @class_interface)))
+
+(interface_declaration
+  (extends_interfaces (type_list (_) @interface_extends)))
+
+(enum_declaration
+  interfaces: (super_interfaces (type_list (_) @enum_interface)))
+
+(method_declaration
+  type: (_) @method_return_type)
+
+(field_declaration
+  type: (_) @field_type)
+
+(modifiers) @modifiers
+
+(formal_parameter
+  type: (_) @param_type
+  name: (identifier) @param_name) @param_match
+
+;; Call and Instantiation
 (method_invocation
   name: (identifier) @call_name) @method_call
 
 (object_creation_expression
-  type: [ (type_identifier) (generic_type) ] @inst_type
+  type: [ (type_identifier) (generic_type) (scoped_type_identifier) ] @inst_type
 ) @instantiation

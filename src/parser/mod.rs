@@ -29,9 +29,8 @@ pub fn matches_intent(node_kind: &str, intent: SymbolIntent) -> bool {
 
 #[derive(Debug, Clone)]
 pub enum SymbolResolution {
-    Local(Range),
+    Local(Range, Option<String>), // Range of declaration, and optional type name
     Precise(String, SymbolIntent),
-    Heuristic(String, SymbolIntent),
 }
 
 pub trait LspParser: Send + Sync {

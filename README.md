@@ -7,18 +7,18 @@ Unlike traditional text search, Naviscope provides a deep, structured understand
 ## 🌟 Key Features
 
 - **Code Knowledge Graph**: Represents project entities and their complex relationships in a unified graph using `petgraph`.
-- **LLM-Friendly DSL**: A shell-like query interface (e.g., `grep`, `ls`, `inspect`, `incoming`) that returns structured JSON data optimized for LLM agents.
+- **LLM-Friendly DSL**: A shell-like query interface (`grep`, `ls`, `inspect`, `incoming`, `outgoing`) that returns structured JSON data optimized for LLM agents.
 - **High-Performance Indexing**: A robust 3-phase processing pipeline (Scan & Parse → Resolve → Apply) utilizing Rust's concurrency for maximum speed.
-- **Incremental Updates**: Real-time graph synchronization via file system watching (`notify`), ensuring the graph stays up-to-date with your changes.
-- **Language Server Protocol (LSP)**: Provides IDE features like Go to Definition, Find References, and Call Hierarchy with zero JVM overhead.
-- **Extensible Architecture**: Language-neutral core with a strategy-based resolver. Currently focused on **Java + Gradle (V1)**, with plans for Rust, Python, and more.
+- **Real-time Synchronization**: Automatic graph updates via file system watching (`notify`), ensuring the index stays consistent with your changes.
+- **Multi-Protocol Interface**: Support for both **MCP** (Model Context Protocol) for AI agents and **LSP** (Language Server Protocol) for IDEs.
+- **Extensible Architecture**: Language-neutral core with a strategy-based resolver. Currently focused on **Java + Gradle**, with Maven support in progress.
 
 ## 🏗️ Architecture
 
 Naviscope processes code through three distinct phases:
-1.  **Phase 1: Scan & Parse**: Parallel file scanning and AST extraction using Tree-sitter grammars.
-2.  **Phase 2: Resolve**: Bridging the "semantic gap" by mapping raw entities to logical project structures (Modules/Packages) and generating idempotent graph operations.
-3.  **Phase 3: Apply**: Efficiently merging operations into a `StableDiGraph` for persistent indexing.
+1.  **Phase 1: Scan & Parse**: Parallel file scanning and AST extraction using Tree-sitter. It captures raw definitions and references at the file level.
+2.  **Phase 2: Resolve**: Bridges the "semantic gap" by mapping raw entities to logical project structures (Modules/Packages) and resolving symbols across the workspace.
+3.  **Phase 3: Apply**: Merges resolved operations into a `StableDiGraph` and persists the index for fast subsequent access.
 
 ## 🚀 Quick Start
 
@@ -28,20 +28,37 @@ Naviscope processes code through three distinct phases:
 
 ### Installation
 ```bash
+# 1. Update submodules (required for tree-sitter grammars)
+git submodule update --init --recursive
+
+# 2. Install the Naviscope CLI
 cargo install --path .
+
+# 3. Build the VS Code Extension (Optional)
+cd editors/vscode
+npm install
+npm run package
+# Install the generated .vsix in VS Code
 ```
 
-### Basic Usage
-```bash
-# Build an index for a Java project (stored automatically in ~/.naviscope/indices)
-naviscope index /path/to/java-project
-
-# Execute a structured query on the indexed project
-naviscope query /path/to/java-project '{"command": "grep", "pattern": "UserService", "kind": ["Class"]}'
-```
+### CLI Commands
+- `naviscope index <PATH>`: Build a persistent index for a project (stored in `~/.naviscope/indices`).
+- `naviscope query <PATH> <JSON>`: Execute a structured DSL query manually.
+- `naviscope watch <PATH>`: Start a background service to keep the index updated as you edit files.
+- `naviscope schema`: Display the JSON schema and examples for the GraphQuery DSL.
+- `naviscope clear [PATH]`: Remove specific project index or clear all cached indices.
+- `naviscope mcp`: Start the Model Context Protocol server.
+- `naviscope lsp`: Start the Language Server Protocol server.
 
 ### Model Context Protocol (MCP) Support
 Naviscope implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), allowing LLM agents like Cursor and Claude to directly use its code knowledge graph.
+
+#### Available Tools
+- **`grep`**: Global search for symbols by pattern and kind (Class, Method, etc.).
+- **`ls`**: List package members, class fields, or project modules.
+- **`inspect`**: Retrieve full metadata and source code for a specific Fully Qualified Name (FQN).
+- **`incoming`**: Trace inbound relationships like callers, implementers, or references.
+- **`outgoing`**: Trace outbound relationships like callees or class dependencies.
 
 #### Configuring in Cursor
 To use Naviscope in Cursor:
@@ -68,19 +85,24 @@ Add the following entry to your `claude_desktop_config.json`:
 ```
 
 ### Language Server Protocol (LSP) Support
-Naviscope acts as a high-performance LSP server for Java, offering a lightweight alternative to JDTLS. It uses a **Heuristic Name-based Navigation** strategy, ensuring high availability even when full semantic analysis is unavailable.
+Naviscope acts as a high-performance LSP server for Java, offering a lightweight alternative to JDTLS. It uses precise semantic edge tracking to ensure high availability and accuracy.
 
 #### Features
-- **Go to Definition**: Instant jump to symbol definitions using precise edge tracking and name-based heuristics.
-- **Find References**: Global reference tracking, catching usages even across complex type hierarchies.
-- **Call Hierarchy**: Visualize incoming and outgoing method calls through the knowledge graph.
-- **Go to Type Definition**: Jump to the class definition of variables or method return types.
-- **Go to Implementation**: Quickly find all implementations of an interface or overrides of a method.
+- **Go to Definition**: Instant jump to symbol definitions using precise edge tracking.
+- **Find References**: Global reference tracking across the entire project graph.
+- **Call Hierarchy**: Visualize incoming and outgoing method calls.
+- **Go to Type Definition**: Jump to the class definition of variables or return types.
+- **Go to Implementation**: Find all implementations of an interface or overrides of a method.
 - **Document Symbol**: Navigate class structures (classes, methods, fields) within a file.
-- **Workspace Symbol**: Fast, global fuzzy search for classes and methods across the entire project.
+- **Workspace Symbol**: Global fuzzy search for classes and methods.
+- **Hover**: View symbol signatures and documentation snippets.
+- **Document Highlight**: Highlight all local references of a symbol in the current document.
 
 #### Usage in VSCode / NeoVim
-- **VSCode**: A dedicated extension is available in the `editors/vscode` directory. Follow the instructions there to install and debug.
+- **VSCode**: 
+  1. Build the `.vsix` as shown in the Installation section.
+  2. Install it in VS Code via "Install from VSIX...".
+  3. Ensure the `naviscope` binary is in your PATH or configure `naviscope.path` in settings.
 - **Other Editors**: Simply point your LSP client to the `naviscope lsp` command.
 
 #### Why Naviscope LSP?
@@ -90,21 +112,22 @@ Naviscope acts as a high-performance LSP server for Java, offering a lightweight
 
 ## 🛠️ Query API Examples
 
-For LLM agents, Naviscope exposes commands designed for structured exploration:
-- `grep`: Global search for symbols by pattern and kind.
-- `ls`: List members (methods/fields) of a class or package.
-- `inspect`: Retrieve full metadata for a specific Fully Qualified Name (FQN).
-- `incoming`: Trace callers, implementers, or other inbound relationships.
-- `outgoing`: Trace callees, dependencies, or outbound relationships.
+The Query DSL (used by `naviscope query` and MCP) supports several commands for structured exploration:
+- `grep`: `{"command": "grep", "pattern": "UserService", "kind": ["class"]}`
+- `ls`: `{"command": "ls", "fqn": "com.example.service"}`
+- `inspect`: `{"command": "inspect", "fqn": "com.example.service.UserService"}`
+- `incoming`: `{"command": "incoming", "fqn": "com.example.service.UserService#save", "edge_type": ["Calls"]}`
+- `outgoing`: `{"command": "outgoing", "fqn": "com.example.service.UserService"}`
 
 ## 📈 Roadmap (V1)
 - [x] Core Graph Storage (`petgraph`)
 - [x] Java & Gradle Parser (Tree-sitter driven)
 - [x] Shell-like Query DSL Engine
-- [x] Parallel Indexing & Incremental Updates
-- [x] LSP Support (Definition, References, Call Hierarchy, Type Definition)
+- [x] Parallel Indexing & Real-time Updates (`notify`)
+- [x] MCP Server implementation
+- [x] LSP Support (Definition, References, Hierarchy, Hover, etc.)
 - [x] VSCode Extension (Initial version)
-- [ ] Maven Support (Coming Soon)
+- [ ] Maven Support (In Progress)
 - [ ] Python/Rust Language Strategies (Planned)
 
 ## 📄 License

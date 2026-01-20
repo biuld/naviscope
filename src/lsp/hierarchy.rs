@@ -13,6 +13,13 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
         None => return Ok(None),
     };
 
+    let naviscope_lock = backend.naviscope.read().await;
+    let naviscope = match naviscope_lock.as_ref() {
+        Some(n) => n,
+        None => return Ok(None),
+    };
+    let index = naviscope.index();
+
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
         let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
@@ -20,18 +27,11 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
             None => return Ok(None),
         };
         let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
             Some(r) => r,
             None => return Ok(None),
         }
     };
-
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match naviscope_lock.as_ref() {
-        Some(n) => n,
-        None => return Ok(None),
-    };
-    let index = naviscope.index();
 
     let mut items = Vec::new();
     let matches = {

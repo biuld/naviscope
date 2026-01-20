@@ -4,6 +4,7 @@ use tokio::sync::RwLock;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::MessageType;
 use crate::index::Naviscope;
+use crate::project::is_relevant_path;
 
 pub fn spawn_indexer(
     path: PathBuf,
@@ -46,7 +47,7 @@ pub fn spawn_indexer(
 
         // 2. Setup file watcher
         use crate::project::watcher::Watcher;
-        let watcher = match Watcher::new(&path) {
+        let mut watcher = match Watcher::new(&path) {
             Ok(w) => w,
             Err(e) => {
                 client.log_message(MessageType::ERROR, format!("Failed to start file watcher: {}", e)).await;
@@ -54,24 +55,24 @@ pub fn spawn_indexer(
             }
         };
 
-        // 3. Channel to bridge blocking watcher to async re-indexing
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        
-        // Blocking thread for watcher events
-        std::thread::spawn(move || {
-            while let Some(_) = watcher.next_event() {
-                let _ = tx.blocking_send(());
-            }
-        });
-
         client.log_message(MessageType::INFO, "File watcher active. Real-time indexing enabled.").await;
 
-        // 4. Watcher loop with debouncing
-        while let Some(_) = rx.recv().await {
+        // 3. Watcher loop with debouncing
+        while let Some(res) = watcher.rx.recv().await {
+            let event = match res {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            // Filter relevant paths
+            if !event.paths.iter().any(|p| is_relevant_path(p)) {
+                continue;
+            }
+
             // Debounce: wait for 500ms of quiet after the last event
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             // Drain any pending events
-            while let Ok(_) = rx.try_recv() {}
+            while let Ok(_) = watcher.rx.try_recv() {}
 
             client.log_message(MessageType::INFO, "Change detected on disk, re-indexing...").await;
             let start = std::time::Instant::now();

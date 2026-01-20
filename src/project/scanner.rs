@@ -1,3 +1,4 @@
+use super::is_relevant_path;
 use super::source::{BuildTool, Language, SourceFile};
 use crate::model::lang::gradle::GradleParseResult;
 use crate::parser::gradle;
@@ -115,11 +116,8 @@ impl Scanner {
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let path = entry.path();
-                if path.is_file() {
-                    let ext = path.extension()?.to_str()?;
-                    if ext == "java" || ext == "gradle" || ext == "kts" {
-                        return Some(path.to_path_buf());
-                    }
+                if path.is_file() && is_relevant_path(path) {
+                    return Some(path.to_path_buf());
                 }
                 None
             })
