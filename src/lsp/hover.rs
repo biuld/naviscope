@@ -13,10 +13,17 @@ pub async fn hover(backend: &Backend, params: HoverParams) -> Result<Option<Hove
         None => return Ok(None),
     };
 
-    // 1. Precise resolution using AST
-    let resolution = match doc.resolve_symbol(position.line as usize, position.character as usize) {
-        Some(r) => r,
-        None => return Ok(None),
+    // 1. Precise resolution using Semantic Resolver
+    let resolution = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+            Some(r) => r,
+            None => return Ok(None),
+        }
     };
 
     if let SymbolResolution::Local(_) = resolution {
@@ -34,7 +41,13 @@ pub async fn hover(backend: &Backend, params: HoverParams) -> Result<Option<Hove
     let index = naviscope.index();
 
     let mut hover_text = String::new();
-    let matches = index.find_matches(&resolution);
+    let matches = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        resolver.find_matches(index, &resolution)
+    };
 
     for &idx in &matches {
         let node = &index.graph[idx];

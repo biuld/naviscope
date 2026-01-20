@@ -68,6 +68,7 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
                     group: parts[0].to_string(),
                     name: parts[1].to_string(),
                     version: parts[2].to_string(),
+                    id: String::new(),
                 });
             }
         }

@@ -1,5 +1,16 @@
 use crate::error::{NaviscopeError, Result};
 use tree_sitter::{Language, Query};
+use crate::model::graph::Range;
+
+/// Converts a tree-sitter range to our internal Range model.
+pub fn range_from_ts(range: tree_sitter::Range) -> Range {
+    Range {
+        start_line: range.start_point.row,
+        start_col: range.start_point.column,
+        end_line: range.end_point.row,
+        end_col: range.end_point.column,
+    }
+}
 
 /// Loads a Tree-sitter query from an SCM string.
 pub fn load_query(language: &Language, scm: &str) -> Result<Query> {
@@ -89,6 +100,7 @@ pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<crate::parser:
 #[macro_export]
 macro_rules! decl_indices {
     ($name:ident, { $($field:ident => $capture:expr),+ $(,)? }) => {
+        #[derive(Clone)]
         pub struct $name {
             $(pub $field: u32,)+
         }

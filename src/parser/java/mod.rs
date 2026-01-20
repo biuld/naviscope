@@ -1,6 +1,9 @@
 use crate::error::Result;
 use crate::model::graph::Range;
+use crate::parser::utils::range_from_ts;
+use crate::parser::SymbolIntent;
 use tree_sitter::{Node, Query, Tree, StreamingIterator};
+use std::sync::Arc;
 
 mod constants;
 mod lsp;
@@ -13,12 +16,21 @@ unsafe extern "C" {
 }
 
 use crate::parser::queries::java_definitions::JavaIndices;
-use crate::parser::SymbolIntent;
 
 pub struct JavaParser {
     pub(crate) language: tree_sitter::Language,
-    pub(crate) definition_query: Query,
+    pub(crate) definition_query: Arc<Query>,
     pub(crate) indices: JavaIndices,
+}
+
+impl Clone for JavaParser {
+    fn clone(&self) -> Self {
+        Self {
+            language: self.language.clone(),
+            definition_query: Arc::clone(&self.definition_query),
+            indices: self.indices.clone(),
+        }
+    }
 }
 
 impl JavaParser {
@@ -32,14 +44,14 @@ impl JavaParser {
 
         Ok(Self {
             language,
-            definition_query,
+            definition_query: Arc::new(definition_query),
             indices,
         })
     }
 
     // --- Core Atomic Helpers (Shared between Global and Local) ---
 
-    pub(crate) fn compute_fqn(&self, name_node: Node, source: &str, package: &str) -> String {
+    pub fn compute_fqn(&self, name_node: Node, source: &str, package: &str) -> String {
         let mut parts = Vec::new();
         let mut curr = name_node;
         parts.push(name_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string());
@@ -64,7 +76,7 @@ impl JavaParser {
         fqn
     }
 
-    pub(crate) fn find_enclosing_element(&self, node: Node, source: &str, pkg: &str) -> Option<String> {
+    pub fn find_enclosing_element(&self, node: Node, source: &str, pkg: &str) -> Option<String> {
         let mut curr = node;
         while let Some(parent) = curr.parent() {
             match parent.kind() {
@@ -85,7 +97,7 @@ impl JavaParser {
         None
     }
 
-    pub(crate) fn extract_package_and_imports(&self, tree: &Tree, source: &str) -> (Option<String>, Vec<String>) {
+    pub fn extract_package_and_imports(&self, tree: &Tree, source: &str) -> (Option<String>, Vec<String>) {
         let mut package = None;
         let mut imports = Vec::new();
         let mut cursor = tree_sitter::QueryCursor::new();
@@ -103,7 +115,15 @@ impl JavaParser {
         (package, imports)
     }
 
-    pub(crate) fn determine_intent(&self, node: &Node) -> SymbolIntent {
+    pub fn resolve_type_name_to_fqn_data(&self, type_name: &str, package: Option<&str>, imports: &[String]) -> Option<String> {
+        for imp in imports {
+            if imp.ends_with(&format!(".{}", type_name)) { return Some(imp.clone()); }
+        }
+        if let Some(p) = package { return Some(format!("{}.{}", p, type_name)); }
+        Some(type_name.to_string())
+    }
+
+    pub fn determine_intent(&self, node: &Node) -> SymbolIntent {
         let parent = match node.parent() {
             Some(p) => p,
             None => return SymbolIntent::Unknown,
@@ -148,12 +168,12 @@ impl JavaParser {
         }
     }
 
-    pub(crate) fn is_decl_of(&self, node: &Node, name: &str, source: &str) -> Option<Range> {
+    pub fn is_decl_of(&self, node: &Node, name: &str, source: &str) -> Option<Range> {
         match node.kind() {
             "variable_declarator" | "formal_parameter" | "catch_formal_parameter" => {
                 if let Some(name_node) = node.child_by_field_name("name") {
                     if name_node.utf8_text(source.as_bytes()).ok()? == name {
-                        return Some(Range::from_ts(name_node.range()));
+                        return Some(range_from_ts(name_node.range()));
                     }
                 }
             }
@@ -168,10 +188,9 @@ impl JavaParser {
         None
     }
 
-    pub(crate) fn resolve_receiver_type(&self, receiver: &Node, tree: &Tree, source: &str) -> Option<String> {
+    pub fn resolve_receiver_type(&self, receiver: &Node, tree: &Tree, source: &str) -> Option<String> {
         let receiver_text = receiver.utf8_text(source.as_bytes()).ok()?;
 
-        // Handle 'this' keyword
         if receiver_text == "this" {
             let (pkg, _) = self.extract_package_and_imports(tree, source);
             return self.find_enclosing_class_fqn(receiver, source, pkg.as_deref());
@@ -203,16 +222,12 @@ impl JavaParser {
         None
     }
 
-    pub(crate) fn resolve_type_name_to_fqn(&self, type_name: &str, tree: &Tree, source: &str) -> Option<String> {
+    pub fn resolve_type_name_to_fqn(&self, type_name: &str, tree: &Tree, source: &str) -> Option<String> {
         let (pkg, imports) = self.extract_package_and_imports(tree, source);
-        for imp in &imports {
-            if imp.ends_with(&format!(".{}", type_name)) { return Some(imp.clone()); }
-        }
-        if let Some(p) = pkg { return Some(format!("{}.{}", p, type_name)); }
-        Some(type_name.to_string())
+        self.resolve_type_name_to_fqn_data(type_name, pkg.as_deref(), &imports)
     }
 
-    pub(crate) fn find_enclosing_class_fqn(&self, node: &Node, source: &str, pkg: Option<&str>) -> Option<String> {
+    pub fn find_enclosing_class_fqn(&self, node: &Node, source: &str, pkg: Option<&str>) -> Option<String> {
         let mut curr = *node;
         while let Some(parent) = curr.parent() {
             if parent.kind() == "class_declaration" {

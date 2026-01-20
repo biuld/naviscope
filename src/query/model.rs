@@ -51,7 +51,7 @@ impl From<&GraphNode> for NodeSummary {
         };
 
         Self {
-            fqn: node.fqn(),
+            fqn: node.fqn().to_string(),
             name: node.name().to_string(),
             kind: node.kind().to_string(),
             signature,

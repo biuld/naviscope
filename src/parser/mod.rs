@@ -37,7 +37,8 @@ pub enum SymbolResolution {
 pub trait LspParser: Send + Sync {
     fn parse(&self, source: &str, old_tree: Option<&tree_sitter::Tree>) -> Option<tree_sitter::Tree>;
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DocumentSymbol>;
-    fn resolve_symbol(&self, tree: &Tree, source: &str, line: usize, byte_col: usize) -> Option<SymbolResolution>;
+    /// Maps a language-specific symbol kind string to an LSP SymbolKind
+    fn symbol_kind(&self, kind: &str) -> tower_lsp::lsp_types::SymbolKind;
 }
 
 /// Result of a global file parsing for indexing.

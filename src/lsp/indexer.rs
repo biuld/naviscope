@@ -19,6 +19,7 @@ pub fn spawn_indexer(
         let (res, n) = {
             let mut n = navi;
             tokio::task::spawn_blocking(move || {
+                let _ = n.clear_project_index();
                 let res = n.build_index();
                 (res, n)
             }).await.expect("Indexer task panicked")

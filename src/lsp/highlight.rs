@@ -12,7 +12,7 @@ pub async fn highlight(backend: &Backend, params: DocumentHighlightParams) -> Re
     };
 
     // 1. Get the word under cursor precisely
-    let word = doc.find_node_at(position.line as usize, position.character as usize)
+    let word = crate::lsp::util::find_node_at(&doc.tree, &doc.content, position.line as usize, position.character as usize)
         .and_then(|node| {
             if node.kind() == "identifier" || node.kind() == "type_identifier" {
                 doc.content.get(node.byte_range())

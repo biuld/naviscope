@@ -7,10 +7,10 @@ pub enum GradleElement {
 }
 
 impl GradleElement {
-    pub fn fqn(&self) -> String {
+    pub fn id(&self) -> &str {
         match self {
-            GradleElement::Package(p) => p.name.clone(),
-            GradleElement::Dependency(d) => format!("{}:{}", d.group, d.name),
+            GradleElement::Package(p) => &p.id,
+            GradleElement::Dependency(d) => &d.id,
         }
     }
 
@@ -32,6 +32,7 @@ impl GradleElement {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GradlePackage {
     pub name: String,
+    pub id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -39,6 +40,7 @@ pub struct GradleDependency {
     pub group: String,
     pub name: String,
     pub version: String,
+    pub id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -26,15 +26,6 @@ impl Range {
         }
         true
     }
-
-    pub fn from_ts(range: tree_sitter::Range) -> Self {
-        Self {
-            start_line: range.start_point.row,
-            start_col: range.start_point.column,
-            end_line: range.end_point.row,
-            end_col: range.end_point.column,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -60,10 +51,10 @@ pub enum BuildElement {
 }
 
 impl GraphNode {
-    pub fn fqn(&self) -> String {
+    pub fn fqn(&self) -> &str {
         match self {
-            GraphNode::Code(CodeElement::Java { element, .. }) => element.id().to_string(),
-            GraphNode::Build(BuildElement::Gradle { element, .. }) => element.fqn(),
+            GraphNode::Code(CodeElement::Java { element, .. }) => element.id(),
+            GraphNode::Build(BuildElement::Gradle { element, .. }) => element.id(),
         }
     }
 
@@ -115,6 +106,46 @@ impl GraphNode {
 
     pub fn gradle(element: GradleElement, file_path: Option<PathBuf>) -> Self {
         GraphNode::Build(BuildElement::Gradle { element, file_path })
+    }
+}
+
+/// Graph operation commands that can be computed in parallel
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GraphOp {
+    /// Add or update a node
+    AddNode { id: String, data: GraphNode },
+    /// Add an edge between two nodes (referenced by their IDs)
+    AddEdge {
+        from_id: String,
+        to_id: String,
+        edge: GraphEdge,
+    },
+    /// Remove all nodes and edges associated with a specific file path
+    RemovePath { path: PathBuf },
+}
+
+/// Result of resolving a single file
+#[derive(Debug)]
+pub struct ResolvedUnit {
+    /// The operations needed to integrate this file into the graph
+    pub ops: Vec<GraphOp>,
+}
+
+impl ResolvedUnit {
+    pub fn new() -> Self {
+        Self { ops: Vec::new() }
+    }
+
+    pub fn add_node(&mut self, id: String, data: GraphNode) {
+        self.ops.push(GraphOp::AddNode { id, data });
+    }
+
+    pub fn add_edge(&mut self, from_id: String, to_id: String, edge: GraphEdge) {
+        self.ops.push(GraphOp::AddEdge {
+            from_id,
+            to_id,
+            edge,
+        });
     }
 }
 

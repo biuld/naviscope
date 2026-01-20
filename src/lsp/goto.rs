@@ -1,6 +1,5 @@
 use crate::lsp::Backend;
 use crate::lsp::util::get_word_from_content;
-use crate::model::lang::java::JavaElement;
 use crate::parser::{SymbolIntent, SymbolResolution};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -18,10 +17,17 @@ pub async fn definition(
         None => return Ok(None),
     };
 
-    // 1. Precise resolution using AST (Local Scope & Imports)
-    let resolution = match doc.resolve_symbol(position.line as usize, position.character as usize) {
-        Some(r) => r,
-        None => return Ok(None),
+    // 1. Precise resolution using Semantic Resolver
+    let resolution = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+            Some(r) => r,
+            None => return Ok(None),
+        }
     };
 
     if let SymbolResolution::Local(range) = resolution {
@@ -47,7 +53,13 @@ pub async fn definition(
     };
     let index = naviscope.index();
 
-    let matches = index.find_matches(&resolution);
+    let matches = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        resolver.find_matches(index, &resolution)
+    };
     let mut locations = Vec::new();
 
     for &node_idx in &matches {
@@ -86,10 +98,17 @@ pub async fn type_definition(
         None => return Ok(None),
     };
 
-    // 1. Precise resolution using AST
-    let resolution = match doc.resolve_symbol(position.line as usize, position.character as usize) {
-        Some(r) => r,
-        None => return Ok(None),
+    // 1. Precise resolution using Semantic Resolver
+    let resolution = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+            Some(r) => r,
+            None => return Ok(None),
+        }
     };
 
     let naviscope_lock = backend.naviscope.read().await;
@@ -99,10 +118,15 @@ pub async fn type_definition(
     };
     let index = naviscope.index();
 
-    let mut type_resolutions = Vec::new();
+    let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        Some(r) => r,
+        None => return Ok(None),
+    };
 
-    match resolution {
-        SymbolResolution::Local(_) => {
+    let mut type_resolutions = resolver.resolve_type_of(index, &resolution);
+
+    if type_resolutions.is_empty() {
+        if let SymbolResolution::Local(_) = resolution {
             // For local variables, we'd need to find their declared type name.
             let word = get_word_from_content(
                 &doc.content,
@@ -110,57 +134,15 @@ pub async fn type_definition(
                 position.character as usize,
             )
             .unwrap_or_default();
-            if let Some(nodes) = index.name_map.get(&word) {
-                for &idx in nodes {
-                    let node = &index.graph[idx];
-                    if let crate::model::graph::GraphNode::Code(
-                        crate::model::graph::CodeElement::Java { element, .. },
-                    ) = node
-                    {
-                        match element {
-                            JavaElement::Field(f) => {
-                                type_resolutions.push(SymbolResolution::Precise(f.type_name.clone(), SymbolIntent::Type))
-                            }
-                            JavaElement::Method(m) => {
-                                type_resolutions.push(SymbolResolution::Precise(m.return_type.clone(), SymbolIntent::Type))
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-        SymbolResolution::Precise(fqn, intent) => {
-            type_resolutions.push(SymbolResolution::Precise(fqn, intent));
-        }
-        SymbolResolution::Heuristic(name, intent) => {
-            if let Some(nodes) = index.name_map.get(&name) {
-                for &idx in nodes {
-                    let node = &index.graph[idx];
-                    if let crate::model::graph::GraphNode::Code(
-                        crate::model::graph::CodeElement::Java { element, .. },
-                    ) = node
-                    {
-                        match element {
-                            JavaElement::Field(f) => {
-                                type_resolutions.push(SymbolResolution::Precise(f.type_name.clone(), SymbolIntent::Type))
-                            }
-                            JavaElement::Method(m) => {
-                                type_resolutions.push(SymbolResolution::Precise(m.return_type.clone(), SymbolIntent::Type))
-                            }
-                            _ => type_resolutions.push(SymbolResolution::Heuristic(name.clone(), intent)),
-                        }
-                    }
-                }
-            } else {
-                type_resolutions.push(SymbolResolution::Heuristic(name, intent));
-            }
+            
+            // Heuristic fallback: search by name in the index
+            type_resolutions.extend(resolver.resolve_type_of(index, &SymbolResolution::Heuristic(word, SymbolIntent::Unknown)));
         }
     }
 
     let mut locations = Vec::new();
     for res in type_resolutions {
-        let matches = index.find_matches(&res);
+        let matches = resolver.find_matches(index, &res);
         for idx in matches {
             let target = &index.graph[idx];
             if let (Some(tp), Some(tr)) = (target.file_path(), target.range()) {
@@ -197,10 +179,17 @@ pub async fn references(
         None => return Ok(None),
     };
 
-    // 1. Precise resolution using AST
-    let resolution = match doc.resolve_symbol(position.line as usize, position.character as usize) {
-        Some(r) => r,
-        None => return Ok(None),
+    // 1. Precise resolution using Semantic Resolver
+    let resolution = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+            Some(r) => r,
+            None => return Ok(None),
+        }
     };
 
     let naviscope_lock = backend.naviscope.read().await;
@@ -249,7 +238,11 @@ pub async fn references(
             }
         }
         _ => {
-            let matches = index.find_matches(&resolution);
+            let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+                Some(r) => r,
+                None => return Ok(None),
+            };
+            let matches = resolver.find_matches(index, &resolution);
             for node_idx in matches {
                 let mut incoming = index
                     .graph
@@ -322,6 +315,25 @@ pub async fn implementation(
         None => return Ok(None),
     };
     
+    // 1. Precise resolution using Semantic Resolver
+    let resolution = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+            Some(r) => r,
+            None => {
+                // Heuristic fallback if resolution fails
+                let word = get_word_from_content(&doc.content, position.line as usize, position.character as usize)
+                    .unwrap_or_default();
+                if word.is_empty() { return Ok(None); }
+                SymbolResolution::Heuristic(word, SymbolIntent::Unknown)
+            }
+        }
+    };
+
     let naviscope_lock = backend.naviscope.read().await;
     let naviscope = match &*naviscope_lock {
         Some(n) => n,
@@ -329,48 +341,29 @@ pub async fn implementation(
     };
 
     let index = naviscope.index();
-    let word = match get_word_from_content(
-        &doc.content,
-        position.line as usize,
-        position.character as usize,
-    ) {
-        Some(w) => w,
+    let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        Some(r) => r,
         None => return Ok(None),
     };
 
-    if let Some(target_nodes) = index.name_map.get(&word) {
-        let mut locations = Vec::new();
-        for &node_idx in target_nodes {
-            let mut incoming = index
-                .graph
-                .neighbors_directed(node_idx, petgraph::Direction::Incoming)
-                .detach();
-            while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
-                let edge = &index.graph[edge_idx];
-                if edge.edge_type == crate::model::graph::EdgeType::Implements
-                    || edge.edge_type == crate::model::graph::EdgeType::InheritsFrom
-                {
-                    let source_node = &index.graph[neighbor_idx];
-                    if let (Some(source_path), Some(range)) =
-                        (source_node.file_path(), source_node.range())
-                    {
-                        locations.push(Location {
-                            uri: Url::from_file_path(source_path).unwrap(),
-                            range: Range {
-                                start: Position::new(
-                                    range.start_line as u32,
-                                    range.start_col as u32,
-                                ),
-                                end: Position::new(range.end_line as u32, range.end_col as u32),
-                            },
-                        });
-                    }
-                }
-            }
+    let implementations = resolver.find_implementations(index, &resolution);
+    let mut locations = Vec::new();
+
+    for &node_idx in &implementations {
+        let node = &index.graph[node_idx];
+        if let (Some(source_path), Some(range)) = (node.file_path(), node.range()) {
+            locations.push(Location {
+                uri: Url::from_file_path(source_path).unwrap(),
+                range: Range {
+                    start: Position::new(range.start_line as u32, range.start_col as u32),
+                    end: Position::new(range.end_line as u32, range.end_col as u32),
+                },
+            });
         }
-        if !locations.is_empty() {
-            return Ok(Some(GotoDefinitionResponse::Array(locations)));
-        }
+    }
+
+    if !locations.is_empty() {
+        return Ok(Some(GotoDefinitionResponse::Array(locations)));
     }
 
     Ok(None)

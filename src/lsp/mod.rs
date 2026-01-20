@@ -20,6 +20,7 @@ pub struct Backend {
     client: Client,
     pub naviscope: Arc<RwLock<Option<Naviscope>>>,
     pub document_states: DashMap<Url, Arc<Document>>,
+    pub resolver: Arc<crate::resolver::engine::IndexResolver>,
 }
 
 impl Backend {
@@ -28,32 +29,16 @@ impl Backend {
             client,
             naviscope: Arc::new(RwLock::new(None)),
             document_states: DashMap::new(),
+            resolver: Arc::new(crate::resolver::engine::IndexResolver::new()),
         }
     }
 
-    pub fn get_parser_for_uri(&self, uri: &Url) -> Option<Arc<dyn crate::parser::LspParser>> {
+    pub fn get_parser_and_lang_for_uri(&self, uri: &Url) -> Option<(Arc<dyn crate::parser::LspParser>, crate::project::source::Language)> {
         let path = uri.to_file_path().ok()?;
         let ext = path.extension()?.to_str()?;
-        if ext == "java" {
-            Some(Arc::new(crate::parser::java::JavaParser::new().ok()?))
-        } else {
-            None
-        }
-    }
-
-    pub fn utf16_col_to_byte_col(&self, text: &str, line: usize, utf16_col: usize) -> usize {
-        let line_content = text.lines().nth(line).unwrap_or("");
-        let mut curr_utf16 = 0;
-        let mut curr_byte = 0;
-
-        for c in line_content.chars() {
-            if curr_utf16 >= utf16_col {
-                break;
-            }
-            curr_utf16 += c.len_utf16();
-            curr_byte += c.len_utf8();
-        }
-        curr_byte
+        let lang = self.resolver.get_language_by_extension(ext)?;
+        let parser = self.resolver.get_lsp_parser(lang)?;
+        Some((parser, lang))
     }
 
     fn point_at(&self, text: &str, offset: usize) -> tree_sitter::Point {
@@ -141,9 +126,9 @@ impl LanguageServer for Backend {
         self.client.log_message(MessageType::LOG, format!("LSP Event: did_open uri={}", uri)).await;
         let content = params.text_document.text;
         
-        if let Some(parser) = self.get_parser_for_uri(&uri) {
+        if let Some((parser, lang)) = self.get_parser_and_lang_for_uri(&uri) {
             if let Some(tree) = parser.parse(&content, None) {
-                self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser)));
+                self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser, lang)));
             }
         }
     }
@@ -151,12 +136,12 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         self.client.log_message(MessageType::LOG, format!("LSP Event: did_change uri={}", uri)).await;
-        let (mut content, mut tree, parser) = {
+        let (mut content, mut tree, parser, lang) = {
             let state = match self.document_states.get(&uri) {
                 Some(s) => s,
                 None => return,
             };
-            (state.content.clone(), state.tree.clone(), state.parser.clone())
+            (state.content.clone(), state.tree.clone(), state.parser.clone(), state.language.clone())
         };
 
         for change in params.content_changes {
@@ -166,11 +151,11 @@ impl LanguageServer for Backend {
                 
                 let start_point = tree_sitter::Point::new(
                     range.start.line as usize,
-                    self.utf16_col_to_byte_col(&content, range.start.line as usize, range.start.character as usize)
+                    util::utf16_col_to_byte_col(&content, range.start.line as usize, range.start.character as usize)
                 );
                 let old_end_point = tree_sitter::Point::new(
                     range.end.line as usize,
-                    self.utf16_col_to_byte_col(&content, range.end.line as usize, range.end.character as usize)
+                    util::utf16_col_to_byte_col(&content, range.end.line as usize, range.end.character as usize)
                 );
 
                 content.replace_range(start_byte..old_end_byte, &change.text);
@@ -199,7 +184,7 @@ impl LanguageServer for Backend {
             tree = new_tree;
         }
         
-        self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser)));
+        self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser, lang)));
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {

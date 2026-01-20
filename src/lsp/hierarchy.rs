@@ -13,10 +13,17 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
         None => return Ok(None),
     };
 
-    // 1. Precise resolution using AST
-    let resolution = match doc.resolve_symbol(position.line as usize, position.character as usize) {
-        Some(r) => r,
-        None => return Ok(None),
+    // 1. Precise resolution using Semantic Resolver
+    let resolution = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
+        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col) {
+            Some(r) => r,
+            None => return Ok(None),
+        }
     };
 
     let naviscope_lock = backend.naviscope.read().await;
@@ -27,7 +34,13 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
     let index = naviscope.index();
 
     let mut items = Vec::new();
-    let matches = index.find_matches(&resolution);
+    let matches = {
+        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        resolver.find_matches(index, &resolution)
+    };
 
     for idx in matches {
         let node = &index.graph[idx];
@@ -42,11 +55,11 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
                     name: node.name().to_string(),
                     kind: SymbolKind::METHOD,
                     tags: None,
-                    detail: Some(node.fqn()),
+                    detail: Some(node.fqn().to_string()),
                     uri: Url::from_file_path(target_path).unwrap(),
                     range: lsp_range,
                     selection_range: lsp_range,
-                    data: Some(serde_json::to_value(node.fqn()).unwrap()),
+                    data: Some(serde_json::to_value(node.fqn().to_string()).unwrap()),
                 });
             }
         }
@@ -92,11 +105,11 @@ pub async fn incoming_calls(backend: &Backend, params: CallHierarchyIncomingCall
                     name: source_node.name().to_string(),
                     kind: SymbolKind::METHOD,
                     tags: None,
-                    detail: Some(source_node.fqn()),
+                    detail: Some(source_node.fqn().to_string()),
                     uri: Url::from_file_path(source_path).unwrap(),
                     range: lsp_range,
                     selection_range: lsp_range,
-                    data: Some(serde_json::to_value(source_node.fqn()).unwrap()),
+                    data: Some(serde_json::to_value(source_node.fqn().to_string()).unwrap()),
                 };
 
                 let call_range = if let Some(r) = &edge.range {
@@ -152,11 +165,11 @@ pub async fn outgoing_calls(backend: &Backend, params: CallHierarchyOutgoingCall
                     name: target_node.name().to_string(),
                     kind: SymbolKind::METHOD,
                     tags: None,
-                    detail: Some(target_node.fqn()),
+                    detail: Some(target_node.fqn().to_string()),
                     uri: Url::from_file_path(target_path).unwrap(),
                     range: lsp_range,
                     selection_range: lsp_range,
-                    data: Some(serde_json::to_value(target_node.fqn()).unwrap()),
+                    data: Some(serde_json::to_value(target_node.fqn().to_string()).unwrap()),
                 };
 
                 let call_range = if let Some(r) = &edge.range {

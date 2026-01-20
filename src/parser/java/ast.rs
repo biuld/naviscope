@@ -1,4 +1,5 @@
 use crate::model::graph::{EdgeType, Range};
+use crate::parser::utils::range_from_ts;
 use crate::model::lang::java::{
     JavaAnnotation, JavaClass, JavaElement, JavaEnum, JavaField, JavaInterface, JavaMethod,
     JavaParameter,
@@ -80,8 +81,8 @@ impl JavaParser {
                 if let Some(name_node) = mat.captures.iter().find(|c| c.index == name_idx).map(|c| c.node) {
                     let fqn = self.compute_fqn(name_node, source, pkg_str);
                     let name = name_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-                    let range = Range::from_ts(anchor_node.range());
-                    let name_range = Range::from_ts(name_node.range());
+                    let range = range_from_ts(anchor_node.range());
+                    let name_range = range_from_ts(name_node.range());
 
                     let idx = if let Some(&existing_idx) = entities_map.get(&fqn) {
                         existing_idx
@@ -151,7 +152,7 @@ impl JavaParser {
                         source_fqn,
                         target_name: target,
                         rel_type: EdgeType::Calls,
-                        range: Some(Range::from_ts(target_node.range())),
+                        range: Some(range_from_ts(target_node.range())),
                     });
                 }
             } else if let Some(inst_cap) = mat.captures.iter().find(|c| c.index == self.indices.inst) {
@@ -164,7 +165,7 @@ impl JavaParser {
                         source_fqn,
                         target_name: target,
                         rel_type: EdgeType::Instantiates,
-                        range: Some(Range::from_ts(target_node.range())),
+                        range: Some(range_from_ts(target_node.range())),
                     });
                 }
             }

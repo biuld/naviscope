@@ -1,6 +1,5 @@
 use crate::error::{NaviscopeError, Result};
 use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
-use crate::parser::{matches_intent, SymbolIntent, SymbolResolution};
 use crate::project::scanner::Scanner;
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -106,42 +105,13 @@ impl NaviscopeIndex {
     }
 
     /// Finds nodes matching a symbol resolution result.
-    pub fn find_matches(&self, resolution: &SymbolResolution) -> Vec<NodeIndex> {
-        match resolution {
-            SymbolResolution::Local(_) => vec![], // Handled by Document locally
-            SymbolResolution::Precise(fqn, intent) => {
-                // 1. Try precise FQN match
-                if let Some(&idx) = self.fqn_map.get(fqn) {
-                    if let Some(node) = self.graph.node_weight(idx) {
-                        if matches_intent(node.kind(), *intent) {
-                            return vec![idx];
-                        }
-                    }
-                }
-
-                // 2. Fallback to name-based search if FQN match fails
-                let name = fqn.split('.').last().unwrap_or(fqn);
-                self.find_by_name_and_intent(name, *intent)
-            }
-            SymbolResolution::Heuristic(name, intent) => {
-                self.find_by_name_and_intent(name, *intent)
-            }
+    /// This is a low-level query used by resolvers.
+    pub fn find_matches_by_fqn(&self, fqn: &str) -> Vec<NodeIndex> {
+        if let Some(&idx) = self.fqn_map.get(fqn) {
+            vec![idx]
+        } else {
+            vec![]
         }
-    }
-
-    /// Finds nodes by name and intent.
-    pub fn find_by_name_and_intent(&self, name: &str, intent: SymbolIntent) -> Vec<NodeIndex> {
-        let mut results = Vec::new();
-        if let Some(indices) = self.name_map.get(name) {
-            for &idx in indices {
-                if let Some(node) = self.graph.node_weight(idx) {
-                    if matches_intent(node.kind(), intent) {
-                        results.push(idx);
-                    }
-                }
-            }
-        }
-        results
     }
 }
 
@@ -252,8 +222,8 @@ impl Naviscope {
     }
 
     pub fn build_index(&mut self) -> Result<()> {
-        use crate::project::resolver::GraphOp;
-        use crate::project::resolver::Resolver;
+        use crate::model::graph::GraphOp;
+        use crate::resolver::engine::IndexResolver;
 
         // Try to load existing index first
         let _ = self.load();
@@ -285,7 +255,7 @@ impl Naviscope {
         }
 
         // Phase 2: Resolve (coordinated by Resolver in two phases)
-        let resolver = Resolver::new();
+        let resolver = IndexResolver::new();
         let all_ops = resolver.resolve(parse_results)?;
 
         // Phase 3: Apply (serial merge into the graph - fast memory operations)
@@ -300,8 +270,8 @@ impl Naviscope {
     }
 
     /// Apply a single graph operation to the index
-    fn apply_graph_op(&mut self, op: crate::project::resolver::GraphOp) -> Result<()> {
-        use crate::project::resolver::GraphOp;
+    fn apply_graph_op(&mut self, op: crate::model::graph::GraphOp) -> Result<()> {
+        use crate::model::graph::GraphOp;
 
         match op {
             GraphOp::AddNode { id, data } => {
@@ -348,7 +318,7 @@ impl Naviscope {
                         if let Some(node) = self.index.graph.node_weight(node_idx) {
                             let fqn = node.fqn();
                             let name = node.name().to_string();
-                            self.index.fqn_map.remove(&fqn);
+                            self.index.fqn_map.remove(fqn);
                             if let Some(nodes_with_name) = self.index.name_map.get_mut(&name) {
                                 nodes_with_name.retain(|&idx| idx != node_idx);
                                 if nodes_with_name.is_empty() {

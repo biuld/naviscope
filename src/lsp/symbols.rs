@@ -2,6 +2,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use crate::lsp::Backend;
 use crate::lsp::util::uri_to_path;
+use crate::project::source::Language;
 
 pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
     let uri = params.text_document.uri;
@@ -12,9 +13,9 @@ pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) ->
     
     // 1. Try real-time AST-based symbols first (supports unsaved changes)
     if let Some(doc) = backend.document_states.get(&uri) {
-        let symbols = doc.extract_symbols();
+        let symbols = doc.parser.extract_symbols(&doc.tree, &doc.content);
         if !symbols.is_empty() {
-            let lsp_symbols = convert_symbols(symbols);
+            let lsp_symbols = convert_symbols(symbols, doc.parser.as_ref());
             return Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)));
         }
     }
@@ -41,14 +42,22 @@ pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) ->
                 #[allow(deprecated)]
                 symbols.push(DocumentSymbol {
                     name: node.name().to_string(),
-                    detail: Some(node.fqn()),
-                    kind: match node.kind() {
-                        "class" => SymbolKind::CLASS,
-                        "interface" => SymbolKind::INTERFACE,
-                        "enum" => SymbolKind::ENUM,
-                        "method" => SymbolKind::METHOD,
-                        "field" => SymbolKind::FIELD,
-                        _ => SymbolKind::VARIABLE,
+                    detail: Some(node.fqn().to_string()),
+                    kind: {
+                        let _resolver = match backend.resolver.get_semantic_resolver(Language::Java) { // Fallback to Java for index symbols
+                            Some(r) => r,
+                            None => return Ok(None),
+                        };
+                        // Note: This is a bit tricky because node.kind() is language-specific.
+                        // For now, we use a simple mapping or we might need a more generic way.
+                        match node.kind() {
+                            "class" => SymbolKind::CLASS,
+                            "interface" => SymbolKind::INTERFACE,
+                            "enum" => SymbolKind::ENUM,
+                            "method" => SymbolKind::METHOD,
+                            "field" => SymbolKind::FIELD,
+                            _ => SymbolKind::VARIABLE,
+                        }
                     },
                     tags: None,
                     deprecated: None,
@@ -64,11 +73,11 @@ pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) ->
     Ok(None)
 }
 
-fn convert_symbols(symbols: Vec<crate::parser::DocumentSymbol>) -> Vec<DocumentSymbol> {
-    symbols.into_iter().map(convert_symbol).collect()
+fn convert_symbols(symbols: Vec<crate::parser::DocumentSymbol>, parser: &dyn crate::parser::LspParser) -> Vec<DocumentSymbol> {
+    symbols.into_iter().map(|s| convert_symbol(s, parser)).collect()
 }
 
-fn convert_symbol(sym: crate::parser::DocumentSymbol) -> DocumentSymbol {
+fn convert_symbol(sym: crate::parser::DocumentSymbol, parser: &dyn crate::parser::LspParser) -> DocumentSymbol {
     let range = Range {
         start: Position::new(sym.range.start_line as u32, sym.range.start_col as u32),
         end: Position::new(sym.range.end_line as u32, sym.range.end_col as u32),
@@ -82,14 +91,7 @@ fn convert_symbol(sym: crate::parser::DocumentSymbol) -> DocumentSymbol {
     DocumentSymbol {
         name: sym.name,
         detail: None,
-        kind: match sym.kind.as_str() {
-            "class" => SymbolKind::CLASS,
-            "interface" => SymbolKind::INTERFACE,
-            "method" => SymbolKind::METHOD,
-            "constructor" => SymbolKind::CONSTRUCTOR,
-            "field" => SymbolKind::FIELD,
-            _ => SymbolKind::VARIABLE,
-        },
+        kind: parser.symbol_kind(&sym.kind),
         tags: None,
         deprecated: None,
         range,
@@ -97,7 +99,7 @@ fn convert_symbol(sym: crate::parser::DocumentSymbol) -> DocumentSymbol {
         children: if sym.children.is_empty() {
             None
         } else {
-            Some(convert_symbols(sym.children))
+            Some(convert_symbols(sym.children, parser))
         },
     }
 }
@@ -114,7 +116,7 @@ pub async fn workspace_symbol(backend: &Backend, params: WorkspaceSymbolParams) 
     let mut symbols = Vec::new();
 
     for node in index.graph.node_weights() {
-        if node.name().to_lowercase().contains(&query) || node.fqn().to_lowercase().contains(&query) {
+        if node.name().to_lowercase().contains(&query) || node.fqn().to_string().to_lowercase().contains(&query) {
             if let (Some(path), Some(range)) = (node.file_path(), node.range()) {
                 #[allow(deprecated)]
                 symbols.push(SymbolInformation {
@@ -136,7 +138,7 @@ pub async fn workspace_symbol(backend: &Backend, params: WorkspaceSymbolParams) 
                             end: Position::new(range.end_line as u32, range.end_col as u32),
                         },
                     },
-                    container_name: Some(node.fqn()),
+                    container_name: Some(node.fqn().to_string()),
                 });
             }
         }

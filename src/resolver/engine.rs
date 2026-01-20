@@ -1,77 +1,58 @@
-pub mod strategy;
-
+use std::collections::HashMap;
+use std::sync::Arc;
+use rayon::prelude::*;
 use crate::error::Result;
-use crate::model::graph::{GraphEdge, GraphNode};
+use crate::model::graph::{GraphOp, ResolvedUnit};
 use crate::project::scanner::ParsedFile;
 use crate::project::source::{BuildTool, Language};
-use strategy::{BuildResolver, LangResolver, ProjectContext};
-use strategy::gradle::GradleResolver;
-use strategy::java::JavaResolver;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use rayon::prelude::*;
+use crate::resolver::{SemanticResolver, BuildResolver, LangResolver, ProjectContext};
+use crate::resolver::lang::gradle::GradleResolver;
+use crate::resolver::lang::java::JavaResolver;
 
-/// Graph operation commands that can be computed in parallel
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum GraphOp {
-    /// Add or update a node
-    AddNode { id: String, data: GraphNode },
-    /// Add an edge between two nodes (referenced by their IDs)
-    AddEdge {
-        from_id: String,
-        to_id: String,
-        edge: GraphEdge,
-    },
-    /// Remove all nodes and edges associated with a specific file path
-    RemovePath { path: PathBuf },
-}
-
-/// Result of resolving a single file
-#[derive(Debug)]
-pub struct ResolvedUnit {
-    /// The operations needed to integrate this file into the graph
-    pub ops: Vec<GraphOp>,
-}
-
-impl ResolvedUnit {
-    pub fn new() -> Self {
-        Self { ops: Vec::new() }
-    }
-
-    pub fn add_node(&mut self, id: String, data: GraphNode) {
-        self.ops.push(GraphOp::AddNode { id, data });
-    }
-
-    pub fn add_edge(&mut self, from_id: String, to_id: String, edge: GraphEdge) {
-        self.ops.push(GraphOp::AddEdge {
-            from_id,
-            to_id,
-            edge,
-        });
-    }
-}
-
-/// Main resolver that dispatches to specific strategies based on file type
-pub struct Resolver {
+/// Main resolver that dispatches to specific strategies based on file type for indexing
+pub struct IndexResolver {
     build_strategies: HashMap<BuildTool, Box<dyn BuildResolver>>,
     lang_strategies: HashMap<Language, Box<dyn LangResolver>>,
+    semantic_resolvers: HashMap<Language, Box<dyn SemanticResolver>>,
 }
 
-impl Resolver {
+impl IndexResolver {
     pub fn new() -> Self {
         let mut build_strategies: HashMap<BuildTool, Box<dyn BuildResolver>> = HashMap::new();
         let mut lang_strategies: HashMap<Language, Box<dyn LangResolver>> = HashMap::new();
+        let mut semantic_resolvers: HashMap<Language, Box<dyn SemanticResolver>> = HashMap::new();
 
         // Register build strategies
         build_strategies.insert(BuildTool::Gradle, Box::new(GradleResolver::new()));
 
         // Register language strategies
-        lang_strategies.insert(Language::Java, Box::new(JavaResolver::new()));
+        let java_resolver = JavaResolver::new();
+        lang_strategies.insert(Language::Java, Box::new(java_resolver.clone()));
+        semantic_resolvers.insert(Language::Java, Box::new(java_resolver));
 
         Self {
             build_strategies,
             lang_strategies,
+            semantic_resolvers,
+        }
+    }
+
+    pub fn get_semantic_resolver(&self, language: Language) -> Option<&dyn SemanticResolver> {
+        self.semantic_resolvers.get(&language).map(|r| r.as_ref())
+    }
+
+    pub fn get_lsp_parser(&self, language: Language) -> Option<Arc<dyn crate::parser::LspParser>> {
+        match language {
+            Language::Java => Some(Arc::new(crate::parser::java::JavaParser::new().ok()?)),
+            _ => None,
+        }
+    }
+
+    pub fn get_language_by_extension(&self, ext: &str) -> Option<Language> {
+        match ext {
+            "java" => Some(Language::Java),
+            "gradle" => Some(Language::BuildFile),
+            _ => None,
         }
     }
 

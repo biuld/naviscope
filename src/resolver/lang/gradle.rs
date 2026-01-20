@@ -1,8 +1,7 @@
-use super::{BuildResolver, ProjectContext};
+use crate::resolver::{BuildResolver, ProjectContext};
 use crate::error::Result;
-use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
+use crate::model::graph::{EdgeType, GraphEdge, GraphNode, ResolvedUnit};
 use crate::model::lang::gradle::{GradleElement, GradlePackage};
-use crate::project::resolver::ResolvedUnit;
 use crate::project::scanner::{ParsedContent, ParsedFile};
 
 pub struct GradleResolver;
@@ -41,6 +40,7 @@ impl BuildResolver for GradleResolver {
                     GraphNode::gradle(
                         GradleElement::Package(GradlePackage {
                             name: module_name.clone(),
+                            id: module_id.clone(),
                         }),
                         Some(file.file.path.clone()),
                     ),
@@ -49,10 +49,13 @@ impl BuildResolver for GradleResolver {
                 // Add dependencies
                 for dep in &parse_result.dependencies {
                     let dep_id = format!("dep:{}:{}:{}", dep.group, dep.name, dep.version);
+                    let mut dep_node = dep.clone();
+                    dep_node.id = dep_id.clone();
+                    
                     unit.add_node(
                         dep_id.clone(),
                         GraphNode::gradle(
-                            GradleElement::Dependency(dep.clone()),
+                            GradleElement::Dependency(dep_node),
                             Some(file.file.path.clone()),
                         ),
                     );
