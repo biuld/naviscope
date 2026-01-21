@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 use dashmap::DashMap;
 use crate::lsp::util::Document;
 use std::path::PathBuf;
+use tokio_util::sync::CancellationToken;
 
 pub struct LspServer {
     client: Client,
@@ -23,6 +24,7 @@ pub struct LspServer {
     pub documents: DashMap<Url, Arc<Document>>,
     pub resolver: Arc<crate::resolver::engine::IndexResolver>,
     session_path: Arc<RwLock<Option<PathBuf>>>,
+    cancel_token: CancellationToken,
 }
 
 impl LspServer {
@@ -33,6 +35,7 @@ impl LspServer {
             documents: DashMap::new(),
             resolver: Arc::new(crate::resolver::engine::IndexResolver::new()),
             session_path: Arc::new(RwLock::new(None)),
+            cancel_token: CancellationToken::new(),
         }
     }
 
@@ -117,6 +120,7 @@ impl LanguageServer for LspServer {
                 path,
                 self.session_path.clone(),
                 params.client_info.map(|i| i.name),
+                self.cancel_token.clone(),
             );
         }
 
@@ -130,6 +134,7 @@ impl LanguageServer for LspServer {
     }
 
     async fn shutdown(&self) -> Result<()> {
+        self.cancel_token.cancel();
         let mut lock = self.session_path.write().await;
         if let Some(path) = lock.take() {
             let _ = std::fs::remove_file(path);

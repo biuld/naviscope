@@ -7,6 +7,7 @@ use crate::index::Naviscope;
 use crate::mcp::McpServer;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::MessageType;
+use tokio_util::sync::CancellationToken;
 
 pub fn spawn_http_server(
     client: Client,
@@ -14,6 +15,7 @@ pub fn spawn_http_server(
     root_path: PathBuf,
     session_path_lock: Arc<RwLock<Option<PathBuf>>>,
     client_name: Option<String>,
+    cancel_token: CancellationToken,
 ) {
     tokio::spawn(async move {
         let port = {
@@ -43,7 +45,7 @@ pub fn spawn_http_server(
             }
 
             // 3. Run server
-            let mcp_err = match run_http_server(engine, Some(root_path), port).await {
+            let mcp_err = match run_http_server(engine, Some(root_path), port, cancel_token).await {
                 Ok(_) => None,
                 Err(e) => Some(e.to_string()),
             };
@@ -72,6 +74,7 @@ pub async fn run_http_server(
     engine: Arc<RwLock<Option<Naviscope>>>,
     root_path: Option<PathBuf>,
     port: u16,
+    cancel_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mcp = McpServer::new(engine, root_path);
     
@@ -81,7 +84,12 @@ pub async fn run_http_server(
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     println!("MCP HTTP server listening on 127.0.0.1:{}", port);
-    axum::serve(listener, app).await?;
+    
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            cancel_token.cancelled().await;
+        })
+        .await?;
     Ok(())
 }
 
@@ -101,6 +109,7 @@ async fn mcp_handler(
     let (client_end, server_end) = tokio::io::duplex(4096);
     
     tokio::spawn(async move {
+        // Use custom transport from AsyncRead + AsyncWrite
         let transport = (reader, server_end);
         if let Ok(service) = mcp.serve(transport).await {
             let _ = service.waiting().await;
