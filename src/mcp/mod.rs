@@ -40,7 +40,6 @@ pub fn get_session_path(root_path: &Path) -> PathBuf {
 pub struct McpServer {
     pub(crate) tool_router: ToolRouter<Self>,
     pub(crate) engine: Arc<RwLock<Option<Naviscope>>>,
-    pub(crate) root_path: Option<PathBuf>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -77,34 +76,27 @@ pub struct EdgeArgs {
 
 #[tool_router]
 impl McpServer {
-    pub fn new(engine: Arc<RwLock<Option<Naviscope>>>, root_path: Option<PathBuf>) -> Self {
+    pub fn new(engine: Arc<RwLock<Option<Naviscope>>>) -> Self {
         Self {
             tool_router: Self::tool_router(),
             engine,
-            root_path,
         }
     }
 
     pub(crate) async fn get_or_build_index(&self) -> Result<Naviscope, McpError> {
-        let mut lock = self.engine.write().await;
+        let lock = self.engine.read().await;
         
-        if let Some(navi) = &*lock {
-            return Ok(navi.clone());
+        match &*lock {
+            Some(navi) => Ok(navi.clone()),
+            None => {
+                // Index not yet built by LSP, return error
+                Err(McpError::new(
+                    rmcp::model::ErrorCode(-32000),
+                    "Index not yet available. The LSP server is still building the index. Please wait a moment and try again.".to_string(),
+                    None
+                ))
+            }
         }
-
-        // Standalone mode: build index if not present
-        let path = self.root_path.clone().unwrap_or_else(|| PathBuf::from("."));
-        let mut navi = Naviscope::new(path);
-        
-        let (res, n) = tokio::task::spawn_blocking(move || {
-            let res = navi.build_index();
-            (res, navi)
-        }).await.map_err(|e| McpError::new(rmcp::model::ErrorCode(-32000), e.to_string(), None))?;
-
-        res.map_err(|e| McpError::new(rmcp::model::ErrorCode(-32000), e.to_string(), None))?;
-        
-        *lock = Some(n.clone());
-        Ok(n)
     }
 
     pub(crate) async fn execute_query(&self, query: GraphQuery) -> Result<CallToolResult, McpError> {

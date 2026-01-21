@@ -81,8 +81,14 @@ pub enum Commands {
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+
+    // Initialize logging based on command
+    let component = match &cli.command {
+        Commands::Lsp => "lsp",
+        Commands::Mcp { .. } => "mcp",
+        _ => "cli",
+    };
+    let _guard = naviscope::logging::init_logging(component);
 
     match cli.command {
         Commands::Index {
@@ -95,17 +101,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Clear { path } => clear::run(path),
         Commands::Mcp { path } => {
             let rt = tokio::runtime::Runtime::new()?;
+            let project_path = path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            
+            // Connect to LSP via proxy mode (waits for LSP if not started)
             rt.block_on(async {
-                let project_path = path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-                
-                // Try proxy mode first
-                if naviscope::mcp::proxy::run_proxy_if_needed(&project_path).await {
-                    return Ok(());
-                }
-
-                // Fallback to standalone mode
-                let engine = Arc::new(RwLock::new(None));
-                naviscope::mcp::stdio::run_stdio_server(engine, Some(project_path)).await
+                naviscope::mcp::proxy::run_mcp_proxy(&project_path).await
             })?;
             Ok(())
         }

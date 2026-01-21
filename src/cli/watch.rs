@@ -3,12 +3,13 @@ use naviscope::project::watcher::Watcher;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
+use tracing::{info, error};
 
 pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = Naviscope::new(path.clone());
-    println!("Initializing: Indexing project at: {}...", path.display());
+    info!("Initializing: Indexing project at: {}...", path.display());
     engine.build_index()?;
-    println!("Initial indexing complete. Ready to watch for changes.");
+    info!("Initial indexing complete. Ready to watch for changes.");
 
     let mut watcher = Watcher::new(&path)?;
     
@@ -25,11 +26,11 @@ pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>>
             // Drain all pending events
             while watcher.try_next_event().is_some() {}
 
-            println!("Change detected. Re-indexing...");
+            info!("Change detected. Re-indexing...");
             match engine.build_index() {
                 Ok(_) => {
                     let index = engine.graph();
-                    println!(
+                    info!(
                         "Indexing complete! Nodes: {}, Edges: {}",
                         index.topology.node_count(),
                         index.topology.edge_count()
@@ -40,7 +41,7 @@ pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>>
                         engine.save_to_json(json_path)?;
                     }
                 }
-                Err(e) => eprintln!("Error during re-indexing: {}", e),
+                Err(e) => error!("Error during re-indexing: {}", e),
             }
         }
     }
