@@ -4,13 +4,13 @@ use naviscope::query::QueryEngine;
 use std::path::PathBuf;
 
 pub fn run(path: PathBuf, query: String) -> Result<(), Box<dyn std::error::Error>> {
-    let mut naviscope = Naviscope::new(path);
+    let mut engine = Naviscope::new(path);
 
     // Always perform incremental indexing before querying
-    naviscope.build_index()?;
+    engine.build_index()?;
 
     let query_obj: GraphQuery = serde_json::from_str(&query)?;
-    let query_engine = QueryEngine::new(naviscope.index());
+    let query_engine = QueryEngine::new(engine.graph());
     let result = query_engine.execute(&query_obj)?;
     println!("{}", serde_json::to_string_pretty(&result)?);
 

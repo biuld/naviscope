@@ -12,20 +12,20 @@ pub const CURRENT_VERSION: u32 = 1;
 pub const DEFAULT_INDEX_DIR: &str = ".naviscope/indices";
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct NaviscopeIndex {
+pub struct CodeGraph {
     pub version: u32,
-    pub graph: StableDiGraph<GraphNode, GraphEdge>,
+    pub topology: StableDiGraph<GraphNode, GraphEdge>,
     pub fqn_map: HashMap<String, NodeIndex>,
     pub name_map: HashMap<String, Vec<NodeIndex>>,
     pub file_map: HashMap<PathBuf, SourceFile>,
     pub path_to_nodes: HashMap<PathBuf, Vec<NodeIndex>>,
 }
 
-impl NaviscopeIndex {
+impl CodeGraph {
     pub fn new() -> Self {
         Self {
             version: CURRENT_VERSION,
-            graph: StableDiGraph::new(),
+            topology: StableDiGraph::new(),
             fqn_map: HashMap::new(),
             name_map: HashMap::new(),
             file_map: HashMap::new(),
@@ -39,7 +39,7 @@ impl NaviscopeIndex {
             idx
         } else {
             let name = node_data.name().to_string();
-            let idx = self.graph.add_node(node_data);
+            let idx = self.topology.add_node(node_data);
             self.fqn_map.insert(id.to_string(), idx);
             self.name_map.entry(name).or_default().push(idx);
             idx
@@ -50,7 +50,7 @@ impl NaviscopeIndex {
         let nodes = self.path_to_nodes.get(path)?;
         
         for &idx in nodes {
-            if let Some(node) = self.graph.node_weight(idx) {
+            if let Some(node) = self.topology.node_weight(idx) {
                 if let Some(range) = node.name_range() {
                     if range.contains(line, col) {
                         return Some(idx);
@@ -68,9 +68,9 @@ impl NaviscopeIndex {
         
         for &node_idx in nodes {
             // Check outgoing edges from nodes in this file
-            let mut edges = self.graph.neighbors_directed(node_idx, petgraph::Direction::Outgoing).detach();
-            while let Some((edge_idx, neighbor_idx)) = edges.next(&self.graph) {
-                let edge = &self.graph[edge_idx];
+            let mut edges = self.topology.neighbors_directed(node_idx, petgraph::Direction::Outgoing).detach();
+            while let Some((edge_idx, neighbor_idx)) = edges.next(&self.topology) {
+                let edge = &self.topology[edge_idx];
                 if let Some(range) = &edge.range {
                     if range.contains(line, col) {
                         return Some((node_idx, neighbor_idx, edge));
@@ -94,14 +94,14 @@ impl NaviscopeIndex {
 
 #[derive(Clone)]
 pub struct Naviscope {
-    index: NaviscopeIndex,
+    graph: CodeGraph,
     project_root: PathBuf,
 }
 
 impl Naviscope {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
-            index: NaviscopeIndex::new(),
+            graph: CodeGraph::new(),
             project_root,
         }
     }
@@ -150,7 +150,7 @@ impl Naviscope {
         }
 
         let bytes = std::fs::read(path)?;
-        self.index = postcard::from_bytes(&bytes)
+        self.graph = postcard::from_bytes(&bytes)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
         Ok(())
     }
@@ -164,7 +164,7 @@ impl Naviscope {
             std::fs::create_dir_all(parent)?;
         }
 
-        let bytes = postcard::to_stdvec(&self.index)
+        let bytes = postcard::to_stdvec(&self.graph)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
         std::fs::write(path, bytes)?;
         Ok(())
@@ -174,7 +174,7 @@ impl Naviscope {
     pub fn save_to_json<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let file = std::fs::File::create(path)?;
         let writer = std::io::BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, &self.index)
+        serde_json::to_writer_pretty(writer, &self.graph)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
         Ok(())
     }
@@ -182,17 +182,17 @@ impl Naviscope {
     /// Loads an index from a specific file path.
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let bytes = std::fs::read(path)?;
-        let index: NaviscopeIndex = postcard::from_bytes(&bytes)
+        let graph: CodeGraph = postcard::from_bytes(&bytes)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
         Ok(Self {
-            index,
+            graph,
             project_root: PathBuf::new(), // Root is unknown when loading from arbitrary file
         })
     }
 
     /// Saves the index to a specific file path.
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let bytes = postcard::to_stdvec(&self.index)
+        let bytes = postcard::to_stdvec(&self.graph)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
         std::fs::write(path, bytes)?;
         Ok(())
@@ -203,17 +203,24 @@ impl Naviscope {
         use crate::resolver::engine::IndexResolver;
 
         // Try to load existing index first
-        let _ = self.load();
+        let load_result = self.load();
+        
+        // If load succeeded but version doesn't match, clear and start fresh
+        if load_result.is_ok() && self.graph.version != CURRENT_VERSION {
+            let _ = self.clear_project_index();
+            // Reset to a fresh index with current version
+            self.graph = CodeGraph::new();
+        }
 
         // Phase 1: Scan and Parse (parallel I/O and CPU-intensive work)
-        let parse_results = Scanner::scan_and_parse(&self.project_root, &self.index.file_map);
+        let parse_results = Scanner::scan_and_parse(&self.project_root, &self.graph.file_map);
 
         // Detect and handle deleted files
         let current_paths: HashSet<PathBuf> =
             Scanner::collect_paths(&self.project_root).into_iter().collect();
 
         let mut deleted_paths = Vec::new();
-        for path in self.index.file_map.keys() {
+        for path in self.graph.file_map.keys() {
             if !current_paths.contains(path) {
                 deleted_paths.push(path.clone());
             }
@@ -221,12 +228,12 @@ impl Naviscope {
 
         for path in deleted_paths {
             self.apply_graph_op(GraphOp::RemovePath { path: path.clone() })?;
-            self.index.file_map.remove(&path);
+            self.graph.file_map.remove(&path);
         }
 
         // Update file metadata for each parsed file
         for parsed in &parse_results {
-            self.index
+            self.graph
                 .file_map
                 .insert(parsed.file.path.clone(), parsed.file.clone());
         }
@@ -253,11 +260,11 @@ impl Naviscope {
         match op {
             GraphOp::AddNode { id, data } => {
                 let path = data.file_path().cloned();
-                let idx = self.index.get_or_create_node(&id, data);
+                let idx = self.graph.get_or_create_node(&id, data);
 
                 // Update path_to_nodes mapping
                 if let Some(p) = path {
-                    self.index
+                    self.graph
                         .path_to_nodes
                         .entry(p)
                         .or_default()
@@ -270,40 +277,40 @@ impl Naviscope {
                 edge,
             } => {
                 // Look up node indices
-                let from_idx = self.index.fqn_map.get(&from_id).cloned();
-                let to_idx = self.index.fqn_map.get(&to_id).cloned();
+                let from_idx = self.graph.fqn_map.get(&from_id).cloned();
+                let to_idx = self.graph.fqn_map.get(&to_id).cloned();
 
                 if let (Some(s_idx), Some(t_idx)) = (from_idx, to_idx) {
                     // For structural edges (Contains), avoid duplicates
                     if edge.edge_type == EdgeType::Contains {
-                        let already_exists = self.index.graph
+                        let already_exists = self.graph.topology
                             .edges_connecting(s_idx, t_idx)
                             .any(|e| e.weight().edge_type == EdgeType::Contains);
                         if !already_exists {
-                            self.index.graph.add_edge(s_idx, t_idx, edge);
+                            self.graph.topology.add_edge(s_idx, t_idx, edge);
                         }
                     } else {
                         // For other edges (Calls, References, etc.), always add to capture multiple occurrences
-                        self.index.graph.add_edge(s_idx, t_idx, edge);
+                        self.graph.topology.add_edge(s_idx, t_idx, edge);
                     }
                 }
             }
             GraphOp::RemovePath { path } => {
-                if let Some(nodes) = self.index.path_to_nodes.remove(&path) {
+                if let Some(nodes) = self.graph.path_to_nodes.remove(&path) {
                     for node_idx in nodes {
                         // Get FQN before removing from graph
-                        if let Some(node) = self.index.graph.node_weight(node_idx) {
+                        if let Some(node) = self.graph.topology.node_weight(node_idx) {
                             let fqn = node.fqn();
                             let name = node.name().to_string();
-                            self.index.fqn_map.remove(fqn);
-                            if let Some(nodes_with_name) = self.index.name_map.get_mut(&name) {
+                            self.graph.fqn_map.remove(fqn);
+                            if let Some(nodes_with_name) = self.graph.name_map.get_mut(&name) {
                                 nodes_with_name.retain(|&idx| idx != node_idx);
                                 if nodes_with_name.is_empty() {
-                                    self.index.name_map.remove(&name);
+                                    self.graph.name_map.remove(&name);
                                 }
                             }
                         }
-                        self.index.graph.remove_node(node_idx);
+                        self.graph.topology.remove_node(node_idx);
                     }
                 }
             }
@@ -312,7 +319,7 @@ impl Naviscope {
         Ok(())
     }
 
-    pub fn index(&self) -> &NaviscopeIndex {
-        &self.index
+    pub fn graph(&self) -> &CodeGraph {
+        &self.graph
     }
 }

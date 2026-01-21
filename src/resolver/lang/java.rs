@@ -2,7 +2,7 @@ use crate::resolver::{LangResolver, ProjectContext};
 use crate::error::Result;
 use crate::model::graph::{EdgeType, GraphEdge, GraphNode, ResolvedUnit};
 use crate::resolver::SemanticResolver;
-use crate::index::NaviscopeIndex;
+use crate::index::CodeGraph;
 use crate::project::scanner::{ParsedContent, ParsedFile};
 use crate::parser::{SymbolResolution, matches_intent};
 use crate::parser::SymbolIntent;
@@ -30,7 +30,7 @@ impl JavaResolver {
         kind == "class" || kind == "interface" || kind == "enum" || kind == "annotation"
     }
 
-    fn resolve_expression_type(&self, node: &tree_sitter::Node, tree: &Tree, source: &str, index: &NaviscopeIndex) -> Option<String> {
+    fn resolve_expression_type(&self, node: &tree_sitter::Node, tree: &Tree, source: &str, index: &CodeGraph) -> Option<String> {
         let kind = node.kind();
         match kind {
             "identifier" => {
@@ -59,7 +59,7 @@ impl JavaResolver {
                 let receiver_type = self.resolve_expression_type(&receiver, tree, source, index)?;
                 let field_fqn = format!("{}.{}", receiver_type, field_name);
                 if let Some(&idx) = index.fqn_map.get(&field_fqn) {
-                    let node = &index.graph[idx];
+                    let node = &index.topology[idx];
                     if let crate::model::graph::GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Field(f), .. }) = node {
                         return self.parser.resolve_type_name_to_fqn(&f.type_name, tree, source);
                     }
@@ -72,7 +72,7 @@ impl JavaResolver {
                 let receiver_type = self.resolve_expression_type(&receiver, tree, source, index)?;
                 let method_fqn = format!("{}.{}", receiver_type, method_name);
                 if let Some(&idx) = index.fqn_map.get(&method_fqn) {
-                    let node = &index.graph[idx];
+                    let node = &index.topology[idx];
                     if let crate::model::graph::GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Method(m), .. }) = node {
                         return self.parser.resolve_type_name_to_fqn(&m.return_type, tree, source);
                     }
@@ -95,7 +95,7 @@ impl JavaResolver {
 }
 
 impl SemanticResolver for JavaResolver {
-    fn resolve_at(&self, tree: &Tree, source: &str, line: usize, byte_col: usize, index: &NaviscopeIndex) -> Option<SymbolResolution> {
+    fn resolve_at(&self, tree: &Tree, source: &str, line: usize, byte_col: usize, index: &CodeGraph) -> Option<SymbolResolution> {
         let point = tree_sitter::Point::new(line, byte_col);
         let node = tree
             .root_node()
@@ -187,13 +187,13 @@ impl SemanticResolver for JavaResolver {
         None
     }
 
-    fn find_matches(&self, index: &NaviscopeIndex, resolution: &SymbolResolution) -> Vec<NodeIndex> {
+    fn find_matches(&self, index: &CodeGraph, resolution: &SymbolResolution) -> Vec<NodeIndex> {
         match resolution {
             SymbolResolution::Local(_, _) => vec![], // Handled by Document locally
             SymbolResolution::Precise(fqn, intent) => {
                 // 1. Try precise FQN match
                 if let Some(&idx) = index.fqn_map.get(fqn) {
-                    if let Some(node) = index.graph.node_weight(idx) {
+                    if let Some(node) = index.topology.node_weight(idx) {
                         // Trust FQN matches even if intent is Unknown
                         if *intent == SymbolIntent::Unknown || matches_intent(node.kind(), *intent) {
                             return vec![idx];
@@ -205,7 +205,7 @@ impl SemanticResolver for JavaResolver {
         }
     }
 
-    fn resolve_type_of(&self, index: &NaviscopeIndex, resolution: &SymbolResolution) -> Vec<SymbolResolution> {
+    fn resolve_type_of(&self, index: &CodeGraph, resolution: &SymbolResolution) -> Vec<SymbolResolution> {
         let mut type_resolutions = Vec::new();
 
         match resolution {
@@ -219,7 +219,7 @@ impl SemanticResolver for JavaResolver {
             }
             SymbolResolution::Precise(fqn, intent) => {
                 if let Some(&idx) = index.fqn_map.get(fqn) {
-                    let node = &index.graph[idx];
+                    let node = &index.topology[idx];
                     if let crate::model::graph::GraphNode::Code(
                         crate::model::graph::CodeElement::Java { element, .. },
                     ) = node
@@ -250,17 +250,17 @@ impl SemanticResolver for JavaResolver {
         type_resolutions
     }
 
-    fn find_implementations(&self, index: &NaviscopeIndex, resolution: &SymbolResolution) -> Vec<NodeIndex> {
+    fn find_implementations(&self, index: &CodeGraph, resolution: &SymbolResolution) -> Vec<NodeIndex> {
         let target_nodes = self.find_matches(index, resolution);
         let mut results = Vec::new();
 
         for &node_idx in &target_nodes {
             let mut incoming = index
-                .graph
+                .topology
                 .neighbors_directed(node_idx, petgraph::Direction::Incoming)
                 .detach();
-            while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
-                let edge = &index.graph[edge_idx];
+            while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
+                let edge = &index.topology[edge_idx];
                 if edge.edge_type == EdgeType::Implements
                     || edge.edge_type == EdgeType::InheritsFrom
                 {

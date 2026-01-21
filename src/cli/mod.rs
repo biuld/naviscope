@@ -70,13 +70,19 @@ pub enum Commands {
         path: Option<PathBuf>,
     },
     /// Start the Model Context Protocol (MCP) server
-    Mcp,
+    Mcp {
+        /// Path to the project root directory
+        #[arg(long, value_name = "PROJECT_PATH")]
+        path: Option<PathBuf>,
+    },
     /// Start the Language Server Protocol (LSP) server
     Lsp,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
 
     match cli.command {
         Commands::Index {
@@ -87,10 +93,19 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Schema => schema::run(),
         Commands::Watch { path, debug } => watch::run(path, debug),
         Commands::Clear { path } => clear::run(path),
-        Commands::Mcp => {
+        Commands::Mcp { path } => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                naviscope::mcp::run_server().await
+                let project_path = path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+                
+                // Try proxy mode first
+                if naviscope::mcp::proxy::run_proxy_if_needed(&project_path).await {
+                    return Ok(());
+                }
+
+                // Fallback to standalone mode
+                let engine = Arc::new(RwLock::new(None));
+                naviscope::mcp::stdio::run_stdio_server(engine, Some(project_path)).await
             })?;
             Ok(())
         }

@@ -1,4 +1,4 @@
-use crate::lsp::Backend;
+use crate::lsp::LspServer;
 use crate::lsp::util::get_word_from_content;
 use crate::parser::SymbolResolution;
 use tower_lsp::jsonrpc::Result;
@@ -6,27 +6,27 @@ use tower_lsp::lsp_types::*;
 use tree_sitter::QueryCursor;
 
 pub async fn definition(
-    backend: &Backend,
+    server: &LspServer,
     params: GotoDefinitionParams,
 ) -> Result<Option<GotoDefinitionResponse>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let doc = match backend.document_states.get(&uri) {
+    let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
     };
 
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match naviscope_lock.as_ref() {
-        Some(n) => n,
+    let engine_lock = server.engine.read().await;
+    let engine = match engine_lock.as_ref() {
+        Some(e) => e,
         None => return Ok(None),
     };
-    let index = naviscope.index();
+    let index = engine.graph();
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -54,7 +54,7 @@ pub async fn definition(
     }
 
     let matches = {
-        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -63,7 +63,7 @@ pub async fn definition(
     let mut locations = Vec::new();
 
     for &node_idx in &matches {
-        let node = &index.graph[node_idx];
+        let node = &index.topology[node_idx];
         if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
             locations.push(Location {
                 uri: Url::from_file_path(target_path).unwrap(),
@@ -87,27 +87,27 @@ pub async fn definition(
 }
 
 pub async fn type_definition(
-    backend: &Backend,
+    server: &LspServer,
     params: GotoDefinitionParams,
 ) -> Result<Option<GotoDefinitionResponse>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let doc = match backend.document_states.get(&uri) {
+    let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
     };
 
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match naviscope_lock.as_ref() {
-        Some(n) => n,
+    let engine_lock = server.engine.read().await;
+    let engine = match engine_lock.as_ref() {
+        Some(e) => e,
         None => return Ok(None),
     };
-    let index = naviscope.index();
+    let index = engine.graph();
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -118,7 +118,7 @@ pub async fn type_definition(
         }
     };
 
-    let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+    let resolver = match server.resolver.get_semantic_resolver(doc.language) {
         Some(r) => r,
         None => return Ok(None),
     };
@@ -129,7 +129,7 @@ pub async fn type_definition(
     for res in type_resolutions {
         let matches = resolver.find_matches(index, &res);
         for idx in matches {
-            let target = &index.graph[idx];
+            let target = &index.topology[idx];
             if let (Some(tp), Some(tr)) = (target.file_path(), target.range()) {
                 let loc = Location {
                     uri: Url::from_file_path(tp).unwrap(),
@@ -153,27 +153,27 @@ pub async fn type_definition(
 }
 
 pub async fn references(
-    backend: &Backend,
+    server: &LspServer,
     params: ReferenceParams,
 ) -> Result<Option<Vec<Location>>> {
     let uri = params.text_document_position.text_document.uri;
     let position = params.text_document_position.position;
 
-    let doc = match backend.document_states.get(&uri) {
+    let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
     };
 
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match naviscope_lock.as_ref() {
-        Some(n) => n,
+    let engine_lock = server.engine.read().await;
+    let engine = match engine_lock.as_ref() {
+        Some(e) => e,
         None => return Ok(None),
     };
-    let index = naviscope.index();
+    let index = engine.graph();
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -223,19 +223,19 @@ pub async fn references(
             }
         }
         _ => {
-            let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+            let resolver = match server.resolver.get_semantic_resolver(doc.language) {
                 Some(r) => r,
                 None => return Ok(None),
             };
             let matches = resolver.find_matches(index, &resolution);
             for node_idx in matches {
                 let mut incoming = index
-                    .graph
+                    .topology
                     .neighbors_directed(node_idx, petgraph::Direction::Incoming)
                     .detach();
-                while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
-                    let edge = &index.graph[edge_idx];
-                    let source_node = &index.graph[neighbor_idx];
+                while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
+                    let edge = &index.topology[edge_idx];
+                    let source_node = &index.topology[neighbor_idx];
                     if let (Some(source_path), Some(range)) =
                         (source_node.file_path(), &edge.range)
                     {
@@ -263,27 +263,27 @@ pub async fn references(
 }
 
 pub async fn implementation(
-    backend: &Backend,
+    server: &LspServer,
     params: GotoDefinitionParams,
 ) -> Result<Option<GotoDefinitionResponse>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let doc = match backend.document_states.get(&uri) {
+    let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
     };
 
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match &*naviscope_lock {
+    let engine_lock = server.engine.read().await;
+    let engine = match &*engine_lock {
         Some(n) => n,
         None => return Ok(None),
     };
-    let index = naviscope.index();
+    let index = engine.graph();
     
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -294,7 +294,7 @@ pub async fn implementation(
         }
     };
 
-    let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+    let resolver = match server.resolver.get_semantic_resolver(doc.language) {
         Some(r) => r,
         None => return Ok(None),
     };
@@ -303,7 +303,7 @@ pub async fn implementation(
     let mut locations = Vec::new();
 
     for &node_idx in &implementations {
-        let node = &index.graph[node_idx];
+        let node = &index.topology[node_idx];
         if let (Some(source_path), Some(range)) = (node.file_path(), node.range()) {
             locations.push(Location {
                 uri: Url::from_file_path(source_path).unwrap(),

@@ -1,12 +1,12 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use crate::lsp::Backend;
+use crate::lsp::LspServer;
 
-pub async fn highlight(backend: &Backend, params: DocumentHighlightParams) -> Result<Option<Vec<DocumentHighlight>>> {
+pub async fn highlight(server: &LspServer, params: DocumentHighlightParams) -> Result<Option<Vec<DocumentHighlight>>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
     
-    let doc = match backend.document_states.get(&uri) {
+    let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
     };

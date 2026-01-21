@@ -9,7 +9,7 @@ use crate::project::is_relevant_path;
 pub fn spawn_indexer(
     path: PathBuf,
     client: Client,
-    naviscope_lock: Arc<RwLock<Option<Naviscope>>>,
+    engine_lock: Arc<RwLock<Option<Naviscope>>>,
 ) {
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -20,7 +20,6 @@ pub fn spawn_indexer(
         let (res, n) = {
             let mut n = navi;
             tokio::task::spawn_blocking(move || {
-                let _ = n.clear_project_index();
                 let res = n.build_index();
                 (res, n)
             }).await.expect("Indexer task panicked")
@@ -32,15 +31,15 @@ pub fn spawn_indexer(
         } else {
             let duration = start.elapsed();
             let stats = {
-                let n = navi.index().graph.node_count();
-                let e = navi.index().graph.edge_count();
+                let n = navi.graph().topology.node_count();
+                let e = navi.graph().topology.edge_count();
                 format!("Initial indexing complete in {:?}: {} nodes, {} edges", duration, n, e)
             };
             client.log_message(MessageType::INFO, stats).await;
             
             // Publish the initial index
             {
-                let mut lock = naviscope_lock.write().await;
+                let mut lock = engine_lock.write().await;
                 *lock = Some(navi.clone());
             }
         }
@@ -90,12 +89,12 @@ pub fn spawn_indexer(
                 client.log_message(MessageType::ERROR, format!("Incremental re-indexing failed: {}", e)).await;
             } else {
                 let duration = start.elapsed();
-                let n = navi.index().graph.node_count();
-                let e = navi.index().graph.edge_count();
+                let n = navi.graph().topology.node_count();
+                let e = navi.graph().topology.edge_count();
                 client.log_message(MessageType::INFO, format!("Re-indexing complete in {:?}. Total: {} nodes, {} edges", duration, n, e)).await;
                 
                 // Publish updated index
-                let mut lock = naviscope_lock.write().await;
+                let mut lock = engine_lock.write().await;
                 *lock = Some(navi.clone());
             }
         }

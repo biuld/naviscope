@@ -1,12 +1,12 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use crate::lsp::Backend;
+use crate::lsp::LspServer;
 
-pub async fn document_symbol(backend: &Backend, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+pub async fn document_symbol(server: &LspServer, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
     let uri = params.text_document.uri;
     
     // 1. Try real-time AST-based symbols first (supports unsaved changes)
-    if let Some(doc) = backend.document_states.get(&uri) {
+    if let Some(doc) = server.documents.get(&uri) {
         let symbols = doc.parser.extract_symbols(&doc.tree, &doc.content);
         if !symbols.is_empty() {
             let lsp_symbols = convert_symbols(symbols, doc.parser.as_ref());
@@ -48,21 +48,21 @@ fn convert_symbol(sym: crate::parser::DocumentSymbol, parser: &dyn crate::parser
     }
 }
 
-pub async fn workspace_symbol(backend: &Backend, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match &*naviscope_lock {
+pub async fn workspace_symbol(server: &LspServer, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
+    let engine_lock = server.engine.read().await;
+    let engine = match &*engine_lock {
         Some(n) => n,
         None => return Ok(None),
     };
 
-    let index = naviscope.index();
+    let index = engine.graph();
     let query = params.query.to_lowercase();
     let mut symbols = Vec::new();
 
-    for node in index.graph.node_weights() {
+    for node in index.topology.node_weights() {
         if node.name().to_lowercase().contains(&query) || node.fqn().to_string().to_lowercase().contains(&query) {
             if let (Some(path), Some(range)) = (node.file_path(), node.range()) {
-                let kind = backend.resolver.get_lsp_parser(node.language())
+                let kind = server.resolver.get_lsp_parser(node.language())
                     .map(|parser| parser.symbol_kind(node.kind()))
                     .unwrap_or(SymbolKind::VARIABLE);
 

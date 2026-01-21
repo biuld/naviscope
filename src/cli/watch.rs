@@ -5,9 +5,9 @@ use std::thread;
 use std::time::Duration;
 
 pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut naviscope = Naviscope::new(path.clone());
+    let mut engine = Naviscope::new(path.clone());
     println!("Initializing: Indexing project at: {}...", path.display());
-    naviscope.build_index()?;
+    engine.build_index()?;
     println!("Initial indexing complete. Ready to watch for changes.");
 
     let mut watcher = Watcher::new(&path)?;
@@ -26,18 +26,18 @@ pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>>
             while watcher.try_next_event().is_some() {}
 
             println!("Change detected. Re-indexing...");
-            match naviscope.build_index() {
+            match engine.build_index() {
                 Ok(_) => {
-                    let index = naviscope.index();
+                    let index = engine.graph();
                     println!(
                         "Indexing complete! Nodes: {}, Edges: {}",
-                        index.graph.node_count(),
-                        index.graph.edge_count()
+                        index.topology.node_count(),
+                        index.topology.edge_count()
                     );
                     
                     if debug {
                         let json_path = PathBuf::from("naviscope_debug.json");
-                        naviscope.save_to_json(json_path)?;
+                        engine.save_to_json(json_path)?;
                     }
                 }
                 Err(e) => eprintln!("Error during re-indexing: {}", e),

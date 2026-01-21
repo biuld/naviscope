@@ -1,5 +1,5 @@
 use crate::error::{NaviscopeError, Result};
-use crate::index::NaviscopeIndex;
+use crate::index::CodeGraph;
 use crate::model::graph::EdgeType;
 use crate::query::dsl::GraphQuery;
 use crate::query::model::NodeSummary;
@@ -7,12 +7,12 @@ use petgraph::Direction;
 use regex::RegexBuilder;
 
 pub struct QueryEngine<'a> {
-    index: &'a NaviscopeIndex,
+    graph: &'a CodeGraph,
 }
 
 impl<'a> QueryEngine<'a> {
-    pub fn new(index: &'a NaviscopeIndex) -> Self {
-        Self { index }
+    pub fn new(graph: &'a CodeGraph) -> Self {
+        Self { graph }
     }
 
     pub fn execute(&self, query: &GraphQuery) -> Result<serde_json::Value> {
@@ -29,7 +29,7 @@ impl<'a> QueryEngine<'a> {
 
                 let mut results = Vec::new();
 
-                for node in self.index.graph.node_weights() {
+                for node in self.graph.topology.node_weights() {
                     let summary = NodeSummary::from(node);
 
                     // Check if either FQN or Name matches the pattern
@@ -51,7 +51,7 @@ impl<'a> QueryEngine<'a> {
                 } else {
                     // When FQN is missing, list all top-level modules (Gradle Package nodes with file paths)
                     let mut results = Vec::new();
-                    for node in self.index.graph.node_weights() {
+                    for node in self.graph.topology.node_weights() {
                         if let crate::model::graph::GraphNode::Build(crate::model::graph::BuildElement::Gradle { 
                             element: crate::model::lang::gradle::GradleElement::Package(_), 
                             file_path 
@@ -70,8 +70,8 @@ impl<'a> QueryEngine<'a> {
                 }
             }
             GraphQuery::Inspect { fqn } => {
-                if let Some(&idx) = self.index.fqn_map.get(fqn) {
-                    let node = &self.index.graph[idx];
+                if let Some(&idx) = self.graph.fqn_map.get(fqn) {
+                    let node = &self.graph.topology[idx];
                     Ok(serde_json::to_value(node)?)
                 } else {
                     Ok(serde_json::Value::Null)
@@ -94,22 +94,22 @@ impl<'a> QueryEngine<'a> {
         kind_filter: &[String],
     ) -> Result<serde_json::Value> {
         let start_idx = self
-            .index
+            .graph
             .fqn_map
             .get(fqn)
             .ok_or_else(|| NaviscopeError::Parsing(format!("Node not found: {}", fqn)))?;
 
         let mut results = Vec::new();
         let mut edges = self
-            .index
             .graph
+            .topology
             .neighbors_directed(*start_idx, dir)
             .detach();
 
-        while let Some((edge_idx, neighbor_idx)) = edges.next(&self.index.graph) {
-            let edge_data = &self.index.graph[edge_idx];
+        while let Some((edge_idx, neighbor_idx)) = edges.next(&self.graph.topology) {
+            let edge_data = &self.graph.topology[edge_idx];
             if edge_filter.is_empty() || edge_filter.contains(&edge_data.edge_type) {
-                let neighbor_node = &self.index.graph[neighbor_idx];
+                let neighbor_node = &self.graph.topology[neighbor_idx];
                 let summary = NodeSummary::from(neighbor_node);
 
                 if kind_filter.is_empty() || kind_filter.contains(&summary.kind) {

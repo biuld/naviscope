@@ -1,28 +1,28 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use crate::lsp::Backend;
+use crate::lsp::LspServer;
 use crate::model::graph::EdgeType;
 
 
-pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrepareParams) -> Result<Option<Vec<CallHierarchyItem>>> {
+pub async fn prepare_call_hierarchy(server: &LspServer, params: CallHierarchyPrepareParams) -> Result<Option<Vec<CallHierarchyItem>>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
     
-    let doc = match backend.document_states.get(&uri) {
+    let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
     };
 
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match naviscope_lock.as_ref() {
+    let engine_lock = server.engine.read().await;
+    let engine = match engine_lock.as_ref() {
         Some(n) => n,
         None => return Ok(None),
     };
-    let index = naviscope.index();
+    let index = engine.graph();
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -35,7 +35,7 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
 
     let mut items = Vec::new();
     let matches = {
-        let resolver = match backend.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -43,7 +43,7 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
     };
 
     for idx in matches {
-        let node = &index.graph[idx];
+        let node = &index.topology[idx];
         let kind = node.kind();
         if kind == "method" || kind == "constructor" {
             if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
@@ -72,29 +72,29 @@ pub async fn prepare_call_hierarchy(backend: &Backend, params: CallHierarchyPrep
     }
 }
 
-pub async fn incoming_calls(backend: &Backend, params: CallHierarchyIncomingCallsParams) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+pub async fn incoming_calls(server: &LspServer, params: CallHierarchyIncomingCallsParams) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
     let fqn: String = serde_json::from_value(params.item.data.unwrap_or_default()).unwrap_or_default();
     if fqn.is_empty() { return Ok(None); }
 
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match &*naviscope_lock {
+    let engine_lock = server.engine.read().await;
+    let engine = match &*engine_lock {
         Some(n) => n,
         None => return Ok(None),
     };
 
-    let index = naviscope.index();
+    let index = engine.graph();
     let node_idx = match index.fqn_map.get(&fqn) {
         Some(&idx) => idx,
         None => return Ok(None),
     };
 
     let mut calls = Vec::new();
-    let mut incoming = index.graph.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
+    let mut incoming = index.topology.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
     
-    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.graph) {
-        let edge = &index.graph[edge_idx];
+    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
+        let edge = &index.topology[edge_idx];
         if edge.edge_type == EdgeType::Calls {
-            let source_node = &index.graph[neighbor_idx];
+            let source_node = &index.topology[neighbor_idx];
             if let (Some(source_path), Some(range)) = (source_node.file_path(), source_node.range()) {
                 let lsp_range = Range {
                     start: Position::new(range.start_line as u32, range.start_col as u32),
@@ -132,29 +132,29 @@ pub async fn incoming_calls(backend: &Backend, params: CallHierarchyIncomingCall
     Ok(Some(calls))
 }
 
-pub async fn outgoing_calls(backend: &Backend, params: CallHierarchyOutgoingCallsParams) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+pub async fn outgoing_calls(server: &LspServer, params: CallHierarchyOutgoingCallsParams) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
     let fqn: String = serde_json::from_value(params.item.data.unwrap_or_default()).unwrap_or_default();
     if fqn.is_empty() { return Ok(None); }
 
-    let naviscope_lock = backend.naviscope.read().await;
-    let naviscope = match &*naviscope_lock {
+    let engine_lock = server.engine.read().await;
+    let engine = match &*engine_lock {
         Some(n) => n,
         None => return Ok(None),
     };
 
-    let index = naviscope.index();
+    let index = engine.graph();
     let node_idx = match index.fqn_map.get(&fqn) {
         Some(&idx) => idx,
         None => return Ok(None),
     };
 
     let mut calls = Vec::new();
-    let mut outgoing = index.graph.neighbors_directed(node_idx, petgraph::Direction::Outgoing).detach();
+    let mut outgoing = index.topology.neighbors_directed(node_idx, petgraph::Direction::Outgoing).detach();
     
-    while let Some((edge_idx, neighbor_idx)) = outgoing.next(&index.graph) {
-        let edge = &index.graph[edge_idx];
+    while let Some((edge_idx, neighbor_idx)) = outgoing.next(&index.topology) {
+        let edge = &index.topology[edge_idx];
         if edge.edge_type == EdgeType::Calls {
-            let target_node = &index.graph[neighbor_idx];
+            let target_node = &index.topology[neighbor_idx];
             if let (Some(target_path), Some(range)) = (target_node.file_path(), target_node.range()) {
                 let lsp_range = Range {
                     start: Position::new(range.start_line as u32, range.start_col as u32),

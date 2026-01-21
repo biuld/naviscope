@@ -15,21 +15,24 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use dashmap::DashMap;
 use crate::lsp::util::Document;
+use std::path::PathBuf;
 
-pub struct Backend {
+pub struct LspServer {
     client: Client,
-    pub naviscope: Arc<RwLock<Option<Naviscope>>>,
-    pub document_states: DashMap<Url, Arc<Document>>,
+    pub engine: Arc<RwLock<Option<Naviscope>>>,
+    pub documents: DashMap<Url, Arc<Document>>,
     pub resolver: Arc<crate::resolver::engine::IndexResolver>,
+    session_path: Arc<RwLock<Option<PathBuf>>>,
 }
 
-impl Backend {
+impl LspServer {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            naviscope: Arc::new(RwLock::new(None)),
-            document_states: DashMap::new(),
+            engine: Arc::new(RwLock::new(None)),
+            documents: DashMap::new(),
             resolver: Arc::new(crate::resolver::engine::IndexResolver::new()),
+            session_path: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -96,15 +99,24 @@ impl Backend {
 }
 
 #[tower_lsp::async_trait]
-impl LanguageServer for Backend {
+impl LanguageServer for LspServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         let root_path = params.root_uri.and_then(|uri| uri.to_file_path().ok());
         
         if let Some(path) = root_path {
             indexer::spawn_indexer(
-                path,
+                path.clone(),
                 self.client.clone(),
-                self.naviscope.clone(),
+                self.engine.clone(),
+            );
+
+            // Start MCP HTTP Server via encapsulated helper
+            crate::mcp::http::spawn_http_server(
+                self.client.clone(),
+                self.engine.clone(),
+                path,
+                self.session_path.clone(),
+                params.client_info.map(|i| i.name),
             );
         }
 
@@ -118,6 +130,10 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
+        let mut lock = self.session_path.write().await;
+        if let Some(path) = lock.take() {
+            let _ = std::fs::remove_file(path);
+        }
         Ok(())
     }
 
@@ -128,7 +144,7 @@ impl LanguageServer for Backend {
         
         if let Some((parser, lang)) = self.get_parser_and_lang_for_uri(&uri) {
             if let Some(tree) = parser.parse(&content, None) {
-                self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser, lang)));
+                self.documents.insert(uri, Arc::new(Document::new(content, tree, parser, lang)));
             }
         }
     }
@@ -137,7 +153,7 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         self.client.log_message(MessageType::LOG, format!("LSP Event: did_change uri={}", uri)).await;
         let (mut content, mut tree, parser, lang) = {
-            let state = match self.document_states.get(&uri) {
+            let state = match self.documents.get(&uri) {
                 Some(s) => s,
                 None => return,
             };
@@ -184,12 +200,12 @@ impl LanguageServer for Backend {
             tree = new_tree;
         }
         
-        self.document_states.insert(uri, Arc::new(Document::new(content, tree, parser, lang)));
+        self.documents.insert(uri, Arc::new(Document::new(content, tree, parser, lang)));
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.client.log_message(MessageType::LOG, format!("LSP Event: did_close uri={}", params.text_document.uri)).await;
-        self.document_states.remove(&params.text_document.uri);
+        self.documents.remove(&params.text_document.uri);
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -382,7 +398,7 @@ pub async fn run_server() -> std::result::Result<(), Box<dyn std::error::Error>>
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = tower_lsp::LspService::new(|client| Backend::new(client));
+    let (service, socket) = tower_lsp::LspService::new(|client| LspServer::new(client));
     tower_lsp::Server::new(stdin, stdout, socket).serve(service).await;
 
     Ok(())
