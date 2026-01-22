@@ -30,4 +30,6 @@ crate::decl_indices!(JavaIndices, {
     inst => "instantiation",
     inst_type => "inst_type",
     import_name => "import_name",
+    lambda_def => "lambda_def",
+    lambda_param => "lambda_param",
 });

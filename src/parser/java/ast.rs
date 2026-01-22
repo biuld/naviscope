@@ -106,7 +106,11 @@ impl JavaParser {
                                 range: Some(range), name_range: Some(name_range),
                             }),
                             KIND_LABEL_FIELD => JavaElement::Field(JavaField {
-                                id: fqn.clone(), name: name.clone(), type_name: "".to_string(),
+                                id: fqn.clone(), name: name.clone(), 
+                                type_name: anchor_node.child_by_field_name("type")
+                                    .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                                    .unwrap_or_default()
+                                    .to_string(),
                                 modifiers: vec![], range: Some(range), name_range: Some(name_range),
                             }),
                             _ => unreachable!(),

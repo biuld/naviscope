@@ -10,6 +10,7 @@ use tree_sitter::Tree;
 
 pub mod engine;
 pub mod lang;
+pub mod scope;
 
 /// Core interface for resolving a symbol at a specific position in a document.
 pub trait SemanticResolver: Send + Sync {

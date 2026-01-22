@@ -43,8 +43,18 @@
 (enum_declaration
   interfaces: (super_interfaces (type_list (_) @enum_interface)))
 
+;; Metadata
 (method_declaration
-  type: (_) @method_return_type)
+  [
+    (void_type)
+    (integral_type)
+    (floating_point_type)
+    (boolean_type)
+    (type_identifier)
+    (scoped_type_identifier)
+    (generic_type)
+  ] @method_return_type
+  name: (identifier) @method_name)
 
 (field_declaration
   type: (_) @field_type)
@@ -62,3 +72,11 @@
 (object_creation_expression
   type: [ (type_identifier) (generic_type) (scoped_type_identifier) ] @inst_type
 ) @instantiation
+
+(lambda_expression
+  parameters: [
+    (identifier) @lambda_param
+    (formal_parameters (formal_parameter name: (identifier) @lambda_param))
+    (inferred_parameters (identifier) @lambda_param)
+  ]
+) @lambda_def

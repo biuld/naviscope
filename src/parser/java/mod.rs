@@ -17,7 +17,7 @@ unsafe extern "C" {
 use crate::parser::queries::java_definitions::JavaIndices;
 
 pub struct JavaParser {
-    pub(crate) language: tree_sitter::Language,
+    pub language: tree_sitter::Language,
     pub(crate) definition_query: Arc<Query>,
     pub(crate) indices: JavaIndices,
 }
@@ -88,6 +88,19 @@ impl JavaParser {
     pub fn get_enclosing_class_fqns(&self, node: &Node, source: &str, pkg: Option<&str>) -> Vec<String> {
         let mut fqns = Vec::new();
         let mut curr = *node;
+
+        // If the current node is the name of a definition, start searching from the definition itself
+        // to avoid including the current definition in the enclosing class list.
+        if let Some(parent) = curr.parent() {
+            if Self::is_definition_node(parent.kind()) {
+                if let Some(name_node) = parent.child_by_field_name("name") {
+                    if name_node.id() == node.id() {
+                        curr = parent;
+                    }
+                }
+            }
+        }
+
         while let Some(container) = self.find_next_enclosing_definition(curr) {
             let kind = container.kind();
             if kind.contains("class") || kind.contains("interface") || kind.contains("enum") {
@@ -258,7 +271,19 @@ impl JavaParser {
                     }
                 }
             }
-            "local_variable_declaration" | "formal_parameters" | "inferred_parameters" | "enhanced_for_statement" => {
+            "local_variable_declaration" | "formal_parameters" | "inferred_parameters" | "enhanced_for_statement" | "lambda_expression" => {
+                if node.kind() == "lambda_expression" {
+                    if let Some(params) = node.child_by_field_name("parameters") {
+                        if params.kind() == "identifier" {
+                            if params.utf8_text(source.as_bytes()).ok()? == name {
+                                return Some((range_from_ts(params.range()), None));
+                            }
+                        } else {
+                            return self.is_decl_of(&params, name, source);
+                        }
+                    }
+                    return None;
+                }
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if let Some(res) = self.is_decl_of(&child, name, source) { return Some(res); }
