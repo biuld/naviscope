@@ -4,14 +4,17 @@ import {
     LanguageClientOptions,
     ServerOptions
 } from 'vscode-languageclient/node';
+import { bootstrap } from './bootstrap';
 
 let client: LanguageClient;
 
-export function activate(context: vscode.ExtensionContext) {
-    const config = vscode.workspace.getConfiguration('naviscope');
-    const serverPath = config.get<string>('path') || 'naviscope';
+export async function activate(context: vscode.ExtensionContext) {
+    const serverPath = await bootstrap(context);
 
-    // The server is implemented in rust and run via the 'lsp' subcommand
+    if (!serverPath) {
+        return;
+    }
+
     const serverOptions: ServerOptions = {
         command: serverPath,
         args: ['lsp'],
@@ -20,17 +23,13 @@ export function activate(context: vscode.ExtensionContext) {
         }
     };
 
-    // Options to control the language client
     const clientOptions: LanguageClientOptions = {
-        // Register the server for java files
         documentSelector: [{ scheme: 'file', language: 'java' }],
         synchronize: {
-            // Notify the server about file changes to '.java' files contained in the workspace
             fileEvents: vscode.workspace.createFileSystemWatcher('**/*.java')
         }
     };
 
-    // Create the language client and start the client.
     client = new LanguageClient(
         'naviscopeLSP',
         'Naviscope Language Server',
@@ -38,7 +37,6 @@ export function activate(context: vscode.ExtensionContext) {
         clientOptions
     );
 
-    // Start the client. This will also launch the server
     client.start();
 }
 

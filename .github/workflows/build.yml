@@ -1,0 +1,149 @@
+name: Build Project
+
+on:
+  push:
+    branches: [ "master", "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Job 1: 构建 Rust 二进制文件
+  build-binaries:
+    name: Build Binary - ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      matrix:
+        platform:
+          - name: Linux
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin: naviscope
+            name_suffix: linux-x86_64
+          - name: macOS-ARM64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bin: naviscope
+            name_suffix: macos-aarch64
+          - name: Windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: naviscope.exe
+            name_suffix: windows-x86_64.exe
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.platform.target }}
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.platform.target }}
+
+    - name: Get Short SHA
+      shell: bash
+      if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+      run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+    - name: Determine Binary Name
+      shell: bash
+      run: |
+        BASENAME="naviscope"
+        SUFFIX="${{ matrix.platform.name_suffix }}"
+        
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "ARTIFACT_NAME=${BASENAME}-pr-${{ github.event.number }}-${SUFFIX}" >> $GITHUB_ENV
+        elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+          echo "ARTIFACT_NAME=${BASENAME}-${SUFFIX}" >> $GITHUB_ENV
+        else
+          echo "ARTIFACT_NAME=${BASENAME}-${{ github.ref_name }}-${SHORT_SHA}-${SUFFIX}" >> $GITHUB_ENV
+        fi
+
+    - name: Build binary
+      run: cargo build --release --target ${{ matrix.platform.target }}
+
+    - name: Rename binary
+      shell: bash
+      run: |
+        cd target/${{ matrix.platform.target }}/release
+        mv ${{ matrix.platform.bin }} ../../../${{ env.ARTIFACT_NAME }}
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ${{ env.ARTIFACT_NAME }}
+
+  # Job 2: 构建 VSCode 插件
+  build-extension:
+    name: Build VSCode Extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+        cache-dependency-path: editors/vscode/package-lock.json
+
+    # vsce 打包需要 README，如果不包含在 extension 目录下，我们从根目录复制一个
+    - name: Prepare build files
+      run: |
+        if [ ! -f README.md ]; then
+          cp ../../README.md .
+        fi
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Package extension
+      run: npm run package
+
+    - name: Get Short SHA
+      shell: bash
+      if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+      run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+    - name: Determine Extension Name
+      shell: bash
+      run: |
+        # 查找生成的 .vsix 文件 (通常是 name-version.vsix)
+        ORIGINAL_VSIX=$(ls *.vsix)
+        BASENAME="naviscope-vscode"
+        
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          NEW_NAME="${BASENAME}-pr-${{ github.event.number }}.vsix"
+        elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+          NEW_NAME="${BASENAME}-${{ github.ref_name }}.vsix"
+        else
+          NEW_NAME="${BASENAME}-${{ github.ref_name }}-${SHORT_SHA}.vsix"
+        fi
+        
+        echo "ORIGINAL_VSIX=${ORIGINAL_VSIX}" >> $GITHUB_ENV
+        echo "EXTENSION_ARTIFACT_NAME=${NEW_NAME}" >> $GITHUB_ENV
+
+    - name: Rename extension
+      run: mv ${{ env.ORIGINAL_VSIX }} ${{ env.EXTENSION_ARTIFACT_NAME }}
+
+    - name: Upload extension artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.EXTENSION_ARTIFACT_NAME }}
+        path: editors/vscode/${{ env.EXTENSION_ARTIFACT_NAME }}

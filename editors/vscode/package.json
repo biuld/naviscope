@@ -14,18 +14,6 @@
     "onLanguage:java"
   ],
   "main": "./out/extension.js",
-  "contributes": {
-    "configuration": {
-      "title": "Naviscope",
-      "properties": {
-        "naviscope.path": {
-          "type": "string",
-          "default": "naviscope",
-          "description": "Path to the naviscope binary"
-        }
-      }
-    }
-  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
