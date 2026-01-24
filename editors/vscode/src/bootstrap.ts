@@ -115,7 +115,7 @@ function getPlatformIdentifier(): string | null {
         if (arch === 'arm64') {
             return 'macos-aarch64';
         }
-        return 'macos-x86_64'; 
+        // Intel Mac is not supported
     }
     return null;
 }

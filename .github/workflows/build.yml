@@ -23,11 +23,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
             bin: naviscope
             name_suffix: linux-x86_64
-          - name: macOS-Intel
-            os: macos-13
-            target: x86_64-apple-darwin
-            bin: naviscope
-            name_suffix: macos-x86_64
           - name: macOS-ARM64
             os: macos-latest
             target: aarch64-apple-darwin
@@ -99,7 +94,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 18
+        node-version: 20
 
     # vsce 打包需要 README，如果不包含在 extension 目录下，我们从根目录复制一个
     - name: Prepare build files
