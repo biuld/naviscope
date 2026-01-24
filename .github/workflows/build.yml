@@ -45,6 +45,11 @@ jobs:
       with:
         targets: ${{ matrix.platform.target }}
 
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.platform.target }}
+
     - name: Get Short SHA
       shell: bash
       if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
@@ -95,6 +100,8 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 20
+        cache: 'npm'
+        cache-dependency-path: editors/vscode/package-lock.json
 
     # vsce 打包需要 README，如果不包含在 extension 目录下，我们从根目录复制一个
     - name: Prepare build files
