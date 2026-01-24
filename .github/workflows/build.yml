@@ -28,11 +28,6 @@ jobs:
             target: aarch64-apple-darwin
             bin: naviscope
             name_suffix: macos-aarch64
-          - name: Windows
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bin: naviscope.exe
-            name_suffix: windows-x86_64.exe
 
     steps:
     - name: Checkout code
@@ -147,3 +142,33 @@ jobs:
       with:
         name: ${{ env.EXTENSION_ARTIFACT_NAME }}
         path: editors/vscode/${{ env.EXTENSION_ARTIFACT_NAME }}
+
+  # Job 3: 发布 Release
+  publish-release:
+    name: Publish Release
+    needs: [build-binaries, build-extension]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write # 需要写权限来创建 Release
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Flatten artifacts
+      run: |
+        mkdir release_assets
+        find artifacts -type f -exec cp {} release_assets/ \;
+        ls -R release_assets
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release_assets/*
+        generate_release_notes: true
+        prerelease: ${{ contains(github.ref, '-') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

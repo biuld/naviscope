@@ -24,6 +24,12 @@ Naviscope builds a comprehensive Code Knowledge Graph of your project, enabling 
 - **Resilient Indexing**: Works effectively even with syntax errors or incomplete code.
 - **Unified Graph**: Built on the same engine used by LLM agents via MCP.
 
+## 📦 System Requirements
+
+- **Linux** (x86_64)
+- **macOS** (Apple Silicon / ARM64)
+- *Windows and Intel macOS are not currently supported.*
+
 ## 📦 Installation
 
 Just install the extension!
