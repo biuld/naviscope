@@ -5,7 +5,7 @@ import * as https from 'https';
 import * as os from 'os';
 import { IncomingMessage } from 'http';
 
-const BINARY_NAME = process.platform === 'win32' ? 'naviscope.exe' : 'naviscope';
+const BINARY_NAME = 'naviscope';
 const REPO_OWNER = 'biuld';
 const REPO_NAME = 'naviscope';
 
@@ -105,9 +105,6 @@ function getPlatformIdentifier(): string | null {
     const platform = os.platform();
     const arch = os.arch();
 
-    if (platform === 'win32') {
-        return 'windows-x86_64.exe';
-    }
     if (platform === 'linux') {
         return 'linux-x86_64';
     }
