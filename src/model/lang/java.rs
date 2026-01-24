@@ -1,4 +1,5 @@
 use crate::model::graph::Range;
+use crate::model::signature::TypeRef;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -62,8 +63,6 @@ pub struct JavaClass {
     pub name: String,
     pub id: String, // FQN
     pub modifiers: Vec<String>,
-    pub superclass: Option<String>,
-    pub interfaces: Vec<String>,
     pub range: Option<Range>,
     pub name_range: Option<Range>,
 }
@@ -73,7 +72,6 @@ pub struct JavaInterface {
     pub name: String,
     pub id: String, // FQN
     pub modifiers: Vec<String>,
-    pub extends: Vec<String>,
     pub range: Option<Range>,
     pub name_range: Option<Range>,
 }
@@ -83,7 +81,6 @@ pub struct JavaEnum {
     pub name: String,
     pub id: String, // FQN
     pub modifiers: Vec<String>,
-    pub interfaces: Vec<String>,
     pub constants: Vec<String>,
     pub range: Option<Range>,
     pub name_range: Option<Range>,
@@ -102,7 +99,7 @@ pub struct JavaAnnotation {
 pub struct JavaField {
     pub name: String,
     pub id: String,
-    pub type_name: String,
+    pub type_ref: TypeRef,
     pub modifiers: Vec<String>,
     pub range: Option<Range>,
     pub name_range: Option<Range>,
@@ -112,7 +109,7 @@ pub struct JavaField {
 pub struct JavaMethod {
     pub name: String,
     pub id: String,
-    pub return_type: String,
+    pub return_type: TypeRef,
     pub parameters: Vec<JavaParameter>,
     pub modifiers: Vec<String>,
     pub is_constructor: bool,
@@ -123,5 +120,5 @@ pub struct JavaMethod {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JavaParameter {
     pub name: String,
-    pub type_name: String,
+    pub type_ref: TypeRef,
 }

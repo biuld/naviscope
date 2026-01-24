@@ -4,6 +4,7 @@ use crate::model::lang::java::{
     JavaAnnotation, JavaClass, JavaElement, JavaEnum, JavaField, JavaInterface, JavaMethod,
     JavaParameter,
 };
+use crate::model::signature::TypeRef;
 use tree_sitter::{Node, QueryMatch, Tree, StreamingIterator};
 use super::JavaParser;
 use super::constants::*;
@@ -86,31 +87,30 @@ impl JavaParser {
                         let element = match kind {
                             KIND_LABEL_CLASS => JavaElement::Class(JavaClass {
                                 id: fqn.clone(), name: name.clone(), modifiers: vec![],
-                                superclass: None, interfaces: vec![], range: Some(range), name_range: Some(name_range),
+                                range: Some(range), name_range: Some(name_range),
                             }),
                             KIND_LABEL_INTERFACE => JavaElement::Interface(JavaInterface {
                                 id: fqn.clone(), name: name.clone(), modifiers: vec![],
-                                extends: vec![], range: Some(range), name_range: Some(name_range),
+                                range: Some(range), name_range: Some(name_range),
                             }),
                             KIND_LABEL_ENUM => JavaElement::Enum(JavaEnum {
                                 id: fqn.clone(), name: name.clone(), modifiers: vec![],
-                                interfaces: vec![], constants: vec![], range: Some(range), name_range: Some(name_range),
+                                constants: vec![], range: Some(range), name_range: Some(name_range),
                             }),
                             KIND_LABEL_ANNOTATION => JavaElement::Annotation(JavaAnnotation {
                                 id: fqn.clone(), name: name.clone(), modifiers: vec![],
                                 range: Some(range), name_range: Some(name_range),
                             }),
                             KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => JavaElement::Method(JavaMethod {
-                                id: fqn.clone(), name: name.clone(), return_type: "void".to_string(),
+                                id: fqn.clone(), name: name.clone(), return_type: TypeRef::raw("void"),
                                 parameters: vec![], modifiers: vec![], is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
                                 range: Some(range), name_range: Some(name_range),
                             }),
                             KIND_LABEL_FIELD => JavaElement::Field(JavaField {
                                 id: fqn.clone(), name: name.clone(), 
-                                type_name: anchor_node.child_by_field_name("type")
-                                    .and_then(|n| n.utf8_text(source.as_bytes()).ok())
-                                    .unwrap_or_default()
-                                    .to_string(),
+                                type_ref: anchor_node.child_by_field_name("type")
+                                    .map(|n| self.parse_type_node(n, source))
+                                    .unwrap_or(TypeRef::Unknown),
                                 modifiers: vec![], range: Some(range), name_range: Some(name_range),
                             }),
                             _ => unreachable!(),
@@ -234,10 +234,9 @@ impl JavaParser {
         }
 
         match element {
-            JavaElement::Class(c) => {
+            JavaElement::Class(_) => {
                 if let Some(s) = mat.captures.iter().find(|c| c.index == self.indices.class_super) {
                     let s_name = s.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-                    c.superclass = Some(s_name.clone());
                     relations.push(JavaRelation {
                         source_fqn: fqn.clone(),
                         target_name: s_name,
@@ -247,64 +246,55 @@ impl JavaParser {
                 }
                 for cc in mat.captures.iter().filter(|c| c.index == self.indices.class_inter) {
                     let i = cc.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-                    if !c.interfaces.contains(&i) {
-                        c.interfaces.push(i.clone());
-                        relations.push(JavaRelation {
-                            source_fqn: fqn.clone(),
-                            target_name: i,
-                            rel_type: EdgeType::Implements,
-                            range: None,
-                        });
-                    }
+                    relations.push(JavaRelation {
+                        source_fqn: fqn.clone(),
+                        target_name: i,
+                        rel_type: EdgeType::Implements,
+                        range: None,
+                    });
                 }
             }
-            JavaElement::Interface(i) => {
+            JavaElement::Interface(_) => {
                 for cc in mat.captures.iter().filter(|c| c.index == self.indices.inter_ext) {
                     let e = cc.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-                    if !i.extends.contains(&e) {
-                        i.extends.push(e.clone());
-                        relations.push(JavaRelation {
-                            source_fqn: fqn.clone(),
-                            target_name: e,
-                            rel_type: EdgeType::InheritsFrom,
-                            range: None,
-                        });
-                    }
+                    relations.push(JavaRelation {
+                        source_fqn: fqn.clone(),
+                        target_name: e,
+                        rel_type: EdgeType::InheritsFrom,
+                        range: None,
+                    });
                 }
             }
-            JavaElement::Enum(e) => {
+            JavaElement::Enum(_) => {
                 for cc in mat.captures.iter().filter(|c| c.index == self.indices.enum_interface) {
                     let i = cc.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-                    if !e.interfaces.contains(&i) {
-                        e.interfaces.push(i.clone());
-                        relations.push(JavaRelation {
-                            source_fqn: fqn.clone(),
-                            target_name: i,
-                            rel_type: EdgeType::Implements,
-                            range: None,
-                        });
-                    }
+                    relations.push(JavaRelation {
+                        source_fqn: fqn.clone(),
+                        target_name: i,
+                        rel_type: EdgeType::Implements,
+                        range: None,
+                    });
                 }
             }
             JavaElement::Annotation(_) => {}
             JavaElement::Method(m) => {
                 if let Some(ret) = mat.captures.iter().find(|c| c.index == self.indices.method_ret) {
-                    m.return_type = ret.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+                    m.return_type = self.parse_type_node(ret.node, source);
                 }
                 if let (Some(t_node), Some(n_node)) = (
                     mat.captures.iter().find(|c| c.index == self.indices.param_type).map(|c| c.node),
                     mat.captures.iter().find(|c| c.index == self.indices.param_name).map(|c| c.node),
                 ) {
-                    let t = t_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+                    let t_ref = self.parse_type_node(t_node, source);
                     let n = n_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-                    if !m.parameters.iter().any(|p| p.name == n && p.type_name == t) {
-                        m.parameters.push(JavaParameter { type_name: t, name: n });
+                    if !m.parameters.iter().any(|p| p.name == n && p.type_ref == t_ref) {
+                        m.parameters.push(JavaParameter { type_ref: t_ref, name: n });
                     }
                 }
             }
             JavaElement::Field(f) => {
                 if let Some(t) = mat.captures.iter().find(|c| c.index == self.indices.field_type) {
-                    f.type_name = t.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+                    f.type_ref = self.parse_type_node(t.node, source);
                 }
             }
         }

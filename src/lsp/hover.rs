@@ -1,6 +1,7 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use crate::lsp::LspServer;
+use crate::query::model::NodeSummary;
 
 use crate::parser::SymbolResolution;
 
@@ -51,16 +52,26 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
 
     for &idx in &matches {
         let node = &index.topology[idx];
+        let summary = NodeSummary::from(node);
         if !hover_text.is_empty() {
             hover_text.push_str("\n\n---\n\n");
         }
-        hover_text.push_str(&format!("**{}** ({})\n\n", node.name(), node.kind()));
-        hover_text.push_str(&format!("FQN: `{}`", node.fqn()));
+        
+        // Method/Field name as title
+        hover_text.push_str(&format!("**{}** *{}*\n\n", summary.name, summary.kind));
+        
+        // Signature in code block
+        if let Some(sig) = &summary.signature {
+            hover_text.push_str(&format!("```java\n{}\n```\n", sig));
+        }
+        
+        // Metadata: FQN only
+        hover_text.push_str(&format!("\n*`{}`*", summary.fqn));
     }
 
     if hover_text.is_empty() {
         if let SymbolResolution::Precise(fqn, _) = resolution {
-            hover_text.push_str(&format!("**External Reference**\n\nFQN: `{}`", fqn));
+            hover_text.push_str(&format!("**External Reference**\n\n*`{}`*", fqn));
         }
     }
 

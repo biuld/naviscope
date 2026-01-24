@@ -7,6 +7,7 @@ use crate::project::scanner::{ParsedContent, ParsedFile};
 use crate::parser::{SymbolResolution, matches_intent};
 use crate::parser::SymbolIntent;
 use crate::parser::java::JavaParser;
+use crate::model::signature::TypeRef;
 use petgraph::stable_graph::NodeIndex;
 use tree_sitter::Tree;
 use std::ops::ControlFlow;
@@ -49,6 +50,37 @@ impl JavaResolver {
         }
 
         scopes
+    }
+
+    fn resolve_type_ref(&self, type_ref: &TypeRef, package: Option<&str>, imports: &[String]) -> TypeRef {
+        match type_ref {
+            TypeRef::Raw(name) => {
+                if let Some(fqn) = self.parser.resolve_type_name_to_fqn_data(name, package, imports) {
+                    TypeRef::Id(fqn)
+                } else {
+                    TypeRef::Raw(name.clone())
+                }
+            },
+            TypeRef::Generic { base, args } => {
+                TypeRef::Generic {
+                    base: Box::new(self.resolve_type_ref(base, package, imports)),
+                    args: args.iter().map(|a| self.resolve_type_ref(a, package, imports)).collect()
+                }
+            },
+            TypeRef::Array { element, dimensions } => {
+                TypeRef::Array {
+                    element: Box::new(self.resolve_type_ref(element, package, imports)),
+                    dimensions: *dimensions
+                }
+            },
+            TypeRef::Wildcard { bound, is_upper_bound } => {
+                TypeRef::Wildcard {
+                    bound: bound.as_ref().map(|b| Box::new(self.resolve_type_ref(b, package, imports))),
+                    is_upper_bound: *is_upper_bound
+                }
+            },
+            _ => type_ref.clone()
+        }
     }
 }
 
@@ -110,10 +142,14 @@ impl SemanticResolver for JavaResolver {
                     if let GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = node {
                         match element {
                             crate::model::lang::java::JavaElement::Field(f) => {
-                                type_resolutions.push(SymbolResolution::Precise(f.type_name.clone(), SymbolIntent::Type))
+                                if let crate::model::signature::TypeRef::Raw(s) = &f.type_ref {
+                                    type_resolutions.push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type))
+                                }
                             }
                             crate::model::lang::java::JavaElement::Method(m) => {
-                                type_resolutions.push(SymbolResolution::Precise(m.return_type.clone(), SymbolIntent::Type))
+                                if let crate::model::signature::TypeRef::Raw(s) = &m.return_type {
+                                    type_resolutions.push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type))
+                                }
                             }
                             _ => {
                                 if matches_intent(node.kind(), SymbolIntent::Type) {
@@ -183,8 +219,26 @@ impl LangResolver for JavaResolver {
 
             for node in &parse_result.nodes {
                 let fqn = node.fqn();
+                let mut node = node.clone();
+                
+                // Enhance node with resolved types
+                if let GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = &mut node {
+                    match element {
+                        crate::model::lang::java::JavaElement::Method(m) => {
+                            m.return_type = self.resolve_type_ref(&m.return_type, parse_result.package_name.as_deref(), &parse_result.imports);
+                            for param in &mut m.parameters {
+                                param.type_ref = self.resolve_type_ref(&param.type_ref, parse_result.package_name.as_deref(), &parse_result.imports);
+                            }
+                        },
+                        crate::model::lang::java::JavaElement::Field(f) => {
+                            f.type_ref = self.resolve_type_ref(&f.type_ref, parse_result.package_name.as_deref(), &parse_result.imports);
+                        },
+                        _ => {}
+                    }
+                }
+
                 unit.add_node(fqn.to_string(), node.clone());
-                if self.is_top_level_node(node) {
+                if self.is_top_level_node(&node) {
                     unit.add_edge(container_id.clone(), fqn.to_string(), GraphEdge::new(EdgeType::Contains));
                 }
             }
