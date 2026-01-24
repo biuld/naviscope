@@ -4,10 +4,16 @@ import * as path from 'path';
 import * as https from 'https';
 import * as os from 'os';
 import { IncomingMessage } from 'http';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const BINARY_NAME = 'naviscope';
 const REPO_OWNER = 'biuld';
 const REPO_NAME = 'naviscope';
+// Update this version when bundling a new version of the extension
+const EXPECTED_VERSION = '0.1.0';
 
 export async function bootstrap(context: vscode.ExtensionContext): Promise<string | undefined> {
     const naviscopeHome = path.join(os.homedir(), '.naviscope');
@@ -23,31 +29,63 @@ export async function bootstrap(context: vscode.ExtensionContext): Promise<strin
     }
 
     const binaryPath = path.join(binDir, BINARY_NAME);
+    let shouldDownload = false;
     
+    if (fs.existsSync(binaryPath)) {
+        const isCompatible = await checkVersion(binaryPath);
+        if (!isCompatible) {
+            const selection = await vscode.window.showWarningMessage(
+                `Naviscope binary version mismatch. Expected v${EXPECTED_VERSION}. Update now?`,
+                'Update',
+                'Skip'
+            );
+            if (selection === 'Update') {
+                shouldDownload = true;
+            }
+        }
+    } else {
+        const selection = await vscode.window.showInformationMessage(
+            `Naviscope binary is required. Download automatically to ${binDir}?`,
+            'Download',
+            'Cancel'
+        );
+        if (selection === 'Download') {
+            shouldDownload = true;
+        } else {
+            return undefined;
+        }
+    }
+
+    if (shouldDownload) {
+        try {
+            if (fs.existsSync(binaryPath)) {
+                fs.unlinkSync(binaryPath);
+            }
+            await downloadBinary(binaryPath);
+            vscode.window.showInformationMessage(`Naviscope installed successfully!`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to download Naviscope: ${error}`);
+            if (fs.existsSync(binaryPath)) {
+                fs.unlinkSync(binaryPath);
+            }
+            return undefined;
+        }
+    }
+
     if (fs.existsSync(binaryPath)) {
         return binaryPath;
     }
+    return undefined;
+}
 
-    const selection = await vscode.window.showInformationMessage(
-        `Naviscope binary is required. Download automatically to ${binDir}?`,
-        'Download',
-        'Cancel'
-    );
-
-    if (selection !== 'Download') {
-        return undefined;
-    }
-
+async function checkVersion(binaryPath: string): Promise<boolean> {
     try {
-        await downloadBinary(binaryPath);
-        vscode.window.showInformationMessage(`Naviscope installed successfully!`);
-        return binaryPath;
-    } catch (error) {
-        vscode.window.showErrorMessage(`Failed to download Naviscope: ${error}`);
-        if (fs.existsSync(binaryPath)) {
-            fs.unlinkSync(binaryPath);
-        }
-        return undefined;
+        const { stdout } = await execAsync(`"${binaryPath}" --version`);
+        // Expected output: "naviscope 0.1.0"
+        return stdout.includes(EXPECTED_VERSION);
+    } catch (e) {
+        console.warn('Failed to check version:', e);
+        return false;
     }
 }
 
@@ -112,7 +150,6 @@ function getPlatformIdentifier(): string | null {
         if (arch === 'arm64') {
             return 'macos-aarch64';
         }
-        // Intel Mac is not supported
     }
     return null;
 }
