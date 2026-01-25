@@ -13,7 +13,7 @@ const BINARY_NAME = 'naviscope';
 const REPO_OWNER = 'biuld';
 const REPO_NAME = 'naviscope';
 // Update this version when bundling a new version of the extension
-const EXPECTED_VERSION = '0.1.0';
+const EXPECTED_VERSION = '0.2.0';
 
 /**
  * Check if naviscope is available in PATH
@@ -107,7 +107,7 @@ export async function bootstrap(context: vscode.ExtensionContext): Promise<strin
 async function checkVersion(binaryPath: string): Promise<boolean> {
     try {
         const { stdout } = await execAsync(`"${binaryPath}" --version`);
-        // Expected output: "naviscope 0.1.0"
+        // Expected output: "naviscope 0.2.0"
         return stdout.includes(EXPECTED_VERSION);
     } catch (e) {
         console.warn('Failed to check version:', e);

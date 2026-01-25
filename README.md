@@ -1,17 +1,19 @@
 # Naviscope
 
-Naviscope is a graph-based, structured code query engine specifically designed for Large Language Models (LLMs). It builds a comprehensive **Code Knowledge Graph** that bridges the gap between micro-level source code semantics (calls, inheritance) and macro-level project structures (modules, packages, dependencies).
+Naviscope is a **unified Code Knowledge Graph engine** that bridges the gap between AI agents and developers. It builds a comprehensive graph representation of your codebase, connecting micro-level source code semantics (calls, inheritance) with macro-level project structures (modules, packages, dependencies).
 
-Unlike traditional text search, Naviscope provides a deep, structured understanding of your codebase, enabling LLMs to navigate and reason about complex software systems with precision.
+Unlike traditional text search or language servers, Naviscope provides a **single, unified knowledge graph** that powers both LLM agents (via MCP) and IDE features (via LSP), enabling precise code navigation and reasoning across complex software systems.
 
 ## 🌟 Key Features
 
-- **Code Knowledge Graph**: Represents project entities and their complex relationships in a unified graph using `petgraph`.
-- **LLM-Friendly DSL**: A shell-like query interface (`grep`, `ls`, `inspect`, `incoming`, `outgoing`) that returns structured JSON data optimized for LLM agents.
+- **Unified Code Knowledge Graph**: A single graph representation using `petgraph` that powers both MCP (for LLMs) and LSP (for IDEs), ensuring consistency across all tools.
+- **Zero JVM Overhead**: Built entirely in Rust, providing instant startup and low memory footprint—no more waiting for Java language servers to index.
+- **LLM-Optimized Query Interface**: Structured JSON responses via MCP tools (`grep`, `ls`, `inspect`, `deps`) designed specifically for AI agent consumption.
 - **High-Performance Indexing**: A robust 3-phase processing pipeline (Scan & Parse → Resolve → Apply) utilizing Rust's concurrency for maximum speed.
 - **Real-time Synchronization**: Automatic graph updates via file system watching (`notify`), ensuring the index stays consistent with your changes.
-- **Multi-Protocol Interface**: Support for both **MCP** (Model Context Protocol) for AI agents and **LSP** (Language Server Protocol) for IDEs.
-- **Extensible Architecture**: Language-neutral core with a strategy-based resolver. Currently focused on **Java + Gradle**, with Maven support in progress.
+- **Dual Protocol Support**: Native **MCP** (Model Context Protocol) for AI agents and **LSP** (Language Server Protocol) for IDEs, both sharing the same underlying graph.
+- **Resilient & Fast**: Works effectively even with syntax errors or missing dependencies, providing immediate feedback without blocking on incomplete code.
+- **Extensible Architecture**: Language-neutral core with a strategy-based resolver. Currently supports **Java + Gradle**, with Maven support in progress.
 
 ## 🏗️ Architecture
 
@@ -54,11 +56,10 @@ npm run package
 Naviscope implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), allowing LLM agents like Cursor and Claude to directly use its code knowledge graph.
 
 #### Available Tools
-- **`grep`**: Global search for symbols by pattern and kind (Class, Method, etc.).
-- **`ls`**: List package members, class fields, or project modules.
+- **`grep`**: Global search for symbols by pattern and kind (Class, Method, etc.) across the entire project.
+- **`ls`**: List package members, class fields, or project modules. Explore project structure hierarchically.
 - **`inspect`**: Retrieve full metadata and source code for a specific Fully Qualified Name (FQN).
-- **`incoming`**: Trace inbound relationships like callers, implementers, or references.
-- **`outgoing`**: Trace outbound relationships like callees or class dependencies.
+- **`deps`**: Analyze dependencies—outgoing (what I depend on) or incoming (who depends on me) with optional edge type filtering.
 
 #### Configuring in Cursor
 To use Naviscope in Cursor:
@@ -106,26 +107,50 @@ Naviscope acts as a high-performance LSP server for Java, offering a lightweight
 - **Other Editors**: Simply point your LSP client to the `naviscope lsp` command.
 
 #### Why Naviscope LSP?
-- **Zero JVM Overhead**: No more "Java Language Server is indexing..." hanging your UI.
-- **Resilient**: Works even if your code has syntax errors or missing dependencies.
-- **Unified Knowledge**: Shares the same core graph used by MCP for LLM agents.
+- **Zero JVM Overhead**: Built in Rust, providing instant startup and low memory usage—no more "Java Language Server is indexing..." blocking your workflow.
+- **Resilient**: Works effectively even with syntax errors or missing dependencies, providing immediate navigation without waiting for perfect code.
+- **Unified Knowledge Graph**: Shares the exact same core graph used by MCP for LLM agents, ensuring consistency between AI-assisted development and manual navigation.
+- **Lightweight Alternative**: A fast, memory-efficient replacement for JDTLS that doesn't require a full Java runtime.
 
 ## 🛠️ Query API Examples
 
 The Query DSL (used by `naviscope shell` and MCP) supports several commands for structured exploration:
-- `grep`: `grep "UserService"` (or JSON `{"command": "grep", "pattern": "UserService", "kind": ["class"]}`)
-- `ls`: `ls "com.example.service"` (or JSON `{"command": "ls", "fqn": "com.example.service"}`)
-- `cat`: `cat "com.example.service.UserService"` (or JSON `{"command": "cat", "fqn": "com.example.service.UserService"}`)
-- `deps`: `deps "com.example.service.UserService"` (or JSON `{"command": "deps", "fqn": "com.example.service.UserService"}`)
+
+**Shell Commands:**
+```bash
+grep "UserService"                    # Search for symbols matching pattern
+ls "com.example.service"              # List package contents
+cat "com.example.service.UserService" # Inspect full details of a symbol
+deps "com.example.service.UserService" # Show dependencies (outgoing by default)
+deps --rev "com.example.service.UserService" # Show reverse dependencies (incoming)
+```
+
+**JSON DSL (for MCP/API):**
+```json
+{"command": "grep", "pattern": "UserService", "kind": ["class"], "limit": 20}
+{"command": "ls", "fqn": "com.example.service", "kind": ["class", "interface"]}
+{"command": "cat", "fqn": "com.example.service.UserService"}
+{"command": "deps", "fqn": "com.example.service.UserService", "rev": false, "edge_type": ["Calls", "InheritsFrom"]}
+```
+
+## 🎯 Project Positioning
+
+Naviscope fills a unique niche in the developer tooling ecosystem:
+
+**For LLM Agents**: Provides structured, graph-based code understanding that goes far beyond text search, enabling AI assistants to reason about code relationships, dependencies, and architecture.
+
+**For Developers**: Offers a lightweight, fast LSP server that doesn't require JVM overhead, with the added benefit of sharing the same knowledge graph that powers AI-assisted development.
+
+**The Unified Advantage**: Unlike traditional tools that maintain separate indexes for different purposes, Naviscope's single knowledge graph ensures that what AI agents see is exactly what developers navigate—creating a seamless, consistent experience across all development workflows.
 
 ## 📈 Roadmap (V1)
 - [x] Core Graph Storage (`petgraph`)
 - [x] Java & Gradle Parser (Tree-sitter driven)
 - [x] Shell-like Query DSL Engine
 - [x] Parallel Indexing & Real-time Updates (`notify`)
-- [x] MCP Server implementation
+- [x] MCP Server implementation (grep, ls, inspect, deps)
 - [x] LSP Support (Definition, References, Hierarchy, Hover, etc.)
-- [x] VSCode Extension (Initial version)
+- [x] VSCode Extension
 - [ ] Maven Support (In Progress)
 - [ ] Python/Rust Language Strategies (Planned)
 

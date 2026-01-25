@@ -2,7 +2,7 @@
   "name": "naviscope",
   "displayName": "Naviscope",
   "description": "Graph-based structured code navigation for Java",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "naviscope",
   "repository": {
     "type": "git",
