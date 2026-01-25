@@ -29,6 +29,60 @@ impl Range {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeKind {
+    Class,
+    Interface,
+    Enum,
+    Annotation,
+    Method,
+    Constructor,
+    Field,
+    // Build specific
+    Dependency,
+    Task,
+    Plugin,
+    // Fallback
+    Other,
+}
+
+impl From<&str> for NodeKind {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "class" => NodeKind::Class,
+            "interface" => NodeKind::Interface,
+            "enum" => NodeKind::Enum,
+            "annotation" => NodeKind::Annotation,
+            "method" => NodeKind::Method,
+            "constructor" => NodeKind::Constructor,
+            "field" => NodeKind::Field,
+            "dependency" => NodeKind::Dependency,
+            "task" => NodeKind::Task,
+            "plugin" => NodeKind::Plugin,
+            _ => NodeKind::Other,
+        }
+    }
+}
+
+impl ToString for NodeKind {
+    fn to_string(&self) -> String {
+        match self {
+            NodeKind::Class => "class".to_string(),
+            NodeKind::Interface => "interface".to_string(),
+            NodeKind::Enum => "enum".to_string(),
+            NodeKind::Annotation => "annotation".to_string(),
+            NodeKind::Method => "method".to_string(),
+            NodeKind::Constructor => "constructor".to_string(),
+            NodeKind::Field => "field".to_string(),
+            NodeKind::Dependency => "dependency".to_string(),
+            NodeKind::Task => "task".to_string(),
+            NodeKind::Plugin => "plugin".to_string(),
+            NodeKind::Other => "other".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GraphNode {
     Code(CodeElement),
@@ -73,17 +127,17 @@ impl GraphNode {
         }
     }
 
-    pub fn kind(&self) -> &str {
+    pub fn kind(&self) -> NodeKind {
         match self {
             GraphNode::Code(CodeElement::Java { element, .. }) => match element {
-                JavaElement::Class(_) => "class",
-                JavaElement::Interface(_) => "interface",
-                JavaElement::Enum(_) => "enum",
-                JavaElement::Annotation(_) => "annotation",
-                JavaElement::Method(_) => "method",
-                JavaElement::Field(_) => "field",
+                JavaElement::Class(_) => NodeKind::Class,
+                JavaElement::Interface(_) => NodeKind::Interface,
+                JavaElement::Enum(_) => NodeKind::Enum,
+                JavaElement::Annotation(_) => NodeKind::Annotation,
+                JavaElement::Method(m) => if m.is_constructor { NodeKind::Constructor } else { NodeKind::Method },
+                JavaElement::Field(_) => NodeKind::Field,
             },
-            GraphNode::Build(BuildElement::Gradle { element, .. }) => element.kind(),
+            GraphNode::Build(BuildElement::Gradle { element, .. }) => NodeKind::from(element.kind()),
         }
     }
 
@@ -166,8 +220,9 @@ pub enum EdgeType {
     Implements,
     // Usage/Reference
     Calls,
-    References,
     Instantiates,
+    TypedAs,
+    DecoratedBy,
     // Build system relationships
     UsesDependency,
 }

@@ -1,6 +1,6 @@
 use crate::resolver::{LangResolver, ProjectContext};
 use crate::error::Result;
-use crate::model::graph::{EdgeType, GraphEdge, GraphNode, ResolvedUnit};
+use crate::model::graph::{EdgeType, GraphEdge, GraphNode, NodeKind, ResolvedUnit};
 use crate::resolver::SemanticResolver;
 use crate::index::CodeGraph;
 use crate::project::scanner::{ParsedContent, ParsedFile};
@@ -32,7 +32,7 @@ impl JavaResolver {
 
     fn is_top_level_node(&self, node: &GraphNode) -> bool {
         let kind = node.kind();
-        kind == "class" || kind == "interface" || kind == "enum" || kind == "annotation"
+        matches!(kind, NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation)
     }
 
     fn get_active_scopes<'a>(&'a self, ctx: &'a ResolutionContext) -> Vec<Box<dyn Scope + 'a>> {
@@ -115,7 +115,7 @@ impl SemanticResolver for JavaResolver {
             SymbolResolution::Precise(fqn, intent) => {
                 if let Some(&idx) = index.fqn_map.get(fqn) {
                     if let Some(node) = index.topology.node_weight(idx) {
-                        if *intent == SymbolIntent::Unknown || matches_intent(node.kind(), *intent) {
+                        if *intent == SymbolIntent::Unknown || matches_intent(&node.kind(), *intent) {
                             return vec![idx];
                         }
                     }
@@ -152,7 +152,7 @@ impl SemanticResolver for JavaResolver {
                                 }
                             }
                             _ => {
-                                if matches_intent(node.kind(), SymbolIntent::Type) {
+                                if matches_intent(&node.kind(), SymbolIntent::Type) {
                                     type_resolutions.push(resolution.clone());
                                 }
                             }

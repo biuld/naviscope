@@ -1,4 +1,4 @@
-use crate::model::graph::{GraphNode, Range};
+use crate::model::graph::{GraphNode, NodeKind, Range};
 use tree_sitter::Tree;
 use std::path::Path;
 use crate::error::Result;
@@ -12,17 +12,12 @@ pub enum SymbolIntent {
     Unknown,
 }
 
-pub fn matches_intent(node_kind: &str, intent: SymbolIntent) -> bool {
+pub fn matches_intent(node_kind: &NodeKind, intent: SymbolIntent) -> bool {
     match intent {
-        SymbolIntent::Type => {
-            node_kind == "class"
-                || node_kind == "interface"
-                || node_kind == "enum"
-                || node_kind == "annotation"
-        }
-        SymbolIntent::Method => node_kind == "method" || node_kind == "constructor",
-        SymbolIntent::Field => node_kind == "field",
-        SymbolIntent::Variable => node_kind == "variable" || node_kind == "parameter",
+        SymbolIntent::Type => matches!(node_kind, NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation),
+        SymbolIntent::Method => matches!(node_kind, NodeKind::Method | NodeKind::Constructor),
+        SymbolIntent::Field => matches!(node_kind, NodeKind::Field),
+        SymbolIntent::Variable => false, // Graph nodes are rarely variables, usually only Definitions
         SymbolIntent::Unknown => true,
     }
 }
@@ -37,7 +32,7 @@ pub trait LspParser: Send + Sync {
     fn parse(&self, source: &str, old_tree: Option<&tree_sitter::Tree>) -> Option<tree_sitter::Tree>;
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DocumentSymbol>;
     /// Maps a language-specific symbol kind string to an LSP SymbolKind
-    fn symbol_kind(&self, kind: &str) -> tower_lsp::lsp_types::SymbolKind;
+    fn symbol_kind(&self, kind: &NodeKind) -> tower_lsp::lsp_types::SymbolKind;
 }
 
 /// Result of a global file parsing for indexing.
@@ -56,7 +51,7 @@ pub trait IndexParser: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct DocumentSymbol {
     pub name: String,
-    pub kind: String,
+    pub kind: NodeKind,
     pub range: Range,
     pub selection_range: Range,
     pub children: Vec<DocumentSymbol>,

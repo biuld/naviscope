@@ -1,5 +1,6 @@
 use crate::parser::LspParser;
 use crate::parser::utils::{RawSymbol, build_symbol_hierarchy};
+use crate::model::graph::NodeKind;
 use tree_sitter::Tree;
 use super::JavaParser;
 
@@ -19,17 +20,17 @@ impl LspParser for JavaParser {
             .into_iter()
             .map(|e| {
                 let kind = match e.element {
-                    crate::model::lang::java::JavaElement::Class(_) => "class",
-                    crate::model::lang::java::JavaElement::Interface(_) => "interface",
-                    crate::model::lang::java::JavaElement::Enum(_) => "enum",
-                    crate::model::lang::java::JavaElement::Annotation(_) => "annotation",
-                    crate::model::lang::java::JavaElement::Method(ref m) => if m.is_constructor { "constructor" } else { "method" },
-                    crate::model::lang::java::JavaElement::Field(_) => "field",
+                    crate::model::lang::java::JavaElement::Class(_) => NodeKind::Class,
+                    crate::model::lang::java::JavaElement::Interface(_) => NodeKind::Interface,
+                    crate::model::lang::java::JavaElement::Enum(_) => NodeKind::Enum,
+                    crate::model::lang::java::JavaElement::Annotation(_) => NodeKind::Annotation,
+                    crate::model::lang::java::JavaElement::Method(ref m) => if m.is_constructor { NodeKind::Constructor } else { NodeKind::Method },
+                    crate::model::lang::java::JavaElement::Field(_) => NodeKind::Field,
                 };
                 
                 RawSymbol {
                     name: e.element.name().to_string(),
-                    kind: kind.to_string(),
+                    kind,
                     range: e.element.range().cloned().unwrap_or(crate::model::graph::Range { start_line: 0, start_col: 0, end_line: 0, end_col: 0 }),
                     selection_range: e.element.name_range().cloned().unwrap_or(crate::model::graph::Range { start_line: 0, start_col: 0, end_line: 0, end_col: 0 }),
                     node: e.node,
@@ -40,16 +41,16 @@ impl LspParser for JavaParser {
         build_symbol_hierarchy(raw_symbols)
     }
 
-    fn symbol_kind(&self, kind: &str) -> tower_lsp::lsp_types::SymbolKind {
+    fn symbol_kind(&self, kind: &NodeKind) -> tower_lsp::lsp_types::SymbolKind {
         use tower_lsp::lsp_types::SymbolKind;
         match kind {
-            "class" => SymbolKind::CLASS,
-            "interface" => SymbolKind::INTERFACE,
-            "enum" => SymbolKind::ENUM,
-            "annotation" => SymbolKind::INTERFACE,
-            "method" => SymbolKind::METHOD,
-            "constructor" => SymbolKind::CONSTRUCTOR,
-            "field" => SymbolKind::FIELD,
+            NodeKind::Class => SymbolKind::CLASS,
+            NodeKind::Interface => SymbolKind::INTERFACE,
+            NodeKind::Enum => SymbolKind::ENUM,
+            NodeKind::Annotation => SymbolKind::INTERFACE,
+            NodeKind::Method => SymbolKind::METHOD,
+            NodeKind::Constructor => SymbolKind::CONSTRUCTOR,
+            NodeKind::Field => SymbolKind::FIELD,
             _ => SymbolKind::VARIABLE,
         }
     }

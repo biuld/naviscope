@@ -1,6 +1,6 @@
 use crate::error::{NaviscopeError, Result};
 use tree_sitter::{Language, Query};
-use crate::model::graph::Range;
+use crate::model::graph::{Range, NodeKind};
 
 /// Converts a tree-sitter range to our internal Range model.
 pub fn range_from_ts(range: tree_sitter::Range) -> Range {
@@ -28,7 +28,7 @@ pub fn get_capture_index(query: &Query, name: &str) -> Result<u32> {
 /// A raw symbol representation used during tree construction.
 pub struct RawSymbol<'a> {
     pub name: String,
-    pub kind: String,
+    pub kind: NodeKind,
     pub range: crate::model::graph::Range,
     pub selection_range: crate::model::graph::Range,
     pub node: tree_sitter::Node<'a>,

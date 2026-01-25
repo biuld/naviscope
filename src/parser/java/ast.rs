@@ -215,20 +215,37 @@ impl JavaParser {
         element: &mut JavaElement,
         relations: &mut Vec<JavaRelation>,
     ) {
-        // Modifiers
+        // Modifiers & Annotations
         if let Some(mods_node) = mat.captures.iter().find(|c| c.index == self.indices.mods).map(|c| c.node) {
             let mut cursor = mods_node.walk();
             for child in mods_node.children(&mut cursor) {
-                if let Ok(m) = child.utf8_text(source.as_bytes()) {
-                    let m_str = m.to_string();
-                    match element {
-                        JavaElement::Class(c) => if !c.modifiers.contains(&m_str) { c.modifiers.push(m_str); }
-                        JavaElement::Interface(i) => if !i.modifiers.contains(&m_str) { i.modifiers.push(m_str); }
-                        JavaElement::Enum(e) => if !e.modifiers.contains(&m_str) { e.modifiers.push(m_str); }
-                        JavaElement::Annotation(a) => if !a.modifiers.contains(&m_str) { a.modifiers.push(m_str); }
-                        JavaElement::Method(m_node) => if !m_node.modifiers.contains(&m_str) { m_node.modifiers.push(m_str); }
-                        JavaElement::Field(f) => if !f.modifiers.contains(&m_str) { f.modifiers.push(m_str); }
+                let kind = child.kind();
+                if kind.contains("annotation") {
+                    // It's an annotation. Try to extract the name.
+                    // Structure usually: (marker_annotation name: (identifier))
+                    // or (annotation name: (identifier) arguments: (...))
+                    let name_node = child.child_by_field_name("name").unwrap_or(child);
+                    if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
+                         let name_str = name.to_string();
+                         // Add DecoratedBy edge
+                         relations.push(JavaRelation {
+                             source_fqn: fqn.clone(),
+                             target_name: name_str.clone(), // We might want to resolve this to FQN if possible
+                             rel_type: EdgeType::DecoratedBy,
+                             range: Some(range_from_ts(name_node.range())),
+                         });
+                         // Also add to modifiers list as string representation (e.g. "@Override")
+                         // We need to reconstruct the full annotation text or just the name with @
+                         // Existing logic added full text, let's keep it simple: just add the name prefixed with @ if not present
+                         // Actually, child.utf8_text() gives the full annotation text "@Override"
+                         if let Ok(full_text) = child.utf8_text(source.as_bytes()) {
+                              let m_str = full_text.to_string();
+                              self.add_modifier(element, m_str);
+                         }
                     }
+                } else if let Ok(m) = child.utf8_text(source.as_bytes()) {
+                    let m_str = m.to_string();
+                    self.add_modifier(element, m_str);
                 }
             }
         }
@@ -280,6 +297,8 @@ impl JavaParser {
             JavaElement::Method(m) => {
                 if let Some(ret) = mat.captures.iter().find(|c| c.index == self.indices.method_ret) {
                     m.return_type = self.parse_type_node(ret.node, source);
+                    // Generate TypedAs edge for return type
+                    self.generate_typed_as_edges(ret.node, source, &fqn, relations);
                 }
                 if let (Some(t_node), Some(n_node)) = (
                     mat.captures.iter().find(|c| c.index == self.indices.param_type).map(|c| c.node),
@@ -290,13 +309,73 @@ impl JavaParser {
                     if !m.parameters.iter().any(|p| p.name == n && p.type_ref == t_ref) {
                         m.parameters.push(JavaParameter { type_ref: t_ref, name: n });
                     }
+                    // Generate TypedAs edge for parameter type
+                    self.generate_typed_as_edges(t_node, source, &fqn, relations);
                 }
             }
             JavaElement::Field(f) => {
                 if let Some(t) = mat.captures.iter().find(|c| c.index == self.indices.field_type) {
                     f.type_ref = self.parse_type_node(t.node, source);
+                    // Generate TypedAs edge for field type
+                    self.generate_typed_as_edges(t.node, source, &fqn, relations);
                 }
             }
         }
+    }
+
+    fn add_modifier(&self, element: &mut JavaElement, m_str: String) {
+        match element {
+            JavaElement::Class(c) => if !c.modifiers.contains(&m_str) { c.modifiers.push(m_str); }
+            JavaElement::Interface(i) => if !i.modifiers.contains(&m_str) { i.modifiers.push(m_str); }
+            JavaElement::Enum(e) => if !e.modifiers.contains(&m_str) { e.modifiers.push(m_str); }
+            JavaElement::Annotation(a) => if !a.modifiers.contains(&m_str) { a.modifiers.push(m_str); }
+            JavaElement::Method(m_node) => if !m_node.modifiers.contains(&m_str) { m_node.modifiers.push(m_str); }
+            JavaElement::Field(f) => if !f.modifiers.contains(&m_str) { f.modifiers.push(m_str); }
+        }
+    }
+
+    /// Recursively extracts type references and generates TypedAs edges
+    fn generate_typed_as_edges(
+        &self,
+        type_node: Node,
+        source: &str,
+        source_fqn: &str,
+        relations: &mut Vec<JavaRelation>,
+    ) {
+        let kind = type_node.kind();
+        
+        // Base case: simple type identifier
+        if kind == "type_identifier" {
+            let type_name = type_node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+            // Ignore primitive types for edge generation
+            if !self.is_primitive(&type_name) {
+                relations.push(JavaRelation {
+                    source_fqn: source_fqn.to_string(),
+                    target_name: type_name,
+                    rel_type: EdgeType::TypedAs,
+                    range: Some(range_from_ts(type_node.range())),
+                });
+            }
+            return;
+        }
+
+        // Recursive cases
+        let mut cursor = type_node.walk();
+        for child in type_node.children(&mut cursor) {
+            let child_kind = child.kind();
+            match child_kind {
+                "type_identifier" | "generic_type" | "type_arguments" | "wildcard" | "array_type" => {
+                     self.generate_typed_as_edges(child, source, source_fqn, relations);
+                },
+                _ => {}
+            }
+        }
+    }
+
+    fn is_primitive(&self, type_name: &str) -> bool {
+        matches!(
+            type_name,
+            "byte" | "short" | "int" | "long" | "float" | "double" | "boolean" | "char" | "void"
+        )
     }
 }

@@ -235,6 +235,16 @@ pub async fn references(
                     .detach();
                 while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
                     let edge = &index.topology[edge_idx];
+                    
+                    // Filter edges for references
+                    match edge.edge_type {
+                        crate::model::graph::EdgeType::Calls |
+                        crate::model::graph::EdgeType::Instantiates |
+                        crate::model::graph::EdgeType::TypedAs |
+                        crate::model::graph::EdgeType::DecoratedBy => {},
+                        _ => continue,
+                    }
+
                     let source_node = &index.topology[neighbor_idx];
                     if let (Some(source_path), Some(range)) =
                         (source_node.file_path(), &edge.range)

@@ -1,7 +1,7 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use crate::lsp::LspServer;
-use crate::model::graph::EdgeType;
+use crate::model::graph::{EdgeType, NodeKind};
 
 
 pub async fn prepare_call_hierarchy(server: &LspServer, params: CallHierarchyPrepareParams) -> Result<Option<Vec<CallHierarchyItem>>> {
@@ -45,7 +45,7 @@ pub async fn prepare_call_hierarchy(server: &LspServer, params: CallHierarchyPre
     for idx in matches {
         let node = &index.topology[idx];
         let kind = node.kind();
-        if kind == "method" || kind == "constructor" {
+        if kind == NodeKind::Method || kind == NodeKind::Constructor {
             if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
                 let lsp_range = Range {
                     start: Position::new(range.start_line as u32, range.start_col as u32),

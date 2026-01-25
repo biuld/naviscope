@@ -63,7 +63,7 @@ pub async fn workspace_symbol(server: &LspServer, params: WorkspaceSymbolParams)
         if node.name().to_lowercase().contains(&query) || node.fqn().to_string().to_lowercase().contains(&query) {
             if let (Some(path), Some(range)) = (node.file_path(), node.range()) {
                 let kind = server.resolver.get_lsp_parser(node.language())
-                    .map(|parser| parser.symbol_kind(node.kind()))
+                    .map(|parser| parser.symbol_kind(&node.kind()))
                     .unwrap_or(SymbolKind::VARIABLE);
 
                 #[allow(deprecated)]

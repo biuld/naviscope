@@ -1,9 +1,9 @@
 use crate::error::{NaviscopeError, Result};
 use crate::index::CodeGraph;
-use crate::model::graph::EdgeType;
+use crate::model::graph::{EdgeType, NodeKind};
 use crate::query::dsl::GraphQuery;
 use crate::query::model::NodeSummary;
-use petgraph::Direction;
+use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
 
 pub struct QueryEngine<'a> {
@@ -34,7 +34,7 @@ impl<'a> QueryEngine<'a> {
 
                     // Check if either FQN or Name matches the pattern
                     if regex.is_match(&summary.fqn) || regex.is_match(&summary.name) {
-                        if kind.is_empty() || kind.contains(&summary.kind) {
+                        if kind.is_empty() || kind.contains(&node.kind()) {
                             results.push(summary);
                         }
                     }
@@ -45,9 +45,9 @@ impl<'a> QueryEngine<'a> {
                 }
                 Ok(serde_json::to_value(results)?)
             }
-            GraphQuery::Ls { fqn, kind } => {
+            GraphQuery::Ls { fqn, kind, modifiers: _ } => {
                 if let Some(target_fqn) = fqn {
-                    self.traverse_neighbors(target_fqn, &[EdgeType::Contains], Direction::Outgoing, kind)
+                    self.traverse_neighbors(target_fqn, &[EdgeType::Contains], PetDirection::Outgoing, kind)
                 } else {
                     // When FQN is missing, list all top-level modules (Gradle Package nodes with file paths)
                     let mut results = Vec::new();
@@ -60,7 +60,7 @@ impl<'a> QueryEngine<'a> {
                             // Java package nodes also use GradleElement::Package but do not have a file_path
                             if file_path.is_some() {
                                 let summary = NodeSummary::from(node);
-                                if kind.is_empty() || kind.contains(&summary.kind) {
+                                if kind.is_empty() || kind.contains(&node.kind()) {
                                     results.push(summary);
                                 }
                             }
@@ -69,7 +69,7 @@ impl<'a> QueryEngine<'a> {
                     Ok(serde_json::to_value(results)?)
                 }
             }
-            GraphQuery::Inspect { fqn } => {
+            GraphQuery::Cat { fqn } => {
                 if let Some(&idx) = self.graph.fqn_map.get(fqn) {
                     let node = &self.graph.topology[idx];
                     Ok(serde_json::to_value(node)?)
@@ -77,11 +77,13 @@ impl<'a> QueryEngine<'a> {
                     Ok(serde_json::Value::Null)
                 }
             }
-            GraphQuery::Incoming { fqn, edge_type } => {
-                self.traverse_neighbors(fqn, edge_type, Direction::Incoming, &[])
-            }
-            GraphQuery::Outgoing { fqn, edge_type } => {
-                self.traverse_neighbors(fqn, edge_type, Direction::Outgoing, &[])
+            GraphQuery::Deps { fqn, rev, edge_types } => {
+                let direction = if *rev {
+                    PetDirection::Incoming
+                } else {
+                    PetDirection::Outgoing
+                };
+                self.traverse_neighbors(fqn, edge_types, direction, &[])
             }
         }
     }
@@ -90,8 +92,8 @@ impl<'a> QueryEngine<'a> {
         &self,
         fqn: &str,
         edge_filter: &[EdgeType],
-        dir: Direction,
-        kind_filter: &[String],
+        dir: PetDirection,
+        kind_filter: &[NodeKind],
     ) -> Result<serde_json::Value> {
         let start_idx = self
             .graph
@@ -112,7 +114,7 @@ impl<'a> QueryEngine<'a> {
                 let neighbor_node = &self.graph.topology[neighbor_idx];
                 let summary = NodeSummary::from(neighbor_node);
 
-                if kind_filter.is_empty() || kind_filter.contains(&summary.kind) {
+                if kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind()) {
                     results.push(summary);
                 }
             }
