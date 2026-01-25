@@ -13,9 +13,35 @@ const BINARY_NAME = 'naviscope';
 const REPO_OWNER = 'biuld';
 const REPO_NAME = 'naviscope';
 // Update this version when bundling a new version of the extension
-const EXPECTED_VERSION = '0.1.0';
+const EXPECTED_VERSION = '0.2.0';
+
+/**
+ * Check if naviscope is available in PATH
+ */
+async function checkPathForNaviscope(): Promise<string | null> {
+    try {
+        // Use 'which' on Unix-like systems, 'where' on Windows
+        const command = process.platform === 'win32' ? 'where' : 'which';
+        const { stdout } = await execAsync(`${command} ${BINARY_NAME}`);
+        const pathInPath = stdout.trim().split('\n')[0];
+        if (pathInPath && fs.existsSync(pathInPath)) {
+            return pathInPath;
+        }
+    } catch (e) {
+        // Command not found in PATH
+    }
+    return null;
+}
 
 export async function bootstrap(context: vscode.ExtensionContext): Promise<string | undefined> {
+    // First, check if naviscope is available in PATH
+    const pathBinary = await checkPathForNaviscope();
+    if (pathBinary) {
+        // If found in PATH, use it directly without downloading or checking updates
+        return pathBinary;
+    }
+
+    // Only download and check updates if naviscope is not in PATH
     const naviscopeHome = path.join(os.homedir(), '.naviscope');
     const binDir = path.join(naviscopeHome, 'bin');
     
@@ -81,7 +107,7 @@ export async function bootstrap(context: vscode.ExtensionContext): Promise<strin
 async function checkVersion(binaryPath: string): Promise<boolean> {
     try {
         const { stdout } = await execAsync(`"${binaryPath}" --version`);
-        // Expected output: "naviscope 0.1.0"
+        // Expected output: "naviscope 0.2.0"
         return stdout.includes(EXPECTED_VERSION);
     } catch (e) {
         console.warn('Failed to check version:', e);

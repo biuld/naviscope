@@ -1,46 +1,43 @@
-use crate::model::graph::EdgeType;
+use crate::model::graph::{EdgeType, NodeKind};
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum GraphQuery {
-    Grep {
-        /// Search pattern (simple string or regex)
-        pattern: String,
-        /// Optional: Filter by type. 
-        /// Valid Java kinds: ["class", "interface", "enum", "annotation", "method", "field"]
-        /// Valid Build kinds: ["package", "dependency"]
-        #[serde(default)]
-        kind: Vec<String>,
-        #[serde(default = "default_limit")]
-        limit: usize,
-    },
-
+    /// List members or structure (Rich Listing)
     Ls {
         /// Target node FQN, defaults to project modules if null
         fqn: Option<String>,
-        /// Optional: Filter by type. 
-        /// Valid Java kinds: ["class", "interface", "enum", "annotation", "method", "field"]
-        /// Valid Build kinds: ["package", "dependency"]
         #[serde(default)]
-        kind: Vec<String>,
+        kind: Vec<NodeKind>,
+        #[serde(default)]
+        modifiers: Vec<String>,
     },
-
-    Inspect {
+    
+    /// Search for symbols
+    Grep {
+        pattern: String,
+        #[serde(default)]
+        kind: Vec<NodeKind>,
+        #[serde(default = "default_limit")]
+        limit: usize,
+    },
+    
+    /// Inspect node details (Source & Metadata)
+    Cat {
         fqn: String,
     },
-
-    Incoming {
+    
+    /// Find dependencies (outgoing) or dependents (incoming)
+    Deps {
         fqn: String,
+        /// If true, find incoming dependencies (who depends on me). 
+        /// If false (default), find outgoing dependencies (who do I depend on).
         #[serde(default)]
-        edge_type: Vec<EdgeType>,
-    },
-
-    Outgoing {
-        fqn: String,
+        rev: bool, 
         #[serde(default)]
-        edge_type: Vec<EdgeType>,
+        edge_types: Vec<EdgeType>,
     },
 }
 

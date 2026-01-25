@@ -1,9 +1,9 @@
 use crate::error::{NaviscopeError, Result};
 use crate::index::CodeGraph;
-use crate::model::graph::EdgeType;
+use crate::model::graph::{EdgeType, NodeKind};
 use crate::query::dsl::GraphQuery;
-use crate::query::model::NodeSummary;
-use petgraph::Direction;
+use crate::query::model::{QueryResult, QueryResultEdge};
+use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
 
 pub struct QueryEngine<'a> {
@@ -15,7 +15,7 @@ impl<'a> QueryEngine<'a> {
         Self { graph }
     }
 
-    pub fn execute(&self, query: &GraphQuery) -> Result<serde_json::Value> {
+    pub fn execute(&self, query: &GraphQuery) -> Result<QueryResult> {
         match query {
             GraphQuery::Grep {
                 pattern,
@@ -27,61 +27,78 @@ impl<'a> QueryEngine<'a> {
                     .build()
                     .map_err(|e| NaviscopeError::Parsing(format!("Invalid regex: {}", e)))?;
 
-                let mut results = Vec::new();
+                let mut nodes = Vec::new();
 
                 for node in self.graph.topology.node_weights() {
-                    let summary = NodeSummary::from(node);
-
                     // Check if either FQN or Name matches the pattern
-                    if regex.is_match(&summary.fqn) || regex.is_match(&summary.name) {
-                        if kind.is_empty() || kind.contains(&summary.kind) {
-                            results.push(summary);
+                    if regex.is_match(node.fqn()) || regex.is_match(node.name()) {
+                        if kind.is_empty() || kind.contains(&node.kind()) {
+                            nodes.push(node.clone());
                         }
                     }
 
-                    if results.len() >= *limit {
+                    if nodes.len() >= *limit {
                         break;
                     }
                 }
-                Ok(serde_json::to_value(results)?)
+                Ok(QueryResult::new(nodes, vec![]))
             }
-            GraphQuery::Ls { fqn, kind } => {
+            GraphQuery::Ls { fqn, kind, modifiers: _ } => {
                 if let Some(target_fqn) = fqn {
-                    self.traverse_neighbors(target_fqn, &[EdgeType::Contains], Direction::Outgoing, kind)
+                    self.traverse_neighbors(target_fqn, &[EdgeType::Contains], PetDirection::Outgoing, kind)
                 } else {
-                    // When FQN is missing, list all top-level modules (Gradle Package nodes with file paths)
-                    let mut results = Vec::new();
-                    for node in self.graph.topology.node_weights() {
-                        if let crate::model::graph::GraphNode::Build(crate::model::graph::BuildElement::Gradle { 
-                            element: crate::model::lang::gradle::GradleElement::Package(_), 
-                            file_path 
-                        }) = node {
-                            // Only actual project module nodes are associated with the file_path of build.gradle
-                            // Java package nodes also use GradleElement::Package but do not have a file_path
-                            if file_path.is_some() {
-                                let summary = NodeSummary::from(node);
-                                if kind.is_empty() || kind.contains(&summary.kind) {
-                                    results.push(summary);
-                                }
+                    // When FQN is missing, list all top-level nodes
+                    let mut nodes = Vec::new();
+                    
+                    // 1. Try to find Modules first (this is what we almost always want in root)
+                    for idx in self.graph.topology.node_indices() {
+                        let node = &self.graph.topology[idx];
+                        if node.kind() == NodeKind::Module {
+                            let has_parent = self.graph.topology
+                                .edges_directed(idx, PetDirection::Incoming)
+                                .any(|e| e.weight().edge_type == EdgeType::Contains);
+                            
+                            if !has_parent {
+                                nodes.push(node.clone());
                             }
                         }
                     }
-                    Ok(serde_json::to_value(results)?)
+
+                    // 2. If no top-level modules, but user asked for specific kind or we found nothing
+                    if nodes.is_empty() {
+                        for idx in self.graph.topology.node_indices() {
+                            let node = &self.graph.topology[idx];
+                            let has_parent = self.graph.topology
+                                .edges_directed(idx, PetDirection::Incoming)
+                                .any(|e| e.weight().edge_type == EdgeType::Contains);
+                            
+                            if !has_parent {
+                                if kind.is_empty() || kind.contains(&node.kind()) {
+                                    nodes.push(node.clone());
+                                }
+                            }
+                            if nodes.len() >= 50 { break; }
+                        }
+                    }
+
+                    Ok(QueryResult::new(nodes, vec![]))
                 }
             }
-            GraphQuery::Inspect { fqn } => {
+            GraphQuery::Cat { fqn } => {
                 if let Some(&idx) = self.graph.fqn_map.get(fqn) {
                     let node = &self.graph.topology[idx];
-                    Ok(serde_json::to_value(node)?)
+                    Ok(QueryResult::new(vec![node.clone()], vec![]))
                 } else {
-                    Ok(serde_json::Value::Null)
+                    Ok(QueryResult::empty())
                 }
             }
-            GraphQuery::Incoming { fqn, edge_type } => {
-                self.traverse_neighbors(fqn, edge_type, Direction::Incoming, &[])
-            }
-            GraphQuery::Outgoing { fqn, edge_type } => {
-                self.traverse_neighbors(fqn, edge_type, Direction::Outgoing, &[])
+            GraphQuery::Deps { fqn, rev, edge_types } => {
+                let direction = if *rev {
+                    PetDirection::Incoming
+                } else {
+                    PetDirection::Outgoing
+                };
+                self.traverse_neighbors(fqn, edge_types, direction, &[])
             }
         }
     }
@@ -90,16 +107,25 @@ impl<'a> QueryEngine<'a> {
         &self,
         fqn: &str,
         edge_filter: &[EdgeType],
-        dir: Direction,
-        kind_filter: &[String],
-    ) -> Result<serde_json::Value> {
+        dir: PetDirection,
+        kind_filter: &[NodeKind],
+    ) -> Result<QueryResult> {
         let start_idx = self
             .graph
             .fqn_map
             .get(fqn)
-            .ok_or_else(|| NaviscopeError::Parsing(format!("Node not found: {}", fqn)))?;
+            .ok_or_else(|| {
+                // Debug log to help identify the mismatch
+                eprintln!("DEBUG: traverse_neighbors failed. Looking for FQN: '{}'", fqn);
+                eprintln!("DEBUG: Available FQNs count: {}", self.graph.fqn_map.len());
+                if let Some(closest) = self.graph.fqn_map.keys().find(|k| k.contains(fqn)) {
+                    eprintln!("DEBUG: Found something containing '{}': '{}'", fqn, closest);
+                }
+                NaviscopeError::Parsing(format!("Node not found: {}", fqn))
+            })?;
 
-        let mut results = Vec::new();
+        let mut nodes = Vec::new();
+        let mut edges_result = Vec::new();
         let mut edges = self
             .graph
             .topology
@@ -110,14 +136,26 @@ impl<'a> QueryEngine<'a> {
             let edge_data = &self.graph.topology[edge_idx];
             if edge_filter.is_empty() || edge_filter.contains(&edge_data.edge_type) {
                 let neighbor_node = &self.graph.topology[neighbor_idx];
-                let summary = NodeSummary::from(neighbor_node);
+                let start_node = &self.graph.topology[*start_idx];
 
-                if kind_filter.is_empty() || kind_filter.contains(&summary.kind) {
-                    results.push(summary);
+                if kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind()) {
+                    nodes.push(neighbor_node.clone());
+                    
+                    let (from, to) = if dir == PetDirection::Outgoing {
+                        (start_node.fqn().to_string(), neighbor_node.fqn().to_string())
+                    } else {
+                        (neighbor_node.fqn().to_string(), start_node.fqn().to_string())
+                    };
+
+                    edges_result.push(QueryResultEdge {
+                        from,
+                        to,
+                        data: edge_data.clone(),
+                    });
                 }
             }
         }
 
-        Ok(serde_json::to_value(results)?)
+        Ok(QueryResult::new(nodes, edges_result))
     }
 }

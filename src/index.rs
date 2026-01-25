@@ -143,16 +143,26 @@ impl Naviscope {
     }
 
     /// Loads the index for the project from the fixed storage path.
-    pub fn load(&mut self) -> Result<()> {
+    /// Returns Ok(true) if loaded, Ok(false) if file doesn't exist.
+    pub fn load(&mut self) -> Result<bool> {
         let path = self.get_project_index_path();
         if !path.exists() {
-            return Ok(());
+            return Ok(false);
         }
 
-        let bytes = std::fs::read(path)?;
-        self.graph = postcard::from_bytes(&bytes)
-            .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
-        Ok(())
+        let file = std::fs::File::open(path)?;
+        let reader = std::io::BufReader::new(file);
+        match rmp_serde::from_read(reader) {
+            Ok(graph) => {
+                self.graph = graph;
+                Ok(true)
+            }
+            Err(e) => {
+                // If loading fails, reset to fresh graph to ensure consistent state for fresh scan
+                self.graph = CodeGraph::new();
+                Err(NaviscopeError::Parsing(e.to_string()))
+            }
+        }
     }
 
     /// Saves the index to the fixed storage path.
@@ -164,9 +174,10 @@ impl Naviscope {
             std::fs::create_dir_all(parent)?;
         }
 
-        let bytes = postcard::to_stdvec(&self.graph)
+        let file = std::fs::File::create(path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        rmp_serde::encode::write(&mut writer, &self.graph)
             .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
-        std::fs::write(path, bytes)?;
         Ok(())
     }
 
@@ -179,34 +190,23 @@ impl Naviscope {
         Ok(())
     }
 
-    /// Loads an index from a specific file path.
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let bytes = std::fs::read(path)?;
-        let graph: CodeGraph = postcard::from_bytes(&bytes)
-            .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
-        Ok(Self {
-            graph,
-            project_root: PathBuf::new(), // Root is unknown when loading from arbitrary file
-        })
-    }
-
-    /// Saves the index to a specific file path.
-    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let bytes = postcard::to_stdvec(&self.graph)
-            .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
-        std::fs::write(path, bytes)?;
-        Ok(())
-    }
-
     pub fn build_index(&mut self) -> Result<()> {
+        // Try to load existing index first if memory is empty
+        if self.graph.file_map.is_empty() {
+            let _ = self.load();
+        }
+        
+        self.refresh()
+    }
+
+    /// Scans for changes and updates the graph in memory.
+    /// Does not reload from disk, but saves to disk if changes are detected.
+    pub fn refresh(&mut self) -> Result<()> {
         use crate::model::graph::GraphOp;
         use crate::resolver::engine::IndexResolver;
 
-        // Try to load existing index first
-        let load_result = self.load();
-        
-        // If load succeeded but version doesn't match, clear and start fresh
-        if load_result.is_ok() && self.graph.version != CURRENT_VERSION {
+        // If version doesn't match, clear and start fresh
+        if self.graph.version != CURRENT_VERSION {
             let _ = self.clear_project_index();
             // Reset to a fresh index with current version
             self.graph = CodeGraph::new();
@@ -226,9 +226,9 @@ impl Naviscope {
             }
         }
 
-        for path in deleted_paths {
+        for path in &deleted_paths {
             self.apply_graph_op(GraphOp::RemovePath { path: path.clone() })?;
-            self.graph.file_map.remove(&path);
+            self.graph.file_map.remove(path);
         }
 
         // Update file metadata for each parsed file
@@ -243,12 +243,15 @@ impl Naviscope {
         let all_ops = resolver.resolve(parse_results)?;
 
         // Phase 3: Apply (serial merge into the graph - fast memory operations)
+        let has_changes = !all_ops.is_empty() || !deleted_paths.is_empty();
         for op in all_ops {
             self.apply_graph_op(op)?;
         }
 
-        // Save updated index
-        self.save()?;
+        // Save updated index only if there were changes
+        if has_changes {
+            self.save()?;
+        }
 
         Ok(())
     }

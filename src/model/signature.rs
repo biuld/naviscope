@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, JsonSchema)]
-#[serde(tag = "kind", content = "data")]
 pub enum TypeRef {
     /// Unresolved or primitive type name (e.g., "int", "void", "List<T>")
     Raw(String),

@@ -7,7 +7,7 @@ use rmcp::{
 use crate::query::GraphQuery;
 use crate::index::Naviscope;
 use crate::query::QueryEngine;
-use crate::model::graph::EdgeType;
+use crate::model::graph::{EdgeType, NodeKind};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -58,6 +58,8 @@ pub struct LsArgs {
     pub fqn: Option<String>,
     /// Optional: Filter results by element type (e.g., ["class", "method"])
     pub kind: Option<Vec<String>>,
+    /// Optional: Filter results by modifiers (e.g. ["public", "static"])
+    pub modifiers: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -67,9 +69,13 @@ pub struct InspectArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
-pub struct EdgeArgs {
+pub struct DepsArgs {
     /// The Fully Qualified Name (FQN) of the target code element
     pub fqn: String,
+    /// If true, find incoming dependencies (who depends on me). 
+    /// If false (default), find outgoing dependencies (who do I depend on).
+    #[serde(default)]
+    pub rev: bool,
     /// Optional: Filter by relationship types (e.g., ["Calls", "InheritsFrom"])
     pub edge_type: Option<Vec<EdgeType>>,
 }
@@ -114,12 +120,19 @@ impl McpServer {
         }
     }
 
+    fn to_node_kinds(kinds: Option<Vec<String>>) -> Vec<NodeKind> {
+        kinds.unwrap_or_default()
+            .iter()
+            .map(|s| NodeKind::from(s.as_str()))
+            .collect()
+    }
+
     #[tool(description = "Search for code elements (classes, methods, fields, etc.) across the project using a name pattern or regex. Use this to find definitions when you only know a name or part of it.")]
     pub async fn grep(&self, params: Parameters<GrepArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
         self.execute_query(GraphQuery::Grep { 
             pattern: args.pattern, 
-            kind: args.kind.unwrap_or_default(), 
+            kind: Self::to_node_kinds(args.kind), 
             limit: args.limit.unwrap_or(20) 
         }).await
     }
@@ -129,31 +142,24 @@ impl McpServer {
         let args = params.0;
         self.execute_query(GraphQuery::Ls { 
             fqn: args.fqn, 
-            kind: args.kind.unwrap_or_default() 
+            kind: Self::to_node_kinds(args.kind),
+            modifiers: args.modifiers.unwrap_or_default(),
         }).await
     }
 
     #[tool(description = "Retrieve detailed information about a specific code element by its Fully Qualified Name (FQN), including its source code snippet, location, and metadata.")]
     pub async fn inspect(&self, params: Parameters<InspectArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
-        self.execute_query(GraphQuery::Inspect { fqn: args.fqn }).await
+        self.execute_query(GraphQuery::Cat { fqn: args.fqn }).await
     }
 
-    #[tool(description = "Find all code elements that depend on, call, or reference the specified FQN. Use this to perform impact analysis or find usages of a class/method.")]
-    pub async fn incoming(&self, params: Parameters<EdgeArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(description = "Analyze dependencies for a given FQN. By default, shows outgoing dependencies (who I depend on). Use rev=true for incoming dependencies (who depends on me/impact analysis).")]
+    pub async fn deps(&self, params: Parameters<DepsArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
-        self.execute_query(GraphQuery::Incoming { 
+        self.execute_query(GraphQuery::Deps { 
             fqn: args.fqn, 
-            edge_type: args.edge_type.unwrap_or_default() 
-        }).await
-    }
-
-    #[tool(description = "Find all code elements that the specified FQN depends on, calls, or references. Use this to understand the dependencies or implementation details of a class/method.")]
-    pub async fn outgoing(&self, params: Parameters<EdgeArgs>) -> Result<CallToolResult, McpError> {
-        let args = params.0;
-        self.execute_query(GraphQuery::Outgoing { 
-            fqn: args.fqn, 
-            edge_type: args.edge_type.unwrap_or_default() 
+            rev: args.rev,
+            edge_types: args.edge_type.unwrap_or_default() 
         }).await
     }
 }

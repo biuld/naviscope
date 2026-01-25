@@ -1,6 +1,6 @@
 # Naviscope for VS Code
 
-Naviscope is a graph-based, structured code query engine that powers your coding experience with deep semantic understanding. This extension brings the power of Naviscope's Language Server Protocol (LSP) integration directly into VS Code, offering a lightweight and blazing-fast alternative for Java navigation.
+Naviscope is a unified Code Knowledge Graph engine that powers both AI agents and developers. This VS Code extension brings Naviscope's Language Server Protocol (LSP) integration directly into your editor, offering a lightweight, blazing-fast alternative to JDTLS for Java navigation.
 
 ## 🚀 Features
 
@@ -20,9 +20,10 @@ Naviscope builds a comprehensive Code Knowledge Graph of your project, enabling 
 - **Document Highlights**: Highlight all occurrences of a symbol in the current file.
 
 ### Why Use Naviscope?
-- **Zero JVM Overhead**: No heavy background processes or memory-hogging language servers.
-- **Resilient Indexing**: Works effectively even with syntax errors or incomplete code.
-- **Unified Graph**: Built on the same engine used by LLM agents via MCP.
+- **Zero JVM Overhead**: Built entirely in Rust—no Java runtime required, instant startup, minimal memory footprint.
+- **Resilient Indexing**: Works effectively even with syntax errors or incomplete code, providing immediate navigation without waiting for perfect builds.
+- **Unified Knowledge Graph**: Shares the exact same code knowledge graph used by LLM agents via MCP, ensuring consistency between AI-assisted development and manual navigation.
+- **Lightweight Alternative**: A fast, memory-efficient replacement for JDTLS that doesn't block your workflow.
 
 ## 📦 System Requirements
 
@@ -32,15 +33,18 @@ Naviscope builds a comprehensive Code Knowledge Graph of your project, enabling 
 
 ## 📦 Installation
 
-Just install the extension!
+1. Install the extension from the VS Code marketplace or from a `.vsix` file.
+2. Ensure the `naviscope` binary is available in your PATH, or configure the `naviscope.path` setting to point to the binary location.
+3. Open a Java project—Naviscope will automatically start indexing your workspace.
 
-On first launch, Naviscope will automatically detect your platform and download the necessary binary engine to `~/.naviscope/bin`. It's completely managed by the extension—no manual configuration required.
+**Note**: You need to have the `naviscope` CLI installed separately. See the [main repository](https://github.com/biuld/naviscope) for installation instructions.
 
 ## 🔧 Troubleshooting
 
 If the extension fails to start:
-1.  Check your internet connection if this is the first run (the binary needs to be downloaded).
-2.  Check the "Naviscope Client" output channel in VS Code for detailed logs.
+1. Ensure the `naviscope` binary is installed and available in your PATH, or configure `naviscope.path` in VS Code settings.
+2. Check the "Naviscope Client" output channel in VS Code for detailed logs.
+3. Verify your project is a valid Java/Gradle project structure.
 
 ## 🗑️ Uninstallation
 

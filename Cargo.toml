@@ -1,6 +1,6 @@
 [package]
 name = "naviscope"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -20,7 +20,6 @@ regex = "1.11.1"
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
 schemars = "1.2.0"
 rmcp = { version = "0.13.0", features = ["macros", "server", "transport-io"] }
-postcard = { version = "1.1.3", features = ["use-std"] }
 tower-lsp = "0.20"
 futures = "0.3"
 dashmap = "6.1.0"
@@ -31,6 +30,12 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 tracing-appender = "0.2.4"
 tokio-tungstenite = "0.28.0"
+reedline = "0.45.0"
+dirs = "6.0.0"
+nu-ansi-term = "0.50.3"
+shlex = "1.3.0"
+tabled = "0.20.0"
+rmp-serde = "1.3.1"
 
 [build-dependencies]
 cc = "1.2"

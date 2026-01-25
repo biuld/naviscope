@@ -1,12 +1,13 @@
 use crate::resolver::{LangResolver, ProjectContext};
 use crate::error::Result;
-use crate::model::graph::{EdgeType, GraphEdge, GraphNode, ResolvedUnit};
+use crate::model::graph::{EdgeType, GraphEdge, GraphNode, NodeKind, ResolvedUnit};
 use crate::resolver::SemanticResolver;
 use crate::index::CodeGraph;
 use crate::project::scanner::{ParsedContent, ParsedFile};
 use crate::parser::{SymbolResolution, matches_intent};
 use crate::parser::SymbolIntent;
 use crate::parser::java::JavaParser;
+use crate::model::lang::java::{JavaElement, JavaPackage};
 use crate::model::signature::TypeRef;
 use petgraph::stable_graph::NodeIndex;
 use tree_sitter::Tree;
@@ -32,7 +33,7 @@ impl JavaResolver {
 
     fn is_top_level_node(&self, node: &GraphNode) -> bool {
         let kind = node.kind();
-        kind == "class" || kind == "interface" || kind == "enum" || kind == "annotation"
+        matches!(kind, NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation)
     }
 
     fn get_active_scopes<'a>(&'a self, ctx: &'a ResolutionContext) -> Vec<Box<dyn Scope + 'a>> {
@@ -115,7 +116,7 @@ impl SemanticResolver for JavaResolver {
             SymbolResolution::Precise(fqn, intent) => {
                 if let Some(&idx) = index.fqn_map.get(fqn) {
                     if let Some(node) = index.topology.node_weight(idx) {
-                        if *intent == SymbolIntent::Unknown || matches_intent(node.kind(), *intent) {
+                        if *intent == SymbolIntent::Unknown || matches_intent(&node.kind(), *intent) {
                             return vec![idx];
                         }
                     }
@@ -152,7 +153,7 @@ impl SemanticResolver for JavaResolver {
                                 }
                             }
                             _ => {
-                                if matches_intent(node.kind(), SymbolIntent::Type) {
+                                if matches_intent(&node.kind(), SymbolIntent::Type) {
                                     type_resolutions.push(resolution.clone());
                                 }
                             }
@@ -198,20 +199,27 @@ impl LangResolver for JavaResolver {
                 .unwrap_or_else(|| "module::root".to_string());
 
             let container_id = if let Some(pkg_name) = &parse_result.package_name {
-                let package_id = format!("{}::{}", module_id, pkg_name);
+                let package_id = if module_id.contains("::") {
+                    format!("{}.{}", module_id, pkg_name)
+                } else {
+                    format!("{}::{}", module_id, pkg_name)
+                };
+                
+                // Create package node
                 unit.add_node(
                     package_id.clone(),
-                    GraphNode::gradle(
-                        crate::model::lang::gradle::GradleElement::Package(
-                            crate::model::lang::gradle::GradlePackage {
-                                name: pkg_name.clone(),
-                                id: package_id.clone(),
-                            },
-                        ),
+                    GraphNode::java(
+                        JavaElement::Package(JavaPackage {
+                            name: pkg_name.clone(),
+                            id: package_id.clone(),
+                        }),
                         None,
                     ),
                 );
-                unit.add_edge(module_id, package_id.clone(), GraphEdge::new(EdgeType::Contains));
+                
+                // Link package to module
+                unit.add_edge(module_id.clone(), package_id.clone(), GraphEdge::new(EdgeType::Contains));
+                
                 package_id
             } else {
                 module_id
