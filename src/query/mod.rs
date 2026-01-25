@@ -4,4 +4,4 @@ pub mod model;
 
 pub use dsl::GraphQuery;
 pub use engine::QueryEngine;
-pub use model::NodeSummary;
+pub use model::QueryResult;

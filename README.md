@@ -43,7 +43,7 @@ npm run package
 
 ### CLI Commands
 - `naviscope index <PATH>`: Build a persistent index for a project (stored in `~/.naviscope/indices`).
-- `naviscope query <PATH> <JSON>`: Execute a structured DSL query manually.
+- `naviscope shell [PATH]`: Start an interactive shell to query the code knowledge graph.
 - `naviscope watch <PATH>`: Start a background service to keep the index updated as you edit files.
 - `naviscope schema`: Display the JSON schema and examples for the GraphQuery DSL.
 - `naviscope clear [PATH]`: Remove specific project index or clear all cached indices.
@@ -112,12 +112,11 @@ Naviscope acts as a high-performance LSP server for Java, offering a lightweight
 
 ## 🛠️ Query API Examples
 
-The Query DSL (used by `naviscope query` and MCP) supports several commands for structured exploration:
-- `grep`: `{"command": "grep", "pattern": "UserService", "kind": ["class"]}`
-- `ls`: `{"command": "ls", "fqn": "com.example.service"}`
-- `inspect`: `{"command": "inspect", "fqn": "com.example.service.UserService"}`
-- `incoming`: `{"command": "incoming", "fqn": "com.example.service.UserService#save", "edge_type": ["Calls"]}`
-- `outgoing`: `{"command": "outgoing", "fqn": "com.example.service.UserService"}`
+The Query DSL (used by `naviscope shell` and MCP) supports several commands for structured exploration:
+- `grep`: `grep "UserService"` (or JSON `{"command": "grep", "pattern": "UserService", "kind": ["class"]}`)
+- `ls`: `ls "com.example.service"` (or JSON `{"command": "ls", "fqn": "com.example.service"}`)
+- `cat`: `cat "com.example.service.UserService"` (or JSON `{"command": "cat", "fqn": "com.example.service.UserService"}`)
+- `deps`: `deps "com.example.service.UserService"` (or JSON `{"command": "deps", "fqn": "com.example.service.UserService"}`)
 
 ## 📈 Roadmap (V1)
 - [x] Core Graph Storage (`petgraph`)

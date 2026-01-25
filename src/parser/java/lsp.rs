@@ -26,6 +26,7 @@ impl LspParser for JavaParser {
                     crate::model::lang::java::JavaElement::Annotation(_) => NodeKind::Annotation,
                     crate::model::lang::java::JavaElement::Method(ref m) => if m.is_constructor { NodeKind::Constructor } else { NodeKind::Method },
                     crate::model::lang::java::JavaElement::Field(_) => NodeKind::Field,
+                    crate::model::lang::java::JavaElement::Package(_) => NodeKind::Package,
                 };
                 
                 RawSymbol {
@@ -51,6 +52,7 @@ impl LspParser for JavaParser {
             NodeKind::Method => SymbolKind::METHOD,
             NodeKind::Constructor => SymbolKind::CONSTRUCTOR,
             NodeKind::Field => SymbolKind::FIELD,
+            NodeKind::Package => SymbolKind::PACKAGE,
             _ => SymbolKind::VARIABLE,
         }
     }

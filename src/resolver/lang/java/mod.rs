@@ -7,6 +7,7 @@ use crate::project::scanner::{ParsedContent, ParsedFile};
 use crate::parser::{SymbolResolution, matches_intent};
 use crate::parser::SymbolIntent;
 use crate::parser::java::JavaParser;
+use crate::model::lang::java::{JavaElement, JavaPackage};
 use crate::model::signature::TypeRef;
 use petgraph::stable_graph::NodeIndex;
 use tree_sitter::Tree;
@@ -198,20 +199,27 @@ impl LangResolver for JavaResolver {
                 .unwrap_or_else(|| "module::root".to_string());
 
             let container_id = if let Some(pkg_name) = &parse_result.package_name {
-                let package_id = format!("{}::{}", module_id, pkg_name);
+                let package_id = if module_id.contains("::") {
+                    format!("{}.{}", module_id, pkg_name)
+                } else {
+                    format!("{}::{}", module_id, pkg_name)
+                };
+                
+                // Create package node
                 unit.add_node(
                     package_id.clone(),
-                    GraphNode::gradle(
-                        crate::model::lang::gradle::GradleElement::Package(
-                            crate::model::lang::gradle::GradlePackage {
-                                name: pkg_name.clone(),
-                                id: package_id.clone(),
-                            },
-                        ),
+                    GraphNode::java(
+                        JavaElement::Package(JavaPackage {
+                            name: pkg_name.clone(),
+                            id: package_id.clone(),
+                        }),
                         None,
                     ),
                 );
-                unit.add_edge(module_id, package_id.clone(), GraphEdge::new(EdgeType::Contains));
+                
+                // Link package to module
+                unit.add_edge(module_id.clone(), package_id.clone(), GraphEdge::new(EdgeType::Contains));
+                
                 package_id
             } else {
                 module_id

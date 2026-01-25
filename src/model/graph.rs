@@ -1,6 +1,7 @@
 use super::lang::gradle::GradleElement;
 use super::lang::java::JavaElement;
 use serde::{Deserialize, Serialize};
+use clap::ValueEnum;
 use schemars::JsonSchema;
 
 use crate::project::source::Language;
@@ -29,7 +30,7 @@ impl Range {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeKind {
     Class,
@@ -39,7 +40,9 @@ pub enum NodeKind {
     Method,
     Constructor,
     Field,
+    Package,
     // Build specific
+    Module,
     Dependency,
     Task,
     Plugin,
@@ -57,6 +60,8 @@ impl From<&str> for NodeKind {
             "method" => NodeKind::Method,
             "constructor" => NodeKind::Constructor,
             "field" => NodeKind::Field,
+            "package" => NodeKind::Package,
+            "module" => NodeKind::Module,
             "dependency" => NodeKind::Dependency,
             "task" => NodeKind::Task,
             "plugin" => NodeKind::Plugin,
@@ -75,6 +80,8 @@ impl ToString for NodeKind {
             NodeKind::Method => "method".to_string(),
             NodeKind::Constructor => "constructor".to_string(),
             NodeKind::Field => "field".to_string(),
+            NodeKind::Package => "package".to_string(),
+            NodeKind::Module => "module".to_string(),
             NodeKind::Dependency => "dependency".to_string(),
             NodeKind::Task => "task".to_string(),
             NodeKind::Plugin => "plugin".to_string(),
@@ -136,6 +143,7 @@ impl GraphNode {
                 JavaElement::Annotation(_) => NodeKind::Annotation,
                 JavaElement::Method(m) => if m.is_constructor { NodeKind::Constructor } else { NodeKind::Method },
                 JavaElement::Field(_) => NodeKind::Field,
+                JavaElement::Package(_) => NodeKind::Package,
             },
             GraphNode::Build(BuildElement::Gradle { element, .. }) => NodeKind::from(element.kind()),
         }
@@ -211,7 +219,7 @@ impl ResolvedUnit {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema, ValueEnum)]
 pub enum EdgeType {
     // Structural relationships
     Contains,

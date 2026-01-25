@@ -10,6 +10,7 @@ pub enum JavaElement {
     Annotation(JavaAnnotation),
     Method(JavaMethod),
     Field(JavaField),
+    Package(JavaPackage),
 }
 
 impl JavaElement {
@@ -21,6 +22,7 @@ impl JavaElement {
             JavaElement::Annotation(e) => &e.id,
             JavaElement::Method(e) => &e.id,
             JavaElement::Field(e) => &e.id,
+            JavaElement::Package(e) => &e.id,
         }
     }
 
@@ -32,6 +34,7 @@ impl JavaElement {
             JavaElement::Annotation(e) => &e.name,
             JavaElement::Method(e) => &e.name,
             JavaElement::Field(e) => &e.name,
+            JavaElement::Package(e) => &e.name,
         }
     }
 
@@ -43,6 +46,7 @@ impl JavaElement {
             JavaElement::Annotation(e) => e.range.as_ref(),
             JavaElement::Method(e) => e.range.as_ref(),
             JavaElement::Field(e) => e.range.as_ref(),
+            JavaElement::Package(_) => None,
         }
     }
 
@@ -54,6 +58,7 @@ impl JavaElement {
             JavaElement::Annotation(e) => e.name_range.as_ref(),
             JavaElement::Method(e) => e.name_range.as_ref(),
             JavaElement::Field(e) => e.name_range.as_ref(),
+            JavaElement::Package(_) => None,
         }
     }
 }
@@ -121,4 +126,10 @@ pub struct JavaMethod {
 pub struct JavaParameter {
     pub name: String,
     pub type_ref: TypeRef,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JavaPackage {
+    pub name: String,
+    pub id: String,
 }

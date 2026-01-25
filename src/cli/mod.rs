@@ -1,5 +1,5 @@
 mod index;
-mod query;
+mod shell;
 mod schema;
 mod watch;
 mod clear;
@@ -35,17 +35,13 @@ pub enum Commands {
         #[arg(long)]
         debug: bool,
     },
-    /// Query the code knowledge graph using JSON DSL
-    #[command(long_about = "Executes a structured query against an existing index. \
-                            The query should be a JSON object following the GraphQuery schema.")]
-    Query {
-        /// Path to the project root (used to locate the default index)
+    /// Start an interactive shell to query the code knowledge graph
+    #[command(long_about = "Starts an interactive shell where you can execute structured queries \
+                            against the index using both JSON DSL and shorthand commands.")]
+    Shell {
+        /// Path to the project root (used to locate the default index). Defaults to current directory.
         #[arg(value_name = "PROJECT_PATH")]
-        path: PathBuf,
-
-        /// Structured query in JSON format (e.g., '{"command": "grep", "pattern": "MyClass"}')
-        #[arg(value_name = "JSON_QUERY")]
-        query: String,
+        path: Option<PathBuf>,
     },
     /// Show the JSON schema/examples for GraphQuery
     Schema,
@@ -95,7 +91,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             path,
             debug,
         } => index::run(path, debug),
-        Commands::Query { path, query } => query::run(path, query),
+        Commands::Shell { path } => shell::run(path),
         Commands::Schema => schema::run(),
         Commands::Watch { path, debug } => watch::run(path, debug),
         Commands::Clear { path } => clear::run(path),

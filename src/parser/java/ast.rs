@@ -320,6 +320,7 @@ impl JavaParser {
                     self.generate_typed_as_edges(t.node, source, &fqn, relations);
                 }
             }
+            JavaElement::Package(_) => {}
         }
     }
 
@@ -331,6 +332,7 @@ impl JavaParser {
             JavaElement::Annotation(a) => if !a.modifiers.contains(&m_str) { a.modifiers.push(m_str); }
             JavaElement::Method(m_node) => if !m_node.modifiers.contains(&m_str) { m_node.modifiers.push(m_str); }
             JavaElement::Field(f) => if !f.modifiers.contains(&m_str) { f.modifiers.push(m_str); }
+            JavaElement::Package(_) => {}
         }
     }
 
