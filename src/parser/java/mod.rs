@@ -203,6 +203,14 @@ impl JavaParser {
     }
 
     pub fn find_local_declaration(&self, start_node: Node, name: &str, source: &str) -> Option<(Range, Option<String>)> {
+        self.find_local_declaration_node(start_node, name, source)
+            .map(|(range, type_node)| {
+                let type_name = type_node.and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
+                (range, type_name)
+            })
+    }
+
+    pub fn find_local_declaration_node<'a>(&self, start_node: Node<'a>, name: &str, source: &str) -> Option<(Range, Option<Node<'a>>)> {
         let mut curr = start_node;
         while let Some(parent) = curr.parent() {
             // Check declarations in this scope before the start_node
@@ -211,12 +219,12 @@ impl JavaParser {
                 if child.start_byte() >= start_node.start_byte() {
                     break;
                 }
-                if let Some(res) = self.is_decl_of(&child, name, source) {
+                if let Some(res) = self.is_decl_of_node(&child, name, source) {
                     return Some(res);
                 }
             }
             // Check if parent itself is a declaration (like method parameters)
-            if let Some(res) = self.is_decl_of(&parent, name, source) {
+            if let Some(res) = self.is_decl_of_node(&parent, name, source) {
                 return Some(res);
             }
             curr = parent;
@@ -341,7 +349,7 @@ impl JavaParser {
         }
     }
 
-    pub fn is_decl_of(&self, node: &Node, name: &str, source: &str) -> Option<(Range, Option<String>)> {
+    pub fn is_decl_of_node<'a>(&self, node: &Node<'a>, name: &str, source: &str) -> Option<(Range, Option<Node<'a>>)> {
         match node.kind() {
             "variable_declarator" | "formal_parameter" | "catch_formal_parameter" => {
                 if let Some(name_node) = node.child_by_field_name("name") {
@@ -355,8 +363,7 @@ impl JavaParser {
                             // Type is a sibling for parameters
                             node.child_by_field_name("type")
                         };
-                        let type_name = type_node.and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
-                        return Some((range, type_name));
+                        return Some((range, type_node));
                     }
                 }
             }
@@ -368,19 +375,27 @@ impl JavaParser {
                                 return Some((range_from_ts(params.range()), None));
                             }
                         } else {
-                            return self.is_decl_of(&params, name, source);
+                            return self.is_decl_of_node(&params, name, source);
                         }
                     }
                     return None;
                 }
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    if let Some(res) = self.is_decl_of(&child, name, source) { return Some(res); }
+                    if let Some(res) = self.is_decl_of_node(&child, name, source) { return Some(res); }
                 }
             }
             _ => {}
         }
         None
+    }
+
+    pub fn is_decl_of(&self, node: &Node, name: &str, source: &str) -> Option<(Range, Option<String>)> {
+        self.is_decl_of_node(node, name, source)
+            .map(|(range, type_node)| {
+                let type_name = type_node.and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
+                (range, type_name)
+            })
     }
 
     pub fn resolve_type_name_to_fqn(&self, type_name: &str, tree: &Tree, source: &str) -> Option<String> {
