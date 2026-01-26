@@ -1,63 +1,78 @@
 # Naviscope for VS Code
 
-Naviscope is a unified Code Knowledge Graph engine that powers both AI agents and developers. This VS Code extension brings Naviscope's Language Server Protocol (LSP) integration directly into your editor, offering a lightweight, blazing-fast alternative to JDTLS for Java navigation.
+**Unified Code Knowledge Graph Engine for Developers**
 
-## 🚀 Features
+Naviscope bridges the gap between AI and IDEs. This extension brings the power of Naviscope's **Unified Code Knowledge Graph** directly into VS Code, offering a lightweight, lightning-fast alternative to traditional Java language servers (like JDTLS).
 
-### Blazing Fast Navigation
-Naviscope builds a comprehensive Code Knowledge Graph of your project, enabling instant symbol resolution without the overhead of a full JVM-based language server.
+It shares the **exact same graph representation** used by AI agents (via MCP), ensuring that what your AI assistant sees is exactly what you navigate in the editor.
+
+## 💡 Why Naviscope?
+
+| Feature | Traditional Tools (JDTLS) | Naviscope |
+| :--- | :--- | :--- |
+| **Performance** | High latency, heavy memory (JVM) | **Instant**, minimal footprint (Rust) |
+| **Resilience** | Blocks on build errors | **Robust**, works with partial code |
+| **Context** | Separate from AI tools | **Unified** with AI Agents (MCP) |
+
+## 🌟 Capabilities
+
+### ⚡️ Blazing Fast Navigation
+Instant symbol resolution without the overhead of a full JVM-based language server.
 
 - **Go to Definition**: Jump to symbol definitions instantly.
-- **Find References**: See usages across your entire workspace.
+- **Find References**: Global reference tracking across the entire workspace.
 - **Go to Implementation**: Find interface implementations and method overrides.
 - **Go to Type Definition**: Navigate to the type of a variable or parameter.
 
-### Intelligent Code Understanding
-- **Call Hierarchy**: Explore incoming and outgoing calls to understand code flow.
-- **Workspace Symbols**: Fuzzy search for any class, method, or field in your project.
+### 🧠 Intelligent Code Understanding
+- **Call Hierarchy**: Visualize incoming and outgoing method calls.
+- **Workspace Symbols**: Fuzzy search for any class, method, or field.
 - **Document Symbols**: Quickly outline and navigate the current file structure.
 - **Hover Information**: View signatures and documentation on hover.
-- **Document Highlights**: Highlight all occurrences of a symbol in the current file.
-
-### Why Use Naviscope?
-- **Zero JVM Overhead**: Built entirely in Rust—no Java runtime required, instant startup, minimal memory footprint.
-- **Resilient Indexing**: Works effectively even with syntax errors or incomplete code, providing immediate navigation without waiting for perfect builds.
-- **Unified Knowledge Graph**: Shares the exact same code knowledge graph used by LLM agents via MCP, ensuring consistency between AI-assisted development and manual navigation.
-- **Lightweight Alternative**: A fast, memory-efficient replacement for JDTLS that doesn't block your workflow.
-
-## 📦 System Requirements
-
-- **Linux** (x86_64)
-- **macOS** (Apple Silicon / ARM64)
-- *Windows and Intel macOS are not currently supported.*
+- **Document Highlights**: Highlight all local references of a symbol.
 
 ## 📦 Installation
 
-1. Install the extension from the VS Code marketplace or from a `.vsix` file.
-2. Ensure the `naviscope` binary is available in your PATH, or configure the `naviscope.path` setting to point to the binary location.
-3. Open a Java project—Naviscope will automatically start indexing your workspace.
+> **Prerequisite**: You must have the `naviscope` CLI installed on your system.
 
-**Note**: You need to have the `naviscope` CLI installed separately. See the [main repository](https://github.com/biuld/naviscope) for installation instructions.
+1.  **Install the CLI**:
+    Follow the instructions in the [main repository](https://github.com/biuld/naviscope) to install `naviscope` via Cargo:
+    ```bash
+    git clone https://github.com/biuld/naviscope.git
+    cd naviscope
+    cargo install --path .
+    ```
+
+2.  **Install the Extension**:
+    - Download the `.vsix` release or build from source.
+    - Install via **Extensions** view -> **...** -> **Install from VSIX...**
+
+3.  **Configure**:
+    Ensure `naviscope` is in your `PATH`. If not, set the path in VS Code settings:
+    ```json
+    "naviscope.path": "/path/to/your/naviscope/binary"
+    ```
+
+4.  **Start Coding**:
+    Open any Java/Gradle project. Naviscope will automatically start indexing (you'll see a status bar item).
+
+## 📦 System Requirements
+
+- **macOS** (Apple Silicon / ARM64)
+- **Linux** (x86_64)
+- *Windows support is planned.*
 
 ## 🔧 Troubleshooting
 
 If the extension fails to start:
-1. Ensure the `naviscope` binary is installed and available in your PATH, or configure `naviscope.path` in VS Code settings.
-2. Check the "Naviscope Client" output channel in VS Code for detailed logs.
-3. Verify your project is a valid Java/Gradle project structure.
-
-## 🗑️ Uninstallation
-
-Uninstalling the extension does not automatically remove the cached binary and index data. To completely remove Naviscope from your system:
-
-1.  Uninstall the extension from VS Code.
-2.  Delete the `~/.naviscope` directory manually.
+1.  Verify `naviscope --version` works in your terminal.
+2.  Check the **Output** panel (select "Naviscope Client" from the dropdown).
+3.  Ensure your project root contains a `build.gradle` or similar marker (if required).
 
 ## 🔗 Links
 
--   [Naviscope Repository](https://github.com/biuld/naviscope)
--   [Issue Tracker](https://github.com/biuld/naviscope/issues)
+- [Naviscope Main Repository](https://github.com/biuld/naviscope)
+- [Report an Issue](https://github.com/biuld/naviscope/issues)
 
 ## 📄 License
-
 MIT License
