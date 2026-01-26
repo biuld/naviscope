@@ -101,18 +101,39 @@ impl JavaParser {
                                 id: fqn.clone(), name: name.clone(), modifiers: vec![],
                                 range: Some(range), name_range: Some(name_range),
                             }),
-                            KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => JavaElement::Method(JavaMethod {
-                                id: fqn.clone(), name: name.clone(), return_type: TypeRef::raw("void"),
-                                parameters: vec![], modifiers: vec![], is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
-                                range: Some(range), name_range: Some(name_range),
-                            }),
-                            KIND_LABEL_FIELD => JavaElement::Field(JavaField {
-                                id: fqn.clone(), name: name.clone(), 
-                                type_ref: anchor_node.child_by_field_name("type")
-                                    .map(|n| self.parse_type_node(n, source))
-                                    .unwrap_or(TypeRef::Unknown),
-                                modifiers: vec![], range: Some(range), name_range: Some(name_range),
-                            }),
+                            KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => {
+                                let mut return_type = TypeRef::raw("void");
+                                if let Some(ret_node) = mat.captures.iter().find(|c| c.index == self.indices.method_ret).map(|c| c.node) {
+                                    return_type = self.parse_type_node(ret_node, source);
+                                    self.generate_typed_as_edges(ret_node, source, &fqn, &mut relations);
+                                }
+                                
+                                JavaElement::Method(JavaMethod {
+                                    id: fqn.clone(), name: name.clone(), return_type,
+                                    parameters: vec![], modifiers: vec![], is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
+                                    range: Some(range), name_range: Some(name_range),
+                                })
+                            },
+                            KIND_LABEL_FIELD => {
+                                let type_node = mat.captures.iter()
+                                    .find(|c| c.index == self.indices.field_type)
+                                    .map(|c| c.node)
+                                    .or_else(|| anchor_node.child_by_field_name("type"))
+                                    .or_else(|| anchor_node.parent().and_then(|p| p.child_by_field_name("type")));
+                                
+                                let type_ref = if let Some(t) = type_node {
+                                    self.generate_typed_as_edges(t, source, &fqn, &mut relations);
+                                    self.parse_type_node(t, source)
+                                } else {
+                                    TypeRef::Unknown
+                                };
+
+                                JavaElement::Field(JavaField {
+                                    id: fqn.clone(), name: name.clone(), 
+                                    type_ref,
+                                    modifiers: vec![], range: Some(range), name_range: Some(name_range),
+                                })
+                            },
                             _ => unreachable!(),
                         };
                         entities.push(JavaEntity {
@@ -171,7 +192,11 @@ impl JavaParser {
                 ) {
                     if let Some(parent_name_node) = parent_node.child_by_field_name("name") {
                         let source_fqn = self.get_fqn_for_definition(&parent_name_node, source, package.as_deref());
-                        let target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
+                        let mut target = target_node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
+                        if let Some(obj) = call_cap.node.child_by_field_name("object") {
+                            let obj_text = obj.utf8_text(source.as_bytes()).unwrap_or_default();
+                            target = format!("{}.{}", obj_text, target);
+                        }
                         relations.push(JavaRelation {
                             source_fqn,
                             target_name: target,
@@ -253,7 +278,14 @@ impl JavaParser {
         match element {
             JavaElement::Class(_) => {
                 if let Some(s) = mat.captures.iter().find(|c| c.index == self.indices.class_super) {
-                    let s_name = s.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+                    let mut s_name = s.node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+                    let mut cursor = s.node.walk();
+                    for child in s.node.children(&mut cursor) {
+                        if child.kind() == "type_identifier" || child.kind() == "scoped_type_identifier" || child.kind() == "generic_type" {
+                            s_name = child.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+                            break;
+                        }
+                    }
                     relations.push(JavaRelation {
                         source_fqn: fqn.clone(),
                         target_name: s_name,

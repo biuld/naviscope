@@ -11,6 +11,37 @@ pub struct MemberScope<'a> {
 }
 
 impl MemberScope<'_> {
+    fn resolve_type_ref_fqns(&self, type_ref: &TypeRef, context: &ResolutionContext) -> TypeRef {
+        match type_ref {
+            TypeRef::Raw(name) | TypeRef::Id(name) => {
+                if let Some(fqn) = self.parser.resolve_type_name_to_fqn(name, context.tree, context.source) {
+                    TypeRef::Id(fqn)
+                } else {
+                    TypeRef::Raw(name.clone())
+                }
+            },
+            TypeRef::Generic { base, args } => {
+                TypeRef::Generic {
+                    base: Box::new(self.resolve_type_ref_fqns(base, context)),
+                    args: args.iter().map(|a| self.resolve_type_ref_fqns(a, context)).collect()
+                }
+            },
+            TypeRef::Array { element, dimensions } => {
+                TypeRef::Array {
+                    element: Box::new(self.resolve_type_ref_fqns(element, context)),
+                    dimensions: *dimensions
+                }
+            },
+            TypeRef::Wildcard { bound, is_upper_bound } => {
+                TypeRef::Wildcard {
+                    bound: bound.as_ref().map(|b| Box::new(self.resolve_type_ref_fqns(b, context))),
+                    is_upper_bound: *is_upper_bound
+                }
+            },
+            _ => type_ref.clone()
+        }
+    }
+
     fn get_base_fqn(&self, type_ref: &TypeRef) -> Option<String> {
         match type_ref {
             TypeRef::Id(s) | TypeRef::Raw(s) => Some(s.clone()),
@@ -19,18 +50,44 @@ impl MemberScope<'_> {
         }
     }
 
+    fn resolve_fqn_from_context(&self, name: &str, context: &ResolutionContext) -> Option<String> {
+        // 1. Check if it's already an FQN in the index
+        if context.index.fqn_map.contains_key(name) {
+            return Some(name.to_string());
+        }
+        
+        // 2. Check inner classes in enclosing classes
+        for container_fqn in &context.enclosing_classes {
+            let candidate = format!("{}.{}", container_fqn, name);
+            if context.index.fqn_map.contains_key(&candidate) {
+                return Some(candidate);
+            }
+        }
+        
+        // 3. Use parser's resolution (imports/package)
+        if let Some(fqn) = self.parser.resolve_type_name_to_fqn(name, context.tree, context.source) {
+             if fqn != name {
+                 return Some(fqn);
+             }
+        }
+        
+        Some(name.to_string())
+    }
+
     fn resolve_expression_type(&self, node: &tree_sitter::Node, context: &ResolutionContext) -> Option<TypeRef> {
         let kind = node.kind();
         match kind {
             "identifier" | "type_identifier" => {
                 let name = node.utf8_text(context.source.as_bytes()).ok()?;
                 // 1. Local Scope
-                if let Some((_, maybe_type)) = self.parser.find_local_declaration(*node, name, context.source) {
-                    if let Some(type_name) = maybe_type {
-                        if let Some(fqn) = self.parser.resolve_type_name_to_fqn(&type_name, context.tree, context.source) {
-                            return Some(TypeRef::Id(fqn));
-                        }
-                        return Some(TypeRef::Raw(type_name));
+                if let Some((_, maybe_type_node)) = self.parser.find_local_declaration_node(*node, name, context.source) {
+                    if let Some(type_node) = maybe_type_node {
+                        // Parse the type node properly to handle generics
+                        let type_ref = self.parser.parse_type_node(type_node, context.source);
+                        
+                        // Resolve FQNs within the parsed type ref
+                        let resolved_type_ref = self.resolve_type_ref_fqns(&type_ref, context);
+                        return Some(resolved_type_ref);
                     }
                     
                     // Heuristic: Try to infer lambda parameter type
@@ -39,7 +96,11 @@ impl MemberScope<'_> {
                 // 2. Lexical Scope
                 for container_fqn in &context.enclosing_classes {
                     let candidate = format!("{}.{}", container_fqn, name);
-                    if context.index.fqn_map.contains_key(&candidate) {
+                    if let Some(&idx) = context.index.fqn_map.get(&candidate) {
+                        let node = &context.index.topology[idx];
+                        if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Field(f), .. }) = node {
+                            return Some(f.type_ref.clone());
+                        }
                         return Some(TypeRef::Id(candidate));
                     }
                 }
@@ -58,7 +119,8 @@ impl MemberScope<'_> {
                 let receiver = node.child_by_field_name("object")?;
                 let field_name = node.child_by_field_name("field")?.utf8_text(context.source.as_bytes()).ok()?;
                 let receiver_type_ref = self.resolve_expression_type(&receiver, context)?;
-                let receiver_type = self.get_base_fqn(&receiver_type_ref)?;
+                let raw_receiver_type = self.get_base_fqn(&receiver_type_ref)?;
+                let receiver_type = self.resolve_fqn_from_context(&raw_receiver_type, context)?;
                 
                 let field_fqn = format!("{}.{}", receiver_type, field_name);
                 
@@ -73,7 +135,8 @@ impl MemberScope<'_> {
                 let receiver = node.child_by_field_name("object")?;
                 let method_name = node.child_by_field_name("name")?.utf8_text(context.source.as_bytes()).ok()?;
                 let receiver_type_ref = self.resolve_expression_type(&receiver, context)?;
-                let receiver_type = self.get_base_fqn(&receiver_type_ref)?;
+                let raw_receiver_type = self.get_base_fqn(&receiver_type_ref)?;
+                let receiver_type = self.resolve_fqn_from_context(&raw_receiver_type, context)?;
 
                 let method_fqn = format!("{}.{}", receiver_type, method_name);
                 if let Some(&idx) = context.index.fqn_map.get(&method_fqn) {
@@ -145,6 +208,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                 // Case A: Explicit Receiver (obj.field)
                 self.resolve_expression_type(&recv, context)
                     .and_then(|type_ref| self.get_base_fqn(&type_ref))
+                    .and_then(|raw_type_fqn| self.resolve_fqn_from_context(&raw_type_fqn, context))
                     .map(|type_fqn| format!("{}.{}", type_fqn, name))
                     .and_then(|candidate| context.index.fqn_map.contains_key(&candidate).then_some(candidate))
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))

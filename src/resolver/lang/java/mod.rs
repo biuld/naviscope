@@ -53,9 +53,16 @@ impl JavaResolver {
         scopes
     }
 
-    fn resolve_type_ref(&self, type_ref: &TypeRef, package: Option<&str>, imports: &[String]) -> TypeRef {
+    fn resolve_type_ref(&self, type_ref: &TypeRef, package: Option<&str>, imports: &[String], known_fqns: &std::collections::HashSet<String>) -> TypeRef {
         match type_ref {
             TypeRef::Raw(name) => {
+                // 1. Check if name matches a known FQN suffix in the same file (Inner class priority)
+                if let Some(fqn) = known_fqns.iter().find(|k| k.ends_with(&format!(".{}", name)) || *k == name) {
+                     // Simple heuristic: if the name matches the end of a known FQN, use it.
+                     // This handles 'Source' -> '...DefaultApplicationArguments.Source'
+                     return TypeRef::Id(fqn.clone());
+                }
+
                 if let Some(fqn) = self.parser.resolve_type_name_to_fqn_data(name, package, imports) {
                     TypeRef::Id(fqn)
                 } else {
@@ -64,19 +71,19 @@ impl JavaResolver {
             },
             TypeRef::Generic { base, args } => {
                 TypeRef::Generic {
-                    base: Box::new(self.resolve_type_ref(base, package, imports)),
-                    args: args.iter().map(|a| self.resolve_type_ref(a, package, imports)).collect()
+                    base: Box::new(self.resolve_type_ref(base, package, imports, known_fqns)),
+                    args: args.iter().map(|a| self.resolve_type_ref(a, package, imports, known_fqns)).collect()
                 }
             },
             TypeRef::Array { element, dimensions } => {
                 TypeRef::Array {
-                    element: Box::new(self.resolve_type_ref(element, package, imports)),
+                    element: Box::new(self.resolve_type_ref(element, package, imports, known_fqns)),
                     dimensions: *dimensions
                 }
             },
             TypeRef::Wildcard { bound, is_upper_bound } => {
                 TypeRef::Wildcard {
-                    bound: bound.as_ref().map(|b| Box::new(self.resolve_type_ref(b, package, imports))),
+                    bound: bound.as_ref().map(|b| Box::new(self.resolve_type_ref(b, package, imports, known_fqns))),
                     is_upper_bound: *is_upper_bound
                 }
             },
@@ -225,6 +232,13 @@ impl LangResolver for JavaResolver {
                 module_id
             };
 
+            let mut known_fqns = std::collections::HashSet::new();
+            for node in &parse_result.nodes {
+                if self.is_top_level_node(node) || matches!(node.kind(), NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation) {
+                    known_fqns.insert(node.fqn().to_string());
+                }
+            }
+
             for node in &parse_result.nodes {
                 let fqn = node.fqn();
                 let mut node = node.clone();
@@ -233,13 +247,13 @@ impl LangResolver for JavaResolver {
                 if let GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = &mut node {
                     match element {
                         crate::model::lang::java::JavaElement::Method(m) => {
-                            m.return_type = self.resolve_type_ref(&m.return_type, parse_result.package_name.as_deref(), &parse_result.imports);
+                            m.return_type = self.resolve_type_ref(&m.return_type, parse_result.package_name.as_deref(), &parse_result.imports, &known_fqns);
                             for param in &mut m.parameters {
-                                param.type_ref = self.resolve_type_ref(&param.type_ref, parse_result.package_name.as_deref(), &parse_result.imports);
+                                param.type_ref = self.resolve_type_ref(&param.type_ref, parse_result.package_name.as_deref(), &parse_result.imports, &known_fqns);
                             }
                         },
                         crate::model::lang::java::JavaElement::Field(f) => {
-                            f.type_ref = self.resolve_type_ref(&f.type_ref, parse_result.package_name.as_deref(), &parse_result.imports);
+                            f.type_ref = self.resolve_type_ref(&f.type_ref, parse_result.package_name.as_deref(), &parse_result.imports, &known_fqns);
                         },
                         _ => {}
                     }
@@ -254,7 +268,10 @@ impl LangResolver for JavaResolver {
             for (source_fqn, target_fqn, edge_type, range) in &parse_result.relations {
                 let mut resolved_target = target_fqn.clone();
                 if !target_fqn.contains('.') {
-                    if let Some(res) = self.parser.resolve_type_name_to_fqn_data(
+                    // Try to resolve using known FQNs first
+                    if let Some(fqn) = known_fqns.iter().find(|k| k.ends_with(&format!(".{}", target_fqn)) || *k == target_fqn) {
+                         resolved_target = fqn.clone();
+                    } else if let Some(res) = self.parser.resolve_type_name_to_fqn_data(
                         target_fqn,
                         parse_result.package_name.as_deref(),
                         &parse_result.imports,

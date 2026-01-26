@@ -2,8 +2,9 @@
   "name": "naviscope",
   "displayName": "Naviscope",
   "description": "Graph-based structured code navigation for Java",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "naviscope",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/biuld/naviscope.git"
