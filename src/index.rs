@@ -6,6 +6,7 @@ use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use tracing;
 use xxhash_rust::xxh3::xxh3_64;
 
 pub const CURRENT_VERSION: u32 = 1;
@@ -143,14 +144,15 @@ impl Naviscope {
     }
 
     /// Loads the index for the project from the fixed storage path.
-    /// Returns Ok(true) if loaded, Ok(false) if file doesn't exist.
+    /// Returns Ok(true) if loaded successfully, Ok(false) if file doesn't exist or is incompatible.
+    /// Automatically handles incompatible binaries by cleaning up and resetting the graph.
     pub fn load(&mut self) -> Result<bool> {
         let path = self.get_project_index_path();
         if !path.exists() {
             return Ok(false);
         }
 
-        let file = std::fs::File::open(path)?;
+        let file = std::fs::File::open(&path)?;
         let reader = std::io::BufReader::new(file);
         match rmp_serde::from_read(reader) {
             Ok(graph) => {
@@ -158,9 +160,16 @@ impl Naviscope {
                 Ok(true)
             }
             Err(e) => {
-                // If loading fails, reset to fresh graph to ensure consistent state for fresh scan
+                // Handle incompatible binary: log warning, clean up file, and reset graph
+                tracing::warn!(
+                    "Failed to parse index at {}: {}. Incompatible binary detected, will rebuild.",
+                    path.display(),
+                    e
+                );
                 self.graph = CodeGraph::new();
-                Err(NaviscopeError::Parsing(e.to_string()))
+                // Try to remove the corrupted file (ignore errors)
+                let _ = std::fs::remove_file(&path);
+                Ok(false)
             }
         }
     }
@@ -196,17 +205,24 @@ impl Naviscope {
             let _ = self.load();
         }
         
+        // Refresh will handle version compatibility check and rebuild if needed
         self.refresh()
     }
 
     /// Scans for changes and updates the graph in memory.
     /// Does not reload from disk, but saves to disk if changes are detected.
+    /// Assumes the graph is already loaded in memory (via load() or previous refresh()).
     pub fn refresh(&mut self) -> Result<()> {
         use crate::model::graph::GraphOp;
         use crate::resolver::engine::IndexResolver;
 
-        // If version doesn't match, clear and start fresh
+        // Check version compatibility - if mismatch, clear disk index and reset graph
         if self.graph.version != CURRENT_VERSION {
+            tracing::info!(
+                "Index version mismatch (found {}, current {}). Rebuilding...",
+                self.graph.version,
+                CURRENT_VERSION
+            );
             let _ = self.clear_project_index();
             // Reset to a fresh index with current version
             self.graph = CodeGraph::new();

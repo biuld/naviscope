@@ -124,8 +124,6 @@ npm run package
 - `naviscope index <PATH>`: Build a persistent index for a project.
 - `naviscope shell [PATH]`: Start an interactive shell to query the graph.
 - `naviscope watch <PATH>`: Start a background service to keep the index updated.
-- `naviscope schema`: Display the JSON schema for the GraphQuery DSL.
-
 #### Configure in Cursor (for AI Agents)
 1.  Open **Cursor Settings** (Cmd + Shift + J) -> **Features** -> **MCP**.
 2.  Click **+ Add New MCP Server**.

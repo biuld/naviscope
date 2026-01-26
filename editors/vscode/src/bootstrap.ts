@@ -131,24 +131,60 @@ async function downloadBinary(destPath: string): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const file = fs.createWriteStream(destPath);
             
-            https.get(url, (response) => {
-                if (response.statusCode === 302 || response.statusCode === 301) {
-                    https.get(response.headers.location!, (redirectResponse) => {
-                        handleResponse(redirectResponse, file, resolve, reject, destPath);
-                    }).on('error', reject);
-                } else {
-                    handleResponse(response, file, resolve, reject, destPath);
-                }
-            }).on('error', reject);
+            // Handle errors on the file stream itself
+            file.on('error', (err) => {
+                file.close();
+                reject(err);
+            });
+
+            downloadWithRedirects(url, file, resolve, reject, destPath, progress);
         });
     });
 }
 
-function handleResponse(response: IncomingMessage, file: fs.WriteStream, resolve: () => void, reject: (err: Error) => void, destPath: string) {
+function downloadWithRedirects(url: string, file: fs.WriteStream, resolve: () => void, reject: (err: Error) => void, destPath: string, progress: vscode.Progress<{ message?: string; increment?: number }>) {
+    https.get(url, (response) => {
+        // Handle redirects
+        if ([301, 302, 303, 307, 308].includes(response.statusCode || 0)) {
+            const location = response.headers.location;
+            if (location) {
+                downloadWithRedirects(location, file, resolve, reject, destPath, progress);
+                return;
+            }
+        }
+        
+        handleResponse(response, file, resolve, reject, destPath, progress);
+    }).on('error', (err) => {
+        // Close file on network error before response
+        file.close();
+        reject(err);
+    });
+}
+
+function handleResponse(response: IncomingMessage, file: fs.WriteStream, resolve: () => void, reject: (err: Error) => void, destPath: string, progress: vscode.Progress<{ message?: string; increment?: number }>) {
     if (response.statusCode !== 200) {
         reject(new Error(`HTTP ${response.statusCode}`));
         return;
     }
+
+    const totalBytes = parseInt(response.headers['content-length'] || '0', 10);
+    let downloadedBytes = 0;
+    let lastPercentage = 0;
+
+    response.on('data', (chunk) => {
+        downloadedBytes += chunk.length;
+        if (totalBytes > 0) {
+            const percentage = Math.floor((downloadedBytes / totalBytes) * 100);
+            const increment = percentage - lastPercentage;
+            if (increment > 0) {
+                lastPercentage = percentage;
+                progress.report({ message: `${percentage}%`, increment });
+            }
+        } else {
+             const downloadedMB = (downloadedBytes / 1024 / 1024).toFixed(1);
+             progress.report({ message: `${downloadedMB} MB` });
+        }
+    });
 
     response.pipe(file);
 

@@ -4,6 +4,7 @@
   "description": "Graph-based structured code navigation for Java",
   "version": "0.2.0",
   "publisher": "naviscope",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/biuld/naviscope.git"

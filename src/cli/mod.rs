@@ -1,6 +1,5 @@
 mod index;
 mod shell;
-mod schema;
 mod watch;
 mod clear;
 
@@ -43,8 +42,6 @@ pub enum Commands {
         #[arg(value_name = "PROJECT_PATH")]
         path: Option<PathBuf>,
     },
-    /// Show the JSON schema/examples for GraphQuery
-    Schema,
     /// Watch for file changes and update the index automatically
     #[command(long_about = "Starts a file watcher that monitors the project directory for changes. \
                             When a change is detected, the index is automatically updated.")]
@@ -92,7 +89,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             debug,
         } => index::run(path, debug),
         Commands::Shell { path } => shell::run(path),
-        Commands::Schema => schema::run(),
         Commands::Watch { path, debug } => watch::run(path, debug),
         Commands::Clear { path } => clear::run(path),
         Commands::Mcp { path } => {

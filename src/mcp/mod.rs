@@ -46,7 +46,10 @@ pub struct McpServer {
 pub struct GrepArgs {
     /// Search pattern (simple string or regex) for code element names
     pub pattern: String,
-    /// Optional: Filter by element type (e.g., ["class", "method", "interface"])
+    /// Optional: Filter by element type.
+    /// Available kinds:
+    /// - Code: class, interface, enum, annotation, method, constructor, field, package
+    /// - Build: module, dependency, task, plugin
     pub kind: Option<Vec<String>>,
     /// Maximum number of results to return (default: 20)
     pub limit: Option<usize>,
@@ -56,7 +59,10 @@ pub struct GrepArgs {
 pub struct LsArgs {
     /// Target node FQN to list children for. If null, lists top-level modules.
     pub fqn: Option<String>,
-    /// Optional: Filter results by element type (e.g., ["class", "method"])
+    /// Optional: Filter results by element type.
+    /// Available kinds:
+    /// - Code: class, interface, enum, annotation, method, constructor, field, package
+    /// - Build: module, dependency, task, plugin
     pub kind: Option<Vec<String>>,
     /// Optional: Filter results by modifiers (e.g. ["public", "static"])
     pub modifiers: Option<Vec<String>>,
@@ -76,9 +82,16 @@ pub struct DepsArgs {
     /// If false (default), find outgoing dependencies (who do I depend on).
     #[serde(default)]
     pub rev: bool,
-    /// Optional: Filter by relationship types (e.g., ["Calls", "InheritsFrom"])
+    /// Optional: Filter by relationship types.
+    /// Available types:
+    /// - Structural: Contains
+    /// - Inheritance: InheritsFrom, Implements
+    /// - Usage: Calls, Instantiates, TypedAs, DecoratedBy, UsesDependency
     pub edge_type: Option<Vec<EdgeType>>,
 }
+
+#[derive(Deserialize, JsonSchema)]
+pub struct GetGuideArgs {}
 
 #[tool_router]
 impl McpServer {
@@ -125,6 +138,34 @@ impl McpServer {
             .iter()
             .map(|s| NodeKind::from(s.as_str()))
             .collect()
+    }
+
+    #[tool(description = "Returns a comprehensive user guide and examples for using Naviscope. Call this tool first to understand how to effectively explore and analyze the codebase using the available tools.")]
+    pub async fn get_guide(&self, _params: Parameters<GetGuideArgs>) -> Result<CallToolResult, McpError> {
+        let guide = r#"
+# Naviscope User Guide
+
+Naviscope is a graph-based code understanding engine. Unlike text search, it understands the structural and semantic relationships in your code (Calls, Inheritance, Dependencies).
+
+## 🚀 Recommended Workflow
+
+1. **Explore Structure**: Use `ls` to visualize the project hierarchy (modules, packages).
+   - `ls()` -> List root modules
+   - `ls(fqn="com.example")` -> List contents of a package
+
+2. **Find Entry Points**: Use `grep` to locate specific symbols (classes, methods) by name.
+   - `grep(pattern="UserController", kind=["class"])`
+
+3. **Deep Analysis**: Once you have a Fully Qualified Name (FQN), use `inspect` and `deps`.
+   - `inspect(fqn="...")` -> View source code and metadata
+   - `deps(fqn="...")` -> View outgoing calls/dependencies (What does this code use?)
+   - `deps(fqn="...", rev=true)` -> View incoming calls (Who uses this code?)
+
+## 💡 Tips
+- **FQNs**: Naviscope relies on Fully Qualified Names (e.g., `com.example.MyClass`, `src/main.rs`). Always use the FQN returned by `ls` or `grep` for subsequent `inspect`/`deps` calls.
+- **Filters**: Use the `kind` (e.g., "class", "method") and `edge_type` (e.g., "Calls", "InheritsFrom") filters to narrow down noisy results.
+"#;
+        Ok(CallToolResult::success(vec![Content::text(guide)]))
     }
 
     #[tool(description = "Search for code elements (classes, methods, fields, etc.) across the project using a name pattern or regex. Use this to find definitions when you only know a name or part of it.")]
