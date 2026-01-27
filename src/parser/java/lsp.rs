@@ -3,6 +3,7 @@ use crate::parser::utils::{RawSymbol, build_symbol_hierarchy};
 use crate::model::graph::NodeKind;
 use tree_sitter::Tree;
 use super::JavaParser;
+use std::collections::HashMap;
 
 impl LspParser for JavaParser {
     fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree> {
@@ -12,11 +13,27 @@ impl LspParser for JavaParser {
     }
 
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<crate::parser::DocumentSymbol> {
-        // Use the native AST analyzer
-        let model = self.analyze(tree, source);
+        // Only run Stage 1: Identification of entities.
+        // We don't need full FQN resolution (naming) or relation resolution (Stage 3)
+        // for building the local document symbol tree.
+        let mut entities = Vec::new();
+        let mut relations = Vec::new();
+        let mut entities_map = HashMap::new();
+        
+        let all_matches = self.collect_matches(tree, source);
+        
+        // Pass None for package to keep FQNs local/relative during symbol extraction
+        self.identify_entities(
+            &all_matches,
+            source,
+            &None,
+            &mut entities,
+            &mut relations,
+            &mut entities_map,
+        );
         
         // Convert JavaEntity to RawSymbol for the tree builder
-        let raw_symbols = model.entities
+        let raw_symbols = entities
             .into_iter()
             .map(|e| {
                 let kind = match e.element {

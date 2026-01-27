@@ -51,15 +51,15 @@ impl MemberScope<'_> {
     }
 
     fn resolve_fqn_from_context(&self, name: &str, context: &ResolutionContext) -> Option<String> {
-        // 1. Check if it's already an FQN in the index
-        if context.index.fqn_map.contains_key(name) {
+        // 1. Check if it's already an FQN in the index or current unit
+        if context.index.fqn_map.contains_key(name) || context.unit.map_or(false, |u| u.nodes.contains_key(name)) {
             return Some(name.to_string());
         }
         
         // 2. Check inner classes in enclosing classes
         for container_fqn in &context.enclosing_classes {
             let candidate = format!("{}.{}", container_fqn, name);
-            if context.index.fqn_map.contains_key(&candidate) {
+            if context.index.fqn_map.contains_key(&candidate) || context.unit.map_or(false, |u| u.nodes.contains_key(&candidate)) {
                 return Some(candidate);
             }
         }
@@ -96,6 +96,8 @@ impl MemberScope<'_> {
                 // 2. Lexical Scope
                 for container_fqn in &context.enclosing_classes {
                     let candidate = format!("{}.{}", container_fqn, name);
+                    
+                    // Check index
                     if let Some(&idx) = context.index.fqn_map.get(&candidate) {
                         let node = &context.index.topology[idx];
                         if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Field(f), .. }) = node {
@@ -103,12 +105,22 @@ impl MemberScope<'_> {
                         }
                         return Some(TypeRef::Id(candidate));
                     }
+                    
+                    // Check current unit (indexing phase)
+                    if let Some(unit) = context.unit {
+                        if let Some(node) = unit.nodes.get(&candidate) {
+                             if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Field(f), .. }) = node {
+                                return Some(f.type_ref.clone());
+                            }
+                            return Some(TypeRef::Id(candidate));
+                        }
+                    }
                 }
-                // 3. Global Scope (Check if it's a known class FQN in the index)
+                // 3. Global Scope (Check if it's a known class FQN in the index or unit)
                 let fqn = self.parser.resolve_type_name_to_fqn(name, context.tree, context.source)?;
                 
                 // If it's a known class, return it.
-                if context.index.fqn_map.contains_key(&fqn) {
+                if context.index.fqn_map.contains_key(&fqn) || context.unit.map_or(false, |u| u.nodes.contains_key(&fqn)) {
                     return Some(TypeRef::Id(fqn.clone()));
                 }
                 
@@ -124,9 +136,19 @@ impl MemberScope<'_> {
                 
                 let field_fqn = format!("{}.{}", receiver_type, field_name);
                 
+                // Check index
                 if let Some(&idx) = context.index.fqn_map.get(&field_fqn) {
                     if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Field(f), .. }) = &context.index.topology[idx] {
                         return Some(f.type_ref.clone());
+                    }
+                }
+                
+                // Check unit
+                if let Some(unit) = context.unit {
+                    if let Some(node) = unit.nodes.get(&field_fqn) {
+                        if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Field(f), .. }) = node {
+                            return Some(f.type_ref.clone());
+                        }
                     }
                 }
                 None
@@ -139,9 +161,20 @@ impl MemberScope<'_> {
                 let receiver_type = self.resolve_fqn_from_context(&raw_receiver_type, context)?;
 
                 let method_fqn = format!("{}.{}", receiver_type, method_name);
+                
+                // Check index
                 if let Some(&idx) = context.index.fqn_map.get(&method_fqn) {
                     if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Method(m), .. }) = &context.index.topology[idx] {
                         return Some(m.return_type.clone());
+                    }
+                }
+                
+                // Check unit
+                if let Some(unit) = context.unit {
+                    if let Some(node) = unit.nodes.get(&method_fqn) {
+                        if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: JavaElement::Method(m), .. }) = node {
+                            return Some(m.return_type.clone());
+                        }
                     }
                 }
                 None
@@ -210,7 +243,14 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                     .and_then(|type_ref| self.get_base_fqn(&type_ref))
                     .and_then(|raw_type_fqn| self.resolve_fqn_from_context(&raw_type_fqn, context))
                     .map(|type_fqn| format!("{}.{}", type_fqn, name))
-                    .and_then(|candidate| context.index.fqn_map.contains_key(&candidate).then_some(candidate))
+                    .and_then(|candidate| {
+                        let exists = context.index.fqn_map.contains_key(&candidate) || context.unit.map_or(false, |u| u.nodes.contains_key(&candidate));
+                        if exists {
+                            Some(candidate)
+                        } else {
+                            None
+                        }
+                    })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
                     .unwrap_or(Err(()))
             })
@@ -218,7 +258,9 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                 // Case B: Implicit this (Lexical Scope)
                 context.enclosing_classes.iter()
                     .map(|container_fqn| format!("{}.{}", container_fqn, name))
-                    .find(|candidate| context.index.fqn_map.contains_key(candidate))
+                    .find(|candidate| {
+                        context.index.fqn_map.contains_key(candidate) || context.unit.map_or(false, |u| u.nodes.contains_key(candidate))
+                    })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
             })
     }

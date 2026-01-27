@@ -90,6 +90,21 @@ impl JavaResolver {
             _ => type_ref.clone()
         }
     }
+
+    pub fn resolve_symbol_internal(&self, context: &ResolutionContext) -> Option<SymbolResolution> {
+        match self.get_active_scopes(context)
+            .into_iter()
+            .try_fold(None, |_: Option<SymbolResolution>, scope: Box<dyn Scope>| {
+                match scope.resolve(&context.name, context) {
+                    Some(Ok(res)) => ControlFlow::Break(Some(res)),
+                    Some(Err(())) => ControlFlow::Break(None),
+                    None => ControlFlow::Continue(None),
+                }
+            }) {
+            ControlFlow::Break(res) => res,
+            ControlFlow::Continue(_) => None,
+        }
+    }
 }
 
 impl SemanticResolver for JavaResolver {
@@ -103,18 +118,7 @@ impl SemanticResolver for JavaResolver {
         let name = node.utf8_text(source.as_bytes()).ok()?.to_string();
         let context = ResolutionContext::new(node, name, index, source, tree, &self.parser);
 
-        match self.get_active_scopes(&context)
-            .into_iter()
-            .try_fold(None, |_: Option<SymbolResolution>, scope| {
-                match scope.resolve(&context.name, &context) {
-                    Some(Ok(res)) => ControlFlow::Break(Some(res)),
-                    Some(Err(())) => ControlFlow::Break(None),
-                    None => ControlFlow::Continue(None),
-                }
-            }) {
-            ControlFlow::Break(res) => res,
-            ControlFlow::Continue(_) => None,
-        }
+        self.resolve_symbol_internal(&context)
     }
 
     fn find_matches(&self, index: &CodeGraph, resolution: &SymbolResolution) -> Vec<NodeIndex> {
@@ -150,13 +154,25 @@ impl SemanticResolver for JavaResolver {
                     if let GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = node {
                         match element {
                             crate::model::lang::java::JavaElement::Field(f) => {
-                                if let crate::model::signature::TypeRef::Raw(s) = &f.type_ref {
-                                    type_resolutions.push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type))
+                                match &f.type_ref {
+                                    crate::model::signature::TypeRef::Raw(s) => {
+                                        type_resolutions.push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type))
+                                    }
+                                    crate::model::signature::TypeRef::Id(id) => {
+                                        type_resolutions.push(SymbolResolution::Precise(id.clone(), SymbolIntent::Type))
+                                    }
+                                    _ => {}
                                 }
                             }
                             crate::model::lang::java::JavaElement::Method(m) => {
-                                if let crate::model::signature::TypeRef::Raw(s) = &m.return_type {
-                                    type_resolutions.push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type))
+                                match &m.return_type {
+                                    crate::model::signature::TypeRef::Raw(s) => {
+                                        type_resolutions.push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type))
+                                    }
+                                    crate::model::signature::TypeRef::Id(id) => {
+                                        type_resolutions.push(SymbolResolution::Precise(id.clone(), SymbolIntent::Type))
+                                    }
+                                    _ => {}
                                 }
                             }
                             _ => {
@@ -179,6 +195,39 @@ impl SemanticResolver for JavaResolver {
         let mut results = Vec::new();
 
         for &node_idx in &target_nodes {
+            let node = &index.topology[node_idx];
+            
+            // Check if it's a method
+            if let GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = node {
+                if let crate::model::lang::java::JavaElement::Method(m) = element {
+                    // 1. Find the enclosing class/interface
+                    let mut parent_incoming = index.topology.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
+                    while let Some((edge_idx, parent_idx)) = parent_incoming.next(&index.topology) {
+                        if index.topology[edge_idx].edge_type == EdgeType::Contains {
+                            // 2. Find all implementations of this parent
+                            let parent_fqn = index.topology[parent_idx].fqn().to_string();
+                            let parent_res = SymbolResolution::Precise(parent_fqn, SymbolIntent::Type);
+                            let impl_classes = self.find_implementations(index, &parent_res);
+                            
+                            // 3. For each impl class, find a method with same name
+                            for impl_class_idx in impl_classes {
+                                let mut children = index.topology.neighbors_directed(impl_class_idx, petgraph::Direction::Outgoing).detach();
+                                while let Some((c_edge_idx, child_idx)) = children.next(&index.topology) {
+                                    if index.topology[c_edge_idx].edge_type == EdgeType::Contains {
+                                        if let GraphNode::Code(crate::model::graph::CodeElement::Java { element: crate::model::lang::java::JavaElement::Method(child_m), .. }) = &index.topology[child_idx] {
+                                            if child_m.name == m.name {
+                                                results.push(child_idx);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+            }
+
             let mut incoming = index
                 .topology
                 .neighbors_directed(node_idx, petgraph::Direction::Incoming)
@@ -199,6 +248,7 @@ impl SemanticResolver for JavaResolver {
 impl LangResolver for JavaResolver {
     fn resolve(&self, file: &ParsedFile, context: &ProjectContext) -> Result<ResolvedUnit> {
         let mut unit = ResolvedUnit::new();
+        let dummy_index = CodeGraph::new();
 
         if let ParsedContent::Java(parse_result) = &file.content {
             let module_id = context
@@ -233,10 +283,10 @@ impl LangResolver for JavaResolver {
             };
 
             let mut known_fqns = std::collections::HashSet::new();
+            let mut local_type_map = std::collections::HashMap::new();
+
             for node in &parse_result.nodes {
-                if self.is_top_level_node(node) || matches!(node.kind(), NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation) {
-                    known_fqns.insert(node.fqn().to_string());
-                }
+                known_fqns.insert(node.fqn().to_string());
             }
 
             for node in &parse_result.nodes {
@@ -250,10 +300,16 @@ impl LangResolver for JavaResolver {
                             m.return_type = self.resolve_type_ref(&m.return_type, parse_result.package_name.as_deref(), &parse_result.imports, &known_fqns);
                             for param in &mut m.parameters {
                                 param.type_ref = self.resolve_type_ref(&param.type_ref, parse_result.package_name.as_deref(), &parse_result.imports, &known_fqns);
+                                if let TypeRef::Id(type_fqn) = &param.type_ref {
+                                    local_type_map.insert(param.name.clone(), type_fqn.clone());
+                                }
                             }
                         },
                         crate::model::lang::java::JavaElement::Field(f) => {
                             f.type_ref = self.resolve_type_ref(&f.type_ref, parse_result.package_name.as_deref(), &parse_result.imports, &known_fqns);
+                            if let TypeRef::Id(type_fqn) = &f.type_ref {
+                                local_type_map.insert(f.name.clone(), type_fqn.clone());
+                            }
                         },
                         _ => {}
                     }
@@ -267,18 +323,59 @@ impl LangResolver for JavaResolver {
 
             for (source_fqn, target_fqn, edge_type, range) in &parse_result.relations {
                 let mut resolved_target = target_fqn.clone();
-                if !target_fqn.contains('.') {
-                    // Try to resolve using known FQNs first
-                    if let Some(fqn) = known_fqns.iter().find(|k| k.ends_with(&format!(".{}", target_fqn)) || *k == target_fqn) {
-                         resolved_target = fqn.clone();
-                    } else if let Some(res) = self.parser.resolve_type_name_to_fqn_data(
-                        target_fqn,
-                        parse_result.package_name.as_deref(),
-                        &parse_result.imports,
-                    ) {
-                        resolved_target = res;
+                
+                // If we have a tree and source, we can use the Scope system!
+                if let (Some(tree), Some(source)) = (&parse_result.tree, &parse_result.source) {
+                    if let Some(r) = range {
+                        let point = tree_sitter::Point::new(r.start_line, r.start_col);
+                        if let Some(node) = tree.root_node().named_descendant_for_point_range(point, point) {
+                            // Now we have a Node! We can build a ResolutionContext and run Scopes.
+                            // We provide the current unit so that MemberScope can see nodes we just added.
+                            let context = ResolutionContext::new_with_unit(
+                                node, 
+                                target_fqn.clone(), 
+                                &dummy_index, 
+                                Some(&unit),
+                                source, 
+                                tree, 
+                                &self.parser
+                            );
+                            
+                            // Run the same scope chain as resolve_at
+                            if let Some(SymbolResolution::Precise(fqn, _)) = self.resolve_symbol_internal(&context) {
+                                resolved_target = fqn;
+                            } else {
+                                // Fallback A: Try resolving via local_type_map (handles obj.method)
+                                if target_fqn.contains('.') {
+                                    let parts: Vec<&str> = target_fqn.split('.').collect();
+                                    if parts.len() >= 2 {
+                                        let obj_name = parts[0];
+                                        if let Some(type_fqn) = local_type_map.get(obj_name) {
+                                            let mut new_target = type_fqn.clone();
+                                            for part in &parts[1..] {
+                                                new_target.push('.');
+                                                new_target.push_str(part);
+                                            }
+                                            resolved_target = new_target;
+                                        }
+                                    }
+                                }
+                                
+                                // Fallback B: Basic type-to-fqn resolution
+                                if !resolved_target.contains('.') {
+                                    if let Some(res) = self.parser.resolve_type_name_to_fqn_data(
+                                        &resolved_target,
+                                        parse_result.package_name.as_deref(),
+                                        &parse_result.imports,
+                                    ) {
+                                        resolved_target = res;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+
                 let mut edge = GraphEdge::new(edge_type.clone());
                 edge.range = *range;
                 unit.add_edge(source_fqn.clone(), resolved_target, edge);

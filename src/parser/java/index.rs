@@ -33,6 +33,8 @@ impl IndexParser for JavaParser {
             imports: model.imports,
             nodes,
             relations,
+            source: Some(source_code.to_string()),
+            tree: Some(tree),
         })
     }
 }

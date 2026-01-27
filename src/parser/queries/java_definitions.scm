@@ -73,6 +73,10 @@
   type: [ (type_identifier) (generic_type) (scoped_type_identifier) ] @inst_type
 ) @instantiation
 
+(field_access
+  object: [ (identifier) (field_access) (this) ] @field_obj
+  field: (identifier) @field_name_node) @field_access_meta
+
 (lambda_expression
   parameters: [
     (identifier) @lambda_param

@@ -41,6 +41,8 @@ pub struct GlobalParseResult {
     pub imports: Vec<String>,
     pub nodes: Vec<GraphNode>,
     pub relations: Vec<(String, String, crate::model::graph::EdgeType, Option<Range>)>,
+    pub source: Option<String>,
+    pub tree: Option<Tree>,
 }
 
 /// Trait for parsers that provide data for the global code knowledge graph.

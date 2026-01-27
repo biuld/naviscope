@@ -1,12 +1,14 @@
 use crate::index::CodeGraph;
 use crate::parser::SymbolIntent;
 use crate::parser::java::JavaParser;
+use crate::model::graph::ResolvedUnit;
 use tree_sitter::{Node, Tree};
 
 pub struct ResolutionContext<'a> {
     pub node: Node<'a>,
     pub name: String,
     pub index: &'a CodeGraph,
+    pub unit: Option<&'a ResolvedUnit>,
     pub source: &'a str,
     pub tree: &'a Tree,
     pub intent: SymbolIntent,
@@ -25,6 +27,18 @@ impl<'a> ResolutionContext<'a> {
         tree: &'a Tree,
         parser: &JavaParser,
     ) -> Self {
+        Self::new_with_unit(node, name, index, None, source, tree, parser)
+    }
+
+    pub fn new_with_unit(
+        node: Node<'a>,
+        name: String,
+        index: &'a CodeGraph,
+        unit: Option<&'a ResolvedUnit>,
+        source: &'a str,
+        tree: &'a Tree,
+        parser: &JavaParser,
+    ) -> Self {
         let (package, imports) = parser.extract_package_and_imports(tree, source);
         let enclosing_classes = parser.get_enclosing_class_fqns(&node, source, package.as_deref());
         let intent = parser.determine_intent(&node);
@@ -36,8 +50,6 @@ impl<'a> ResolutionContext<'a> {
                         .filter(|obj| obj.id() != node.id())
                 }
                 "scoped_type_identifier" => {
-                    // scoped_type_identifier in tree-sitter-java doesn't always have field names
-                    // It's usually [scope, '.', name]
                     parent.child_by_field_name("scope")
                         .or_else(|| parent.named_child(0))
                         .filter(|obj| obj.id() != node.id())
@@ -54,6 +66,7 @@ impl<'a> ResolutionContext<'a> {
             node,
             name,
             index,
+            unit,
             source,
             tree,
             intent,

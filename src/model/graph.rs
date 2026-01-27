@@ -199,14 +199,17 @@ pub enum GraphOp {
 pub struct ResolvedUnit {
     /// The operations needed to integrate this file into the graph
     pub ops: Vec<GraphOp>,
+    /// Fast access to nodes being added in this unit
+    pub nodes: std::collections::HashMap<String, GraphNode>,
 }
 
 impl ResolvedUnit {
     pub fn new() -> Self {
-        Self { ops: Vec::new() }
+        Self { ops: Vec::new(), nodes: std::collections::HashMap::new() }
     }
 
     pub fn add_node(&mut self, id: String, data: GraphNode) {
+        self.nodes.insert(id.clone(), data.clone());
         self.ops.push(GraphOp::AddNode { id, data });
     }
 
