@@ -33,7 +33,7 @@ pub enum ShellCommand {
     /// Clear the screen
     Clear,
     /// Search for symbols
-    Grep {
+    Find {
         /// Pattern to search for
         pattern: String,
         /// Filter by node kind
@@ -102,11 +102,11 @@ impl ShellCommand {
                     modifiers: modifiers.clone(),
                 })
             }
-            ShellCommand::Grep {
+            ShellCommand::Find {
                 pattern,
                 kind,
                 limit,
-            } => Ok(GraphQuery::Grep {
+            } => Ok(GraphQuery::Find {
                 pattern: pattern.clone(),
                 kind: kind.clone(),
                 limit: *limit,
@@ -171,7 +171,7 @@ impl ShellCommand {
                 Ok(serde_json::to_string_pretty(&result.nodes[0])?)
             }
             _ => {
-                // Default detailed table view for Grep, Deps, and Ls -l
+                // Default detailed table view for Find, Deps, and Ls -l
                 let mut views: Vec<ShellNodeView> = result
                     .nodes
                     .iter()

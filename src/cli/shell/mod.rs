@@ -149,7 +149,7 @@ impl ReplServer {
             "cd".into(),
             "pwd".into(),
             "clear".into(),
-            "grep".into(),
+            "find".into(),
             "cat".into(),
             "deps".into(),
         ];

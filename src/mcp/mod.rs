@@ -45,14 +45,11 @@ pub struct McpServer {
 }
 
 #[derive(Deserialize, JsonSchema)]
-pub struct GrepArgs {
+pub struct FindArgs {
     /// Search pattern (simple string or regex) for code element names
     pub pattern: String,
     /// Optional: Filter by element type.
-    /// Available kinds:
-    /// - Code: class, interface, enum, annotation, method, constructor, field, package
-    /// - Build: module, dependency, task, plugin
-    pub kind: Option<Vec<String>>,
+    pub kind: Option<Vec<NodeKind>>,
     /// Maximum number of results to return (default: 20)
     pub limit: Option<usize>,
 }
@@ -62,16 +59,13 @@ pub struct LsArgs {
     /// Target node FQN to list children for. If null, lists top-level modules.
     pub fqn: Option<String>,
     /// Optional: Filter results by element type.
-    /// Available kinds:
-    /// - Code: class, interface, enum, annotation, method, constructor, field, package
-    /// - Build: module, dependency, task, plugin
-    pub kind: Option<Vec<String>>,
+    pub kind: Option<Vec<NodeKind>>,
     /// Optional: Filter results by modifiers (e.g. ["public", "static"])
     pub modifiers: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, JsonSchema)]
-pub struct InspectArgs {
+pub struct CatArgs {
     /// The Fully Qualified Name (FQN) of the code element to inspect
     pub fqn: String,
 }
@@ -85,10 +79,6 @@ pub struct DepsArgs {
     #[serde(default)]
     pub rev: bool,
     /// Optional: Filter by relationship types.
-    /// Available types:
-    /// - Structural: Contains
-    /// - Inheritance: InheritsFrom, Implements
-    /// - Usage: Calls, Instantiates, TypedAs, DecoratedBy, UsesDependency
     pub edge_type: Option<Vec<EdgeType>>,
 }
 
@@ -140,14 +130,6 @@ impl McpServer {
         }
     }
 
-    fn to_node_kinds(kinds: Option<Vec<String>>) -> Vec<NodeKind> {
-        kinds
-            .unwrap_or_default()
-            .iter()
-            .map(|s| NodeKind::from(s.as_str()))
-            .collect()
-    }
-
     #[tool(
         description = "Returns a comprehensive user guide and examples for using Naviscope. Call this tool first to understand how to effectively explore and analyze the codebase using the available tools."
     )]
@@ -166,16 +148,16 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
    - `ls()` -> List root modules
    - `ls(fqn="com.example")` -> List contents of a package
 
-2. **Find Entry Points**: Use `grep` to locate specific symbols (classes, methods) by name.
-   - `grep(pattern="UserController", kind=["class"])`
+2. **Find Entry Points**: Use `find` to locate specific symbols (classes, methods) by name.
+   - `find(pattern="UserController", kind=["class"])`
 
-3. **Deep Analysis**: Once you have a Fully Qualified Name (FQN), use `inspect` and `deps`.
-   - `inspect(fqn="...")` -> View source code and metadata
+3. **Deep Analysis**: Once you have a Fully Qualified Name (FQN), use `cat` and `deps`.
+   - `cat(fqn="...")` -> View source code and metadata
    - `deps(fqn="...")` -> View outgoing calls/dependencies (What does this code use?)
    - `deps(fqn="...", rev=true)` -> View incoming calls (Who uses this code?)
 
 ## 💡 Tips
-- **FQNs**: Naviscope relies on Fully Qualified Names (e.g., `com.example.MyClass`, `src/main.rs`). Always use the FQN returned by `ls` or `grep` for subsequent `inspect`/`deps` calls.
+- **FQNs**: Naviscope relies on Fully Qualified Names (e.g., `com.example.MyClass`, `src/main.rs`). Always use the FQN returned by `ls` or `find` for subsequent `cat`/`deps` calls.
 - **Filters**: Use the `kind` (e.g., "class", "method") and `edge_type` (e.g., "Calls", "InheritsFrom") filters to narrow down noisy results.
 "#;
         Ok(CallToolResult::success(vec![Content::text(guide)]))
@@ -184,11 +166,11 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
     #[tool(
         description = "Search for code elements (classes, methods, fields, etc.) across the project using a name pattern or regex. Use this to find definitions when you only know a name or part of it."
     )]
-    pub async fn grep(&self, params: Parameters<GrepArgs>) -> Result<CallToolResult, McpError> {
+    pub async fn find(&self, params: Parameters<FindArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
-        self.execute_query(GraphQuery::Grep {
+        self.execute_query(GraphQuery::Find {
             pattern: args.pattern,
-            kind: Self::to_node_kinds(args.kind),
+            kind: args.kind.unwrap_or_default(),
             limit: args.limit.unwrap_or(20),
         })
         .await
@@ -201,7 +183,7 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
         let args = params.0;
         self.execute_query(GraphQuery::Ls {
             fqn: args.fqn,
-            kind: Self::to_node_kinds(args.kind),
+            kind: args.kind.unwrap_or_default(),
             modifiers: args.modifiers.unwrap_or_default(),
         })
         .await
@@ -210,10 +192,7 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
     #[tool(
         description = "Retrieve detailed information about a specific code element by its Fully Qualified Name (FQN), including its source code snippet, location, and metadata."
     )]
-    pub async fn inspect(
-        &self,
-        params: Parameters<InspectArgs>,
-    ) -> Result<CallToolResult, McpError> {
+    pub async fn cat(&self, params: Parameters<CatArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
         self.execute_query(GraphQuery::Cat { fqn: args.fqn }).await
     }

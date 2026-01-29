@@ -17,7 +17,7 @@ impl<'a> QueryEngine<'a> {
 
     pub fn execute(&self, query: &GraphQuery) -> Result<QueryResult> {
         match query {
-            GraphQuery::Grep {
+            GraphQuery::Find {
                 pattern,
                 kind,
                 limit,

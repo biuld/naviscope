@@ -16,7 +16,7 @@ pub enum GraphQuery {
     },
 
     /// Search for symbols
-    Grep {
+    Find {
         pattern: String,
         #[serde(default)]
         kind: Vec<NodeKind>,

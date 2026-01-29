@@ -21,8 +21,8 @@ Unlike traditional tools that maintain separate indexes for different purposes, 
 Naviscope implements the [Model Context Protocol](https://modelcontextprotocol.io/), giving LLMs "X-ray vision" into your code structure.
 
 - **`ls`**: Hierarchical exploration of packages, modules, and fields.
-- **`grep`**: Precise symbol search (find "Class definitions", not just string matches).
-- **`inspect`**: Retrieve definition, source code, and metadata for any symbol.
+- **`find`**: Precise symbol search (find "Class definitions", not just string matches).
+- **`cat`**: Retrieve definition, source code, and metadata for any symbol.
 - **`deps`**: Analyze incoming/outgoing dependencies and call graphs.
 
 ### 👨‍💻 For Developers (LSP Support)
@@ -142,7 +142,7 @@ Whether using the CLI shell or MCP tools, the query logic is consistent:
 
 ```bash
 # Find all classes named 'UserService'
-grep "UserService" --kind class
+find "UserService" --kind class
 
 # List contents of a package
 ls "com.example.service"
