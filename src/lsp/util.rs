@@ -18,7 +18,12 @@ pub struct Document {
 }
 
 impl Document {
-    pub fn new(content: String, tree: Tree, parser: Arc<dyn LspParser>, language: Language) -> Self {
+    pub fn new(
+        content: String,
+        tree: Tree,
+        parser: Arc<dyn LspParser>,
+        language: Language,
+    ) -> Self {
         Self {
             content,
             tree,
@@ -43,7 +48,12 @@ pub fn utf16_col_to_byte_col(content: &str, line: usize, utf16_col: usize) -> us
     curr_byte
 }
 
-pub fn find_node_at<'a>(tree: &'a Tree, content: &str, line: usize, utf16_col: usize) -> Option<tree_sitter::Node<'a>> {
+pub fn find_node_at<'a>(
+    tree: &'a Tree,
+    content: &str,
+    line: usize,
+    utf16_col: usize,
+) -> Option<tree_sitter::Node<'a>> {
     let root = tree.root_node();
     let byte_col = utf16_col_to_byte_col(content, line, utf16_col);
     let point = tree_sitter::Point::new(line, byte_col);
@@ -76,20 +86,20 @@ pub fn get_word_at(path: &std::path::Path, line: usize, col: usize) -> Option<St
 
 pub fn get_word_from_content(content: &str, line: usize, col: usize) -> Option<String> {
     let line_content = content.lines().nth(line)?;
-    
+
     // Find the start and end of the word (alphanumeric + _ + $)
     let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-    
+
     let start = line_content[..col.min(line_content.len())]
         .rfind(|c| !is_ident(c))
         .map(|i| i + 1)
         .unwrap_or(0);
-        
+
     let end = line_content[col..]
         .find(|c| !is_ident(c))
         .map(|i| i + col)
         .unwrap_or(line_content.len());
-        
+
     if start < end {
         Some(line_content[start..end].to_string())
     } else {
@@ -111,7 +121,7 @@ pub fn to_lsp_position(point: tree_sitter::Point, content: &str) -> tower_lsp::l
     // Use split_terminator to handle all types of line endings and get the line efficiently
     let line_content = content.split_terminator('\n').nth(line_idx).unwrap_or("");
     let line_content = line_content.trim_end_matches('\r');
-    
+
     let mut utf16_col = 0;
     let mut curr_byte = 0;
 

@@ -1,9 +1,9 @@
 use naviscope::model::graph::{BuildElement, CodeElement, GraphNode, NodeKind};
-use naviscope::model::signature::TypeRef;
-use naviscope::model::lang::java::{JavaElement, JavaParameter};
 use naviscope::model::lang::gradle::GradleElement;
-use tabled::Tabled;
+use naviscope::model::lang::java::{JavaElement, JavaParameter};
+use naviscope::model::signature::TypeRef;
 use std::path::PathBuf;
+use tabled::Tabled;
 
 /// A terminal-optimized view of a GraphNode (Detailed)
 #[derive(Tabled)]
@@ -25,23 +25,23 @@ pub struct ShellNodeViewShort {
 
 impl ShellNodeView {
     pub fn from_node(node: &GraphNode, relation: Option<String>) -> Self {
-        let location = node.file_path().map(|path: &PathBuf| {
-            let filename = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("-");
-            
-            if let Some(range) = node.range() {
-                return format!("{}:{}", filename, range.start_line + 1);
-            }
-            filename.to_string()
-        }).unwrap_or_else(|| "-".to_string());
+        let location = node
+            .file_path()
+            .map(|path: &PathBuf| {
+                let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("-");
 
-        let is_container = matches!(node.kind(), 
-            NodeKind::Class | 
-            NodeKind::Interface | 
-            NodeKind::Enum |
-            NodeKind::Annotation);
-        
+                if let Some(range) = node.range() {
+                    return format!("{}:{}", filename, range.start_line + 1);
+                }
+                filename.to_string()
+            })
+            .unwrap_or_else(|| "-".to_string());
+
+        let is_container = matches!(
+            node.kind(),
+            NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
+        );
+
         let name = if is_container {
             format!("{}/", node.name())
         } else {
@@ -53,7 +53,9 @@ impl ShellNodeView {
                 CodeElement::Java { element, .. } => match element {
                     JavaElement::Method(m) => {
                         if m.is_constructor {
-                            let params_str = m.parameters.iter()
+                            let params_str = m
+                                .parameters
+                                .iter()
                                 .map(|p| format!("{}", fmt_type(&p.type_ref)))
                                 .collect::<Vec<_>>()
                                 .join(", ");
@@ -70,11 +72,11 @@ impl ShellNodeView {
             },
             GraphNode::Build(build_el) => match build_el {
                 BuildElement::Gradle { element, .. } => match element {
-                GradleElement::Dependency(d) => {
-                    let group = d.group.as_deref().unwrap_or("?");
-                    let version = d.version.as_deref().unwrap_or("?");
-                    format!("{}:{}:{}", group, d.name, version)
-                }
+                    GradleElement::Dependency(d) => {
+                        let group = d.group.as_deref().unwrap_or("?");
+                        let version = d.version.as_deref().unwrap_or("?");
+                        format!("{}:{}:{}", group, d.name, version)
+                    }
                     _ => "-".to_string(),
                 },
             },
@@ -120,21 +122,25 @@ fn fmt_type(t: &TypeRef) -> String {
         TypeRef::Generic { base, args } => {
             let args_str = args.iter().map(fmt_type).collect::<Vec<_>>().join(", ");
             format!("{}<{}>", fmt_type(base), args_str)
-        },
-        TypeRef::Array { element, dimensions } => {
+        }
+        TypeRef::Array {
+            element,
+            dimensions,
+        } => {
             format!("{}{}", fmt_type(element), "[]".repeat(*dimensions))
-        },
+        }
         _ => "?".to_string(),
     }
 }
 
 fn fmt_shell_signature(params: &[JavaParameter], return_type: &TypeRef) -> String {
     let return_type_str = fmt_type(return_type);
-    let params_str = params.iter()
+    let params_str = params
+        .iter()
         .map(|p| fmt_type(&p.type_ref))
         .collect::<Vec<_>>()
         .join(", ");
-    
+
     let total_len = params_str.len() + return_type_str.len();
     if total_len <= 50 {
         format!("({}) -> {}", params_str, return_type_str)

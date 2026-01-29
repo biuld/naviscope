@@ -6,5 +6,5 @@ pub mod mcp;
 pub mod model;
 pub mod parser;
 pub mod project;
-pub mod resolver;
 pub mod query;
+pub mod resolver;

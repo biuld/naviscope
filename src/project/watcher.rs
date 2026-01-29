@@ -11,7 +11,7 @@ pub struct Watcher {
 impl Watcher {
     pub fn new(root: &Path) -> notify::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
-        
+
         let mut watcher = RecommendedWatcher::new(
             move |res| {
                 let _ = tx.send(res);

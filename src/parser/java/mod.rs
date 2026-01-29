@@ -1,14 +1,14 @@
 use crate::error::Result;
-use tree_sitter::{Query, Tree, StreamingIterator};
 use std::sync::Arc;
+use tree_sitter::{Query, StreamingIterator, Tree};
 
-mod constants;
-mod lsp;
-mod index;
 mod ast;
-mod types;
+mod constants;
+mod index;
+mod lsp;
 mod naming;
 mod scope;
+mod types;
 
 unsafe extern "C" {
     fn tree_sitter_java() -> tree_sitter::Language;
@@ -48,15 +48,28 @@ impl JavaParser {
         })
     }
 
-    pub fn extract_package_and_imports(&self, tree: &Tree, source: &str) -> (Option<String>, Vec<String>) {
+    pub fn extract_package_and_imports(
+        &self,
+        tree: &Tree,
+        source: &str,
+    ) -> (Option<String>, Vec<String>) {
         let mut package = None;
         let mut imports = Vec::new();
         let mut cursor = tree_sitter::QueryCursor::new();
-        let mut matches = cursor.matches(&self.definition_query, tree.root_node(), source.as_bytes());
+        let mut matches =
+            cursor.matches(&self.definition_query, tree.root_node(), source.as_bytes());
         while let Some(mat) = matches.next() {
             if let Some(cap) = mat.captures.iter().find(|c| c.index == self.indices.pkg) {
-                package = cap.node.utf8_text(source.as_bytes()).ok().map(|s: &str| s.to_string());
-            } else if let Some(cap) = mat.captures.iter().find(|c| c.index == self.indices.import_name) {
+                package = cap
+                    .node
+                    .utf8_text(source.as_bytes())
+                    .ok()
+                    .map(|s: &str| s.to_string());
+            } else if let Some(cap) = mat
+                .captures
+                .iter()
+                .find(|c| c.index == self.indices.import_name)
+            {
                 if let Ok(imp) = cap.node.utf8_text(source.as_bytes()) {
                     let imp_str: &str = imp;
                     imports.push(imp_str.to_string());

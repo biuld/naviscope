@@ -1,23 +1,23 @@
+use crate::index::Naviscope;
+use crate::model::graph::{EdgeType, NodeKind};
+use crate::query::GraphQuery;
+use crate::query::QueryEngine;
 use rmcp::{
+    ErrorData as McpError,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, Content, Implementation, InitializeResult, ServerCapabilities},
     tool, tool_handler, tool_router,
-    ErrorData as McpError,
 };
-use crate::query::GraphQuery;
-use crate::index::Naviscope;
-use crate::query::QueryEngine;
-use crate::model::graph::{EdgeType, NodeKind};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::Deserialize;
-use schemars::JsonSchema;
 use xxhash_rust::xxh3::xxh3_64;
 
 pub mod http;
-pub mod stdio;
 pub mod proxy;
+pub mod stdio;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SessionInfo {
@@ -30,8 +30,10 @@ pub fn get_session_path(root_path: &Path) -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let session_dir = Path::new(&home).join(".naviscope/sessions");
     let _ = std::fs::create_dir_all(&session_dir);
-    
-    let abs_path = root_path.canonicalize().unwrap_or_else(|_| root_path.to_path_buf());
+
+    let abs_path = root_path
+        .canonicalize()
+        .unwrap_or_else(|_| root_path.to_path_buf());
     let hash = xxh3_64(abs_path.to_string_lossy().as_bytes());
     session_dir.join(format!("{:016x}.json", hash))
 }
@@ -78,7 +80,7 @@ pub struct InspectArgs {
 pub struct DepsArgs {
     /// The Fully Qualified Name (FQN) of the target code element
     pub fqn: String,
-    /// If true, find incoming dependencies (who depends on me). 
+    /// If true, find incoming dependencies (who depends on me).
     /// If false (default), find outgoing dependencies (who do I depend on).
     #[serde(default)]
     pub rev: bool,
@@ -104,7 +106,7 @@ impl McpServer {
 
     pub(crate) async fn get_or_build_index(&self) -> Result<Naviscope, McpError> {
         let lock = self.engine.read().await;
-        
+
         match &*lock {
             Some(navi) => Ok(navi.clone()),
             None => {
@@ -118,14 +120,19 @@ impl McpServer {
         }
     }
 
-    pub(crate) async fn execute_query(&self, query: GraphQuery) -> Result<CallToolResult, McpError> {
+    pub(crate) async fn execute_query(
+        &self,
+        query: GraphQuery,
+    ) -> Result<CallToolResult, McpError> {
         let engine = self.get_or_build_index().await?;
-        
+
         let result = tokio::task::spawn_blocking(move || {
             let query_engine = QueryEngine::new(engine.graph());
             let result = query_engine.execute(&query).map_err(|e| e.to_string())?;
             serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
-        }).await.map_err(|e| McpError::new(rmcp::model::ErrorCode(-32000), e.to_string(), None))?;
+        })
+        .await
+        .map_err(|e| McpError::new(rmcp::model::ErrorCode(-32000), e.to_string(), None))?;
 
         match result {
             Ok(json_str) => Ok(CallToolResult::success(vec![Content::text(json_str)])),
@@ -134,14 +141,20 @@ impl McpServer {
     }
 
     fn to_node_kinds(kinds: Option<Vec<String>>) -> Vec<NodeKind> {
-        kinds.unwrap_or_default()
+        kinds
+            .unwrap_or_default()
             .iter()
             .map(|s| NodeKind::from(s.as_str()))
             .collect()
     }
 
-    #[tool(description = "Returns a comprehensive user guide and examples for using Naviscope. Call this tool first to understand how to effectively explore and analyze the codebase using the available tools.")]
-    pub async fn get_guide(&self, _params: Parameters<GetGuideArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Returns a comprehensive user guide and examples for using Naviscope. Call this tool first to understand how to effectively explore and analyze the codebase using the available tools."
+    )]
+    pub async fn get_guide(
+        &self,
+        _params: Parameters<GetGuideArgs>,
+    ) -> Result<CallToolResult, McpError> {
         let guide = r#"
 # Naviscope User Guide
 
@@ -168,40 +181,54 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
         Ok(CallToolResult::success(vec![Content::text(guide)]))
     }
 
-    #[tool(description = "Search for code elements (classes, methods, fields, etc.) across the project using a name pattern or regex. Use this to find definitions when you only know a name or part of it.")]
+    #[tool(
+        description = "Search for code elements (classes, methods, fields, etc.) across the project using a name pattern or regex. Use this to find definitions when you only know a name or part of it."
+    )]
     pub async fn grep(&self, params: Parameters<GrepArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
-        self.execute_query(GraphQuery::Grep { 
-            pattern: args.pattern, 
-            kind: Self::to_node_kinds(args.kind), 
-            limit: args.limit.unwrap_or(20) 
-        }).await
+        self.execute_query(GraphQuery::Grep {
+            pattern: args.pattern,
+            kind: Self::to_node_kinds(args.kind),
+            limit: args.limit.unwrap_or(20),
+        })
+        .await
     }
 
-    #[tool(description = "List sub-elements of a given node (FQN) or list top-level project modules if FQN is omitted. Use this to explore package structures or class members.")]
+    #[tool(
+        description = "List sub-elements of a given node (FQN) or list top-level project modules if FQN is omitted. Use this to explore package structures or class members."
+    )]
     pub async fn ls(&self, params: Parameters<LsArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
-        self.execute_query(GraphQuery::Ls { 
-            fqn: args.fqn, 
+        self.execute_query(GraphQuery::Ls {
+            fqn: args.fqn,
             kind: Self::to_node_kinds(args.kind),
             modifiers: args.modifiers.unwrap_or_default(),
-        }).await
+        })
+        .await
     }
 
-    #[tool(description = "Retrieve detailed information about a specific code element by its Fully Qualified Name (FQN), including its source code snippet, location, and metadata.")]
-    pub async fn inspect(&self, params: Parameters<InspectArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Retrieve detailed information about a specific code element by its Fully Qualified Name (FQN), including its source code snippet, location, and metadata."
+    )]
+    pub async fn inspect(
+        &self,
+        params: Parameters<InspectArgs>,
+    ) -> Result<CallToolResult, McpError> {
         let args = params.0;
         self.execute_query(GraphQuery::Cat { fqn: args.fqn }).await
     }
 
-    #[tool(description = "Analyze dependencies for a given FQN. By default, shows outgoing dependencies (who I depend on). Use rev=true for incoming dependencies (who depends on me/impact analysis).")]
+    #[tool(
+        description = "Analyze dependencies for a given FQN. By default, shows outgoing dependencies (who I depend on). Use rev=true for incoming dependencies (who depends on me/impact analysis)."
+    )]
     pub async fn deps(&self, params: Parameters<DepsArgs>) -> Result<CallToolResult, McpError> {
         let args = params.0;
-        self.execute_query(GraphQuery::Deps { 
-            fqn: args.fqn, 
+        self.execute_query(GraphQuery::Deps {
+            fqn: args.fqn,
             rev: args.rev,
-            edge_types: args.edge_type.unwrap_or_default() 
-        }).await
+            edge_types: args.edge_type.unwrap_or_default(),
+        })
+        .await
     }
 }
 
@@ -215,9 +242,7 @@ impl rmcp::ServerHandler for McpServer {
                 version: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
             },
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
     }

@@ -1,15 +1,16 @@
 mod common;
 
-use naviscope::model::graph::EdgeType;
 use common::setup_java_test_graph;
+use naviscope::model::graph::EdgeType;
 
 /// Capability 1: Structural Indexing
 /// The graph MUST represent the project structure (Package -> Class -> Method/Field)
 #[test]
 fn cap_structural_nesting() {
-    let files = vec![
-        ("com/example/MyClass.java", "package com.example; public class MyClass { int field; void method() {} }"),
-    ];
+    let files = vec![(
+        "com/example/MyClass.java",
+        "package com.example; public class MyClass { int field; void method() {} }",
+    )];
     let (index, _) = setup_java_test_graph(files);
 
     // Assert FQNs exist
@@ -22,9 +23,9 @@ fn cap_structural_nesting() {
     // Assert nesting via 'Contains' edges
     let class_idx = index.fqn_map["com.example.MyClass"];
     let pkg_idx = index.fqn_map["module::root.com.example"];
-    
+
     assert!(index.topology.contains_edge(pkg_idx, class_idx));
-    
+
     let field_idx = index.fqn_map["com.example.MyClass.field"];
     let method_idx = index.fqn_map["com.example.MyClass.method"];
     assert!(index.topology.contains_edge(class_idx, field_idx));
@@ -44,10 +45,15 @@ fn cap_inheritance_tracking() {
     let base_idx = index.fqn_map["Base"];
     let impl_idx = index.fqn_map["Impl"];
 
-    let has_implements = index.topology.edges_connecting(impl_idx, base_idx)
+    let has_implements = index
+        .topology
+        .edges_connecting(impl_idx, base_idx)
         .any(|e| e.weight().edge_type == EdgeType::Implements);
-    
-    assert!(has_implements, "Graph should have Implements edge from Impl to Base");
+
+    assert!(
+        has_implements,
+        "Graph should have Implements edge from Impl to Base"
+    );
 }
 
 /// Capability 3: Cross-File Type Resolution (TypedAs)
@@ -55,18 +61,29 @@ fn cap_inheritance_tracking() {
 #[test]
 fn cap_cross_file_typing() {
     let files = vec![
-        ("com/lib/TypeA.java", "package com.lib; public class TypeA {}"),
-        ("com/app/Main.java", "package com.app; import com.lib.TypeA; public class Main { TypeA field; }"),
+        (
+            "com/lib/TypeA.java",
+            "package com.lib; public class TypeA {}",
+        ),
+        (
+            "com/app/Main.java",
+            "package com.app; import com.lib.TypeA; public class Main { TypeA field; }",
+        ),
     ];
     let (index, _) = setup_java_test_graph(files);
 
     let field_idx = index.fqn_map["com.app.Main.field"];
     let type_a_idx = index.fqn_map["com.lib.TypeA"];
 
-    let has_typed_as = index.topology.edges_connecting(field_idx, type_a_idx)
+    let has_typed_as = index
+        .topology
+        .edges_connecting(field_idx, type_a_idx)
         .any(|e| e.weight().edge_type == EdgeType::TypedAs);
-    
-    assert!(has_typed_as, "Field 'Main.field' should be linked to 'TypeA' via TypedAs edge");
+
+    assert!(
+        has_typed_as,
+        "Field 'Main.field' should be linked to 'TypeA' via TypedAs edge"
+    );
 }
 
 /// Capability 4: Direct Instantiation (Instantiates)
@@ -82,10 +99,15 @@ fn cap_instantiation_tracking() {
     let b_m_idx = index.fqn_map["B.m"];
     let a_idx = index.fqn_map["A"];
 
-    let has_instantiates = index.topology.edges_connecting(b_m_idx, a_idx)
+    let has_instantiates = index
+        .topology
+        .edges_connecting(b_m_idx, a_idx)
         .any(|e| e.weight().edge_type == EdgeType::Instantiates);
-    
-    assert!(has_instantiates, "Method 'B.m' should have Instantiates edge to class 'A'");
+
+    assert!(
+        has_instantiates,
+        "Method 'B.m' should have Instantiates edge to class 'A'"
+    );
 }
 
 /// Capability 5: Method Call Tracking (Calls)
@@ -101,12 +123,17 @@ fn cap_method_call_tracking() {
     let b_m_idx = index.fqn_map["B.m"];
     let a_target_idx = index.fqn_map["A.target"];
 
-    let has_calls = index.topology.edges_connecting(b_m_idx, a_target_idx)
+    let has_calls = index
+        .topology
+        .edges_connecting(b_m_idx, a_target_idx)
         .any(|e| e.weight().edge_type == EdgeType::Calls);
-    
+
     // NOTE: This currently fails in the existing implementation because it requires
     // type inference of variable 'a' during indexing.
-    assert!(has_calls, "Method 'B.m' should have Calls edge to 'A.target'");
+    assert!(
+        has_calls,
+        "Method 'B.m' should have Calls edge to 'A.target'"
+    );
 }
 
 /// Capability 6: Interface Extension (InheritsFrom)
@@ -122,10 +149,15 @@ fn cap_interface_extension() {
     let super_idx = index.fqn_map["Super"];
     let sub_idx = index.fqn_map["Sub"];
 
-    let has_inherits = index.topology.edges_connecting(sub_idx, super_idx)
+    let has_inherits = index
+        .topology
+        .edges_connecting(sub_idx, super_idx)
         .any(|e| e.weight().edge_type == EdgeType::InheritsFrom);
-    
-    assert!(has_inherits, "Interface 'Sub' should have InheritsFrom edge to 'Super'");
+
+    assert!(
+        has_inherits,
+        "Interface 'Sub' should have InheritsFrom edge to 'Super'"
+    );
 }
 
 /// Capability 7: Annotation Tracking (DecoratedBy)
@@ -141,10 +173,15 @@ fn cap_annotation_usage() {
     let app_idx = index.fqn_map["App"];
     let anno_idx = index.fqn_map["MyAnno"];
 
-    let has_decorated = index.topology.edges_connecting(app_idx, anno_idx)
+    let has_decorated = index
+        .topology
+        .edges_connecting(app_idx, anno_idx)
         .any(|e| e.weight().edge_type == EdgeType::DecoratedBy);
-    
-    assert!(has_decorated, "Class 'App' should have DecoratedBy edge to '@MyAnno'");
+
+    assert!(
+        has_decorated,
+        "Class 'App' should have DecoratedBy edge to '@MyAnno'"
+    );
 }
 
 /// Capability 8: Static Field Access
@@ -152,7 +189,10 @@ fn cap_annotation_usage() {
 #[test]
 fn cap_static_field_access() {
     let files = vec![
-        ("Config.java", "public class Config { public static String KEY = \"v\"; }"),
+        (
+            "Config.java",
+            "public class Config { public static String KEY = \"v\"; }",
+        ),
         ("Main.java", "public class Main { String s = Config.KEY; }"),
     ];
     let (index, _) = setup_java_test_graph(files);
@@ -160,9 +200,16 @@ fn cap_static_field_access() {
     let main_s_idx = index.fqn_map["Main.s"];
     let config_key_idx = index.fqn_map["Config.KEY"];
 
-    let has_edge = index.topology.edges_connecting(main_s_idx, config_key_idx).count() > 0;
-    
-    assert!(has_edge, "Field 'Main.s' should have an edge to 'Config.KEY'");
+    let has_edge = index
+        .topology
+        .edges_connecting(main_s_idx, config_key_idx)
+        .count()
+        > 0;
+
+    assert!(
+        has_edge,
+        "Field 'Main.s' should have an edge to 'Config.KEY'"
+    );
 }
 
 /// Capability 9: Generic Type Resolution (TypedAs)
@@ -171,15 +218,23 @@ fn cap_static_field_access() {
 fn cap_generic_type_link() {
     let files = vec![
         ("TypeA.java", "public class TypeA {}"),
-        ("Main.java", "import java.util.List; public class Main { java.util.List<TypeA> list; }"),
+        (
+            "Main.java",
+            "import java.util.List; public class Main { java.util.List<TypeA> list; }",
+        ),
     ];
     let (index, _) = setup_java_test_graph(files);
 
     let list_idx = index.fqn_map["Main.list"];
     let type_a_idx = index.fqn_map["TypeA"];
 
-    let has_link = index.topology.edges_connecting(list_idx, type_a_idx)
+    let has_link = index
+        .topology
+        .edges_connecting(list_idx, type_a_idx)
         .any(|e| e.weight().edge_type == EdgeType::TypedAs);
-    
-    assert!(has_link, "Generic argument 'TypeA' should be linked via TypedAs");
+
+    assert!(
+        has_link,
+        "Generic argument 'TypeA' should be linked via TypedAs"
+    );
 }

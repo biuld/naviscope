@@ -1,8 +1,8 @@
 use super::lang::gradle::GradleElement;
 use super::lang::java::JavaElement;
-use serde::{Deserialize, Serialize};
 use clap::ValueEnum;
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::project::source::Language;
 use std::path::PathBuf;
@@ -141,11 +141,19 @@ impl GraphNode {
                 JavaElement::Interface(_) => NodeKind::Interface,
                 JavaElement::Enum(_) => NodeKind::Enum,
                 JavaElement::Annotation(_) => NodeKind::Annotation,
-                JavaElement::Method(m) => if m.is_constructor { NodeKind::Constructor } else { NodeKind::Method },
+                JavaElement::Method(m) => {
+                    if m.is_constructor {
+                        NodeKind::Constructor
+                    } else {
+                        NodeKind::Method
+                    }
+                }
                 JavaElement::Field(_) => NodeKind::Field,
                 JavaElement::Package(_) => NodeKind::Package,
             },
-            GraphNode::Build(BuildElement::Gradle { element, .. }) => NodeKind::from(element.kind()),
+            GraphNode::Build(BuildElement::Gradle { element, .. }) => {
+                NodeKind::from(element.kind())
+            }
         }
     }
 
@@ -205,7 +213,10 @@ pub struct ResolvedUnit {
 
 impl ResolvedUnit {
     pub fn new() -> Self {
-        Self { ops: Vec::new(), nodes: std::collections::HashMap::new() }
+        Self {
+            ops: Vec::new(),
+            nodes: std::collections::HashMap::new(),
+        }
     }
 
     pub fn add_node(&mut self, id: String, data: GraphNode) {

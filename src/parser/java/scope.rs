@@ -1,19 +1,30 @@
+use super::JavaParser;
 use crate::model::graph::Range;
 use crate::parser::SymbolIntent;
 use crate::parser::utils::range_from_ts;
 use tree_sitter::Node;
-use super::JavaParser;
 
 impl JavaParser {
-    pub fn find_local_declaration(&self, start_node: Node, name: &str, source: &str) -> Option<(Range, Option<String>)> {
+    pub fn find_local_declaration(
+        &self,
+        start_node: Node,
+        name: &str,
+        source: &str,
+    ) -> Option<(Range, Option<String>)> {
         self.find_local_declaration_node(start_node, name, source)
             .map(|(range, type_node)| {
-                let type_name = type_node.and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
+                let type_name = type_node
+                    .and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
                 (range, type_name)
             })
     }
 
-    pub fn find_local_declaration_node<'a>(&self, start_node: Node<'a>, name: &str, source: &str) -> Option<(Range, Option<Node<'a>>)> {
+    pub fn find_local_declaration_node<'a>(
+        &self,
+        start_node: Node<'a>,
+        name: &str,
+        source: &str,
+    ) -> Option<(Range, Option<Node<'a>>)> {
         let mut curr = start_node;
         while let Some(parent) = curr.parent() {
             // Check declarations in this scope before or at the start_node (for parameters)
@@ -73,7 +84,10 @@ impl JavaParser {
                 }
                 SymbolIntent::Type // Likely the receiver/object
             }
-            "class_declaration" | "interface_declaration" | "enum_declaration" | "annotation_type_declaration" => SymbolIntent::Type,
+            "class_declaration"
+            | "interface_declaration"
+            | "enum_declaration"
+            | "annotation_type_declaration" => SymbolIntent::Type,
             "method_declaration" | "constructor_declaration" => {
                 if let Some(name_node) = parent.child_by_field_name("name") {
                     if name_node.id() == node.id() {
@@ -81,7 +95,7 @@ impl JavaParser {
                     }
                 }
                 SymbolIntent::Type
-            },
+            }
             _ => {
                 if node.kind() == "type_identifier" || node.kind() == "scoped_type_identifier" {
                     SymbolIntent::Type
@@ -92,7 +106,12 @@ impl JavaParser {
         }
     }
 
-    pub fn is_decl_of_node<'a>(&self, node: &Node<'a>, name: &str, source: &str) -> Option<(Range, Option<Node<'a>>)> {
+    pub fn is_decl_of_node<'a>(
+        &self,
+        node: &Node<'a>,
+        name: &str,
+        source: &str,
+    ) -> Option<(Range, Option<Node<'a>>)> {
         match node.kind() {
             "variable_declarator" | "formal_parameter" | "catch_formal_parameter" => {
                 if let Some(name_node) = node.child_by_field_name("name") {
@@ -100,8 +119,7 @@ impl JavaParser {
                         let range = range_from_ts(name_node.range());
                         let type_node = if node.kind() == "variable_declarator" {
                             // Type is in the parent local_variable_declaration
-                            node.parent()
-                                .and_then(|p| p.child_by_field_name("type"))
+                            node.parent().and_then(|p| p.child_by_field_name("type"))
                         } else {
                             // Type is a sibling for parameters
                             node.child_by_field_name("type")
@@ -110,7 +128,11 @@ impl JavaParser {
                     }
                 }
             }
-            "local_variable_declaration" | "formal_parameters" | "inferred_parameters" | "enhanced_for_statement" | "lambda_expression" => {
+            "local_variable_declaration"
+            | "formal_parameters"
+            | "inferred_parameters"
+            | "enhanced_for_statement"
+            | "lambda_expression" => {
                 if node.kind() == "lambda_expression" {
                     if let Some(params) = node.child_by_field_name("parameters") {
                         if params.kind() == "identifier" {
@@ -125,7 +147,9 @@ impl JavaParser {
                 }
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    if let Some(res) = self.is_decl_of_node(&child, name, source) { return Some(res); }
+                    if let Some(res) = self.is_decl_of_node(&child, name, source) {
+                        return Some(res);
+                    }
                 }
             }
             _ => {}
@@ -133,10 +157,16 @@ impl JavaParser {
         None
     }
 
-    pub fn is_decl_of(&self, node: &Node, name: &str, source: &str) -> Option<(Range, Option<String>)> {
+    pub fn is_decl_of(
+        &self,
+        node: &Node,
+        name: &str,
+        source: &str,
+    ) -> Option<(Range, Option<String>)> {
         self.is_decl_of_node(node, name, source)
             .map(|(range, type_node)| {
-                let type_name = type_node.and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
+                let type_name = type_node
+                    .and_then(|t| t.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
                 (range, type_name)
             })
     }

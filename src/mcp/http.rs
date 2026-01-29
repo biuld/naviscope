@@ -1,16 +1,21 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use axum::{routing::get, Router, extract::State, extract::ws::{WebSocket, WebSocketUpgrade, Message}};
-use rmcp::ServiceExt;
 use crate::index::Naviscope;
 use crate::mcp::McpServer;
+use axum::{
+    Router,
+    extract::State,
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    routing::get,
+};
+use futures::{sink::SinkExt, stream::StreamExt};
+use rmcp::ServiceExt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::MessageType;
-use tokio_util::sync::CancellationToken;
 use tracing::info;
-use futures::{sink::SinkExt, stream::StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub fn spawn_http_server(
     client: Client,
@@ -53,7 +58,9 @@ pub fn spawn_http_server(
                 Err(e) => Some(e.to_string()),
             };
             if let Some(e) = mcp_err {
-                let _ = client.log_message(MessageType::ERROR, format!("MCP HTTP Server failed: {}", e)).await;
+                let _ = client
+                    .log_message(MessageType::ERROR, format!("MCP HTTP Server failed: {}", e))
+                    .await;
             }
         }
     });
@@ -83,14 +90,14 @@ pub async fn run_http_server(
     cancel_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mcp = McpServer::new(engine);
-    
+
     let app = Router::new()
         .route("/mcp", get(mcp_ws_handler))
         .with_state(mcp);
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     info!("MCP WebSocket server listening on 127.0.0.1:{}", port);
-    
+
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             cancel_token.cancelled().await;
@@ -108,7 +115,7 @@ async fn mcp_ws_handler(
 
 async fn handle_socket(socket: WebSocket, mcp: McpServer) {
     let (mut ws_sink, mut ws_stream) = socket.split();
-    
+
     // Create a duplex pair to bridge WebSocket with McpServer
     let (client_end, server_end) = tokio::io::duplex(4096);
     let (mut client_reader, mut client_writer) = tokio::io::split(client_end);
@@ -139,8 +146,14 @@ async fn handle_socket(socket: WebSocket, mcp: McpServer) {
     let mut mcp_to_ws = tokio::spawn(async move {
         let mut buf = vec![0u8; 4096];
         while let Ok(n) = client_reader.read(&mut buf).await {
-            if n == 0 { break; }
-            if ws_sink.send(Message::Binary(buf[..n].to_vec().into())).await.is_err() {
+            if n == 0 {
+                break;
+            }
+            if ws_sink
+                .send(Message::Binary(buf[..n].to_vec().into()))
+                .await
+                .is_err()
+            {
                 break;
             }
         }

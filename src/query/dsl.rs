@@ -1,6 +1,6 @@
 use crate::model::graph::{EdgeType, NodeKind};
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(tag = "command", rename_all = "snake_case")]
@@ -14,7 +14,7 @@ pub enum GraphQuery {
         #[serde(default)]
         modifiers: Vec<String>,
     },
-    
+
     /// Search for symbols
     Grep {
         pattern: String,
@@ -23,19 +23,17 @@ pub enum GraphQuery {
         #[serde(default = "default_limit")]
         limit: usize,
     },
-    
+
     /// Inspect node details (Source & Metadata)
-    Cat {
-        fqn: String,
-    },
-    
+    Cat { fqn: String },
+
     /// Find dependencies (outgoing) or dependents (incoming)
     Deps {
         fqn: String,
-        /// If true, find incoming dependencies (who depends on me). 
+        /// If true, find incoming dependencies (who depends on me).
         /// If false (default), find outgoing dependencies (who do I depend on).
         #[serde(default)]
-        rev: bool, 
+        rev: bool,
         #[serde(default)]
         edge_types: Vec<EdgeType>,
     },

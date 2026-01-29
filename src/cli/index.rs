@@ -9,7 +9,10 @@ pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>>
 
     if debug {
         let json_path = PathBuf::from("naviscope_debug.json");
-        info!("Debug mode: saving JSON index to: {}...", json_path.display());
+        info!(
+            "Debug mode: saving JSON index to: {}...",
+            json_path.display()
+        );
         engine.save_to_json(json_path)?;
     }
 

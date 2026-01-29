@@ -1,6 +1,6 @@
 use crate::error::{NaviscopeError, Result};
+use crate::model::graph::{NodeKind, Range};
 use tree_sitter::{Language, Query};
-use crate::model::graph::{Range, NodeKind};
 
 /// Converts a tree-sitter range to our internal Range model.
 pub fn range_from_ts(range: tree_sitter::Range) -> Range {
@@ -86,14 +86,21 @@ pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<crate::parser:
         rels: &[(usize, usize)],
     ) -> crate::parser::DocumentSymbol {
         let mut sym = flat[idx].clone();
-        let children: Vec<usize> = rels.iter().filter(|(p, _)| *p == idx).map(|(_, c)| *c).collect();
+        let children: Vec<usize> = rels
+            .iter()
+            .filter(|(p, _)| *p == idx)
+            .map(|(_, c)| *c)
+            .collect();
         for c_idx in children {
             sym.children.push(build_node(c_idx, flat, rels));
         }
         sym
     }
 
-    roots.into_iter().map(|root_idx| build_node(root_idx, &mut flat_symbols, &parent_child_rels)).collect()
+    roots
+        .into_iter()
+        .map(|root_idx| build_node(root_idx, &mut flat_symbols, &parent_child_rels))
+        .collect()
 }
 
 /// Macro to define a struct for capture indices and a `new` method to initialize it from a query.

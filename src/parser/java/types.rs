@@ -1,14 +1,13 @@
+use super::JavaParser;
 use crate::model::signature::TypeRef;
 use tree_sitter::Node;
-use super::JavaParser;
 
 impl JavaParser {
     pub fn parse_type_node(&self, node: Node, source: &str) -> TypeRef {
         match node.kind() {
             "generic_type" => {
-                let base_node = node.child_by_field_name("type")
-                    .or_else(|| node.child(0));
-                
+                let base_node = node.child_by_field_name("type").or_else(|| node.child(0));
+
                 let base = if let Some(b) = base_node {
                     self.parse_type_node(b, source)
                 } else {
@@ -29,16 +28,17 @@ impl JavaParser {
                         }
                     }
                 }
-                
+
                 TypeRef::Generic {
                     base: Box::new(base),
                     args,
                 }
-            },
+            }
             "array_type" => {
-                let element_node = node.child_by_field_name("element")
+                let element_node = node
+                    .child_by_field_name("element")
                     .or_else(|| node.child(0));
-                
+
                 let element = if let Some(e) = element_node {
                     self.parse_type_node(e, source)
                 } else {
@@ -47,7 +47,10 @@ impl JavaParser {
 
                 let dim_node = node.child_by_field_name("dimensions");
                 let count = if let Some(d) = dim_node {
-                     d.utf8_text(source.as_bytes()).unwrap_or("").matches('[').count()
+                    d.utf8_text(source.as_bytes())
+                        .unwrap_or("")
+                        .matches('[')
+                        .count()
                 } else {
                     1
                 };
@@ -56,12 +59,12 @@ impl JavaParser {
                     element: Box::new(element),
                     dimensions: count,
                 }
-            },
+            }
             "wildcard" => {
                 // Check for bounds
                 let mut bound = None;
                 let mut is_upper = true;
-                
+
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     match child.kind() {
@@ -79,9 +82,12 @@ impl JavaParser {
                     bound,
                     is_upper_bound: is_upper,
                 }
-            },
+            }
             _ => {
-                let text = node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
+                let text = node
+                    .utf8_text(source.as_bytes())
+                    .unwrap_or_default()
+                    .to_string();
                 if text.is_empty() {
                     TypeRef::Unknown
                 } else {

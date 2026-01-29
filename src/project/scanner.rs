@@ -3,7 +3,7 @@ use super::source::{BuildTool, Language, SourceFile};
 use crate::model::lang::gradle::{GradleParseResult, GradleSettings};
 use crate::parser::gradle;
 use crate::parser::java::JavaParser;
-use crate::parser::{IndexParser, GlobalParseResult};
+use crate::parser::{GlobalParseResult, IndexParser};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -26,12 +26,17 @@ pub struct ParsedFile {
 
 impl ParsedFile {
     pub fn is_build(&self) -> bool {
-        matches!(self.content, ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..))
+        matches!(
+            self.content,
+            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..)
+        )
     }
 
     pub fn build_tool(&self) -> Option<BuildTool> {
         match self.content {
-            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..) => Some(BuildTool::Gradle),
+            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..) => {
+                Some(BuildTool::Gradle)
+            }
             _ => None,
         }
     }
@@ -39,7 +44,9 @@ impl ParsedFile {
     pub fn language(&self) -> Option<Language> {
         match self.content {
             ParsedContent::Java(..) => Some(Language::Java),
-            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..) => Some(Language::BuildFile),
+            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..) => {
+                Some(Language::BuildFile)
+            }
         }
     }
 
@@ -90,7 +97,8 @@ impl Scanner {
                 let extension = path.extension()?.to_str()?;
 
                 if file_name == "build.gradle" || file_name == "build.gradle.kts" {
-                    let deps = gradle::parse_dependencies(&content_str).unwrap_or_else(|_| Vec::new());
+                    let deps =
+                        gradle::parse_dependencies(&content_str).unwrap_or_else(|_| Vec::new());
                     Some(ParsedFile {
                         file: source_file,
                         content: ParsedContent::Gradle(GradleParseResult { dependencies: deps }),

@@ -1,9 +1,9 @@
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
 use crate::lsp::LspServer;
-use crate::model::graph::{GraphNode, CodeElement, BuildElement};
+use crate::model::graph::{BuildElement, CodeElement, GraphNode};
 use crate::model::signature::TypeRef;
 use crate::parser::SymbolResolution;
+use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::*;
 
 fn fmt_type(t: &TypeRef) -> String {
     match t {
@@ -12,10 +12,13 @@ fn fmt_type(t: &TypeRef) -> String {
         TypeRef::Generic { base, args } => {
             let args_str = args.iter().map(fmt_type).collect::<Vec<_>>().join(", ");
             format!("{}<{}>", fmt_type(base), args_str)
-        },
-        TypeRef::Array { element, dimensions } => {
+        }
+        TypeRef::Array {
+            element,
+            dimensions,
+        } => {
             format!("{}{}", fmt_type(element), "[]".repeat(*dimensions))
-        },
+        }
         _ => "?".to_string(),
     }
 }
@@ -25,7 +28,9 @@ fn get_node_signature(node: &GraphNode) -> Option<String> {
         GraphNode::Code(code_el) => match code_el {
             CodeElement::Java { element, .. } => match element {
                 crate::model::lang::java::JavaElement::Method(m) => {
-                    let params_str = m.parameters.iter()
+                    let params_str = m
+                        .parameters
+                        .iter()
                         .map(|p| format!("{}", fmt_type(&p.type_ref)))
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -54,7 +59,7 @@ fn get_node_signature(node: &GraphNode) -> Option<String> {
 pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hover>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
-    
+
     let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
@@ -73,8 +78,18 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
             Some(r) => r,
             None => return Ok(None),
         };
-        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(
+            &doc.content,
+            position.line as usize,
+            position.character as usize,
+        );
+        match resolver.resolve_at(
+            &doc.tree,
+            &doc.content,
+            position.line as usize,
+            byte_col,
+            index,
+        ) {
             Some(r) => r,
             None => return Ok(None),
         }
@@ -101,15 +116,19 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         if !hover_text.is_empty() {
             hover_text.push_str("\n\n---\n\n");
         }
-        
+
         // Method/Field name as title
-        hover_text.push_str(&format!("**{}** *{}*\n\n", node.name(), node.kind().to_string()));
-        
+        hover_text.push_str(&format!(
+            "**{}** *{}*\n\n",
+            node.name(),
+            node.kind().to_string()
+        ));
+
         // Signature in code block
         if let Some(sig) = get_node_signature(node) {
             hover_text.push_str(&format!("```java\n{}\n```\n", sig));
         }
-        
+
         // Metadata: FQN only
         hover_text.push_str(&format!("\n*`{}`*", node.fqn()));
     }

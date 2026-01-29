@@ -21,7 +21,7 @@ impl Prompt for DefaultPrompt {
                     node.clone()
                 };
                 Cow::Owned(format!("naviscope {} > ", display_node))
-            },
+            }
             None => Cow::Borrowed("naviscope / > "),
         }
     }
@@ -38,7 +38,10 @@ impl Prompt for DefaultPrompt {
         Cow::Borrowed(".. ")
     }
 
-    fn render_prompt_history_search_indicator(&self, _history_search: PromptHistorySearch) -> Cow<'_, str> {
+    fn render_prompt_history_search_indicator(
+        &self,
+        _history_search: PromptHistorySearch,
+    ) -> Cow<'_, str> {
         Cow::Borrowed("(search) ")
     }
 }

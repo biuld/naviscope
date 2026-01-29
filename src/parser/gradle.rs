@@ -53,8 +53,16 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
         }
 
         // 2. Project dependencies
-        if let Some(_cap) = mat.captures.iter().find(|c| c.index == indices.project_item) {
-            if let Some(path_cap) = mat.captures.iter().find(|c| c.index == indices.project_path) {
+        if let Some(_cap) = mat
+            .captures
+            .iter()
+            .find(|c| c.index == indices.project_item)
+        {
+            if let Some(path_cap) = mat
+                .captures
+                .iter()
+                .find(|c| c.index == indices.project_path)
+            {
                 let range = path_cap.node.byte_range();
                 if range.end - range.start >= 2 {
                     let project_path = &source_code[range.start + 1..range.end - 1];
@@ -80,9 +88,9 @@ pub fn parse_settings(source_code: &str) -> Result<GradleSettings> {
         .set_language(&language)
         .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
 
-    let tree = parser
-        .parse(source_code, None)
-        .ok_or_else(|| NaviscopeError::Parsing("Failed to parse gradle settings file".to_string()))?;
+    let tree = parser.parse(source_code, None).ok_or_else(|| {
+        NaviscopeError::Parsing("Failed to parse gradle settings file".to_string())
+    })?;
 
     let query = crate::parser::utils::load_query(
         &language,
@@ -100,9 +108,17 @@ pub fn parse_settings(source_code: &str) -> Result<GradleSettings> {
     while let Some(mat) = matches.next() {
         // Root project name
         let mut found_root = false;
-        if let Some(_) = mat.captures.iter().find(|c| c.index == indices.root_assignment) {
+        if let Some(_) = mat
+            .captures
+            .iter()
+            .find(|c| c.index == indices.root_assignment)
+        {
             found_root = true;
-        } else if let Some(_) = mat.captures.iter().find(|c| c.index == indices.root_assignment_alt) {
+        } else if let Some(_) = mat
+            .captures
+            .iter()
+            .find(|c| c.index == indices.root_assignment_alt)
+        {
             found_root = true;
         }
 
@@ -110,14 +126,23 @@ pub fn parse_settings(source_code: &str) -> Result<GradleSettings> {
             if let Some(name_cap) = mat.captures.iter().find(|c| c.index == indices.root_name) {
                 let range = name_cap.node.byte_range();
                 if range.end - range.start >= 2 {
-                    root_project_name = Some(source_code[range.start + 1..range.end - 1].to_string());
+                    root_project_name =
+                        Some(source_code[range.start + 1..range.end - 1].to_string());
                 }
             }
         }
 
         // Included projects
-        if let Some(_) = mat.captures.iter().find(|c| c.index == indices.include_call) {
-            if let Some(path_cap) = mat.captures.iter().find(|c| c.index == indices.included_path) {
+        if let Some(_) = mat
+            .captures
+            .iter()
+            .find(|c| c.index == indices.include_call)
+        {
+            if let Some(path_cap) = mat
+                .captures
+                .iter()
+                .find(|c| c.index == indices.included_path)
+            {
                 let range = path_cap.node.byte_range();
                 if range.end - range.start >= 2 {
                     included_projects.push(source_code[range.start + 1..range.end - 1].to_string());
@@ -166,7 +191,10 @@ mod tests {
         "#;
 
         let settings = parse_settings(settings_file).unwrap();
-        assert_eq!(settings.root_project_name, Some("spring-boot-build".to_string()));
+        assert_eq!(
+            settings.root_project_name,
+            Some("spring-boot-build".to_string())
+        );
         assert_eq!(settings.included_projects.len(), 2);
         assert_eq!(settings.included_projects[0], "core:spring-boot");
     }

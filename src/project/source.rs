@@ -33,11 +33,7 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
-    pub fn new(
-        path: PathBuf,
-        content_hash: u64,
-        last_modified: u64,
-    ) -> Self {
+    pub fn new(path: PathBuf, content_hash: u64, last_modified: u64) -> Self {
         Self {
             path,
             content_hash,

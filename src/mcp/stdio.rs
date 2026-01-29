@@ -1,9 +1,9 @@
+use crate::index::Naviscope;
+use crate::mcp::McpServer;
+use rmcp::{ServiceExt, transport::stdio};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use rmcp::{transport::stdio, ServiceExt};
-use crate::index::Naviscope;
-use crate::mcp::McpServer;
 
 pub async fn run_stdio_server(
     engine: Arc<RwLock<Option<Naviscope>>>,

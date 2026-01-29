@@ -1,9 +1,9 @@
 mod common;
 
-use naviscope::resolver::lang::java::JavaResolver;
-use naviscope::resolver::SemanticResolver;
-use naviscope::parser::SymbolResolution;
 use common::setup_java_test_graph;
+use naviscope::parser::SymbolResolution;
+use naviscope::resolver::SemanticResolver;
+use naviscope::resolver::lang::java::JavaResolver;
 
 fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
     let pre_content = &content[..offset];
@@ -15,21 +15,24 @@ fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
 
 #[test]
 fn test_goto_definition_local() {
-    let files = vec![
-        ("Test.java", "public class Test { void main() { int x = 1; int y = x + 1; } }"),
-    ];
+    let files = vec![(
+        "Test.java",
+        "public class Test { void main() { int x = 1; int y = x + 1; } }",
+    )];
     let (index, trees) = setup_java_test_graph(files);
     let resolver = JavaResolver::new();
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
-    
+
     // Position of 'x' in 'x + 1'
     let usage_pos = content.rfind("x + 1").unwrap();
     let (line, col) = offset_to_point(content, usage_pos);
 
-    let res = resolver.resolve_at(tree, content, line, col, &index).expect("Should resolve");
-    
+    let res = resolver
+        .resolve_at(tree, content, line, col, &index)
+        .expect("Should resolve");
+
     if let SymbolResolution::Local(range, _) = res {
         // 'int x = 1' starts at index 35
         let def_pos = content.find("int x").unwrap() + 4;
@@ -42,8 +45,14 @@ fn test_goto_definition_local() {
 #[test]
 fn test_goto_definition_cross_file() {
     let files = vec![
-        ("A.java", "package com; public class A { public void hello() {} }"),
-        ("B.java", "package com; public class B { void test() { A a = new A(); a.hello(); } }"),
+        (
+            "A.java",
+            "package com; public class A { public void hello() {} }",
+        ),
+        (
+            "B.java",
+            "package com; public class B { void test() { A a = new A(); a.hello(); } }",
+        ),
     ];
     let (index, trees) = setup_java_test_graph(files);
     let resolver = JavaResolver::new();
@@ -54,7 +63,9 @@ fn test_goto_definition_cross_file() {
     // 1. Resolve Class A
     let a_usage = b_content.find("A a").unwrap();
     let (line, col) = offset_to_point(b_content, a_usage);
-    let res = resolver.resolve_at(b_tree, b_content, line, col, &index).expect("Should resolve A");
+    let res = resolver
+        .resolve_at(b_tree, b_content, line, col, &index)
+        .expect("Should resolve A");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     assert_eq!(index.topology[matches[0]].fqn(), "com.A");
@@ -62,7 +73,9 @@ fn test_goto_definition_cross_file() {
     // 2. Resolve Method hello
     let hello_usage = b_content.find("hello()").unwrap();
     let (line, col) = offset_to_point(b_content, hello_usage);
-    let res = resolver.resolve_at(b_tree, b_content, line, col, &index).expect("Should resolve hello");
+    let res = resolver
+        .resolve_at(b_tree, b_content, line, col, &index)
+        .expect("Should resolve hello");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     assert_eq!(index.topology[matches[0]].fqn(), "com.A.hello");
@@ -70,9 +83,10 @@ fn test_goto_definition_cross_file() {
 
 #[test]
 fn test_goto_definition_shadowing() {
-    let files = vec![
-        ("Test.java", "public class Test { int x = 0; void m() { int x = 1; x = 2; } }"),
-    ];
+    let files = vec![(
+        "Test.java",
+        "public class Test { int x = 0; void m() { int x = 1; x = 2; } }",
+    )];
     let (index, trees) = setup_java_test_graph(files);
     let resolver = JavaResolver::new();
 
@@ -83,8 +97,10 @@ fn test_goto_definition_shadowing() {
     let usage_pos = content.find("x = 2").unwrap();
     let (line, col) = offset_to_point(content, usage_pos);
 
-    let res = resolver.resolve_at(tree, content, line, col, &index).expect("Should resolve");
-    
+    let res = resolver
+        .resolve_at(tree, content, line, col, &index)
+        .expect("Should resolve");
+
     if let SymbolResolution::Local(range, _) = res {
         let local_def = content.find("int x = 1").unwrap() + 4;
         assert_eq!(range.start_col, local_def);
@@ -109,7 +125,9 @@ fn test_goto_definition_constructor() {
     let usage_pos = b_content.find("new A()").unwrap() + 4;
     let (line, col) = offset_to_point(b_content, usage_pos);
 
-    let res = resolver.resolve_at(b_tree, b_content, line, col, &index).expect("Should resolve constructor");
+    let res = resolver
+        .resolve_at(b_tree, b_content, line, col, &index)
+        .expect("Should resolve constructor");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     // In our model, constructor might be the class or the method depending on implementation
@@ -132,7 +150,9 @@ fn test_goto_definition_static() {
     let usage_pos = b_content.find("VAL").unwrap();
     let (line, col) = offset_to_point(b_content, usage_pos);
 
-    let res = resolver.resolve_at(b_tree, b_content, line, col, &index).expect("Should resolve static field");
+    let res = resolver
+        .resolve_at(b_tree, b_content, line, col, &index)
+        .expect("Should resolve static field");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     assert_eq!(index.topology[matches[0]].fqn(), "A.VAL");

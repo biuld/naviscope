@@ -30,8 +30,18 @@ pub async fn definition(
             Some(r) => r,
             None => return Ok(None),
         };
-        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(
+            &doc.content,
+            position.line as usize,
+            position.character as usize,
+        );
+        match resolver.resolve_at(
+            &doc.tree,
+            &doc.content,
+            position.line as usize,
+            byte_col,
+            index,
+        ) {
             Some(r) => r,
             None => return Ok(None),
         }
@@ -111,8 +121,18 @@ pub async fn type_definition(
             Some(r) => r,
             None => return Ok(None),
         };
-        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(
+            &doc.content,
+            position.line as usize,
+            position.character as usize,
+        );
+        match resolver.resolve_at(
+            &doc.tree,
+            &doc.content,
+            position.line as usize,
+            byte_col,
+            index,
+        ) {
             Some(r) => r,
             None => return Ok(None),
         }
@@ -177,8 +197,18 @@ pub async fn references(
             Some(r) => r,
             None => return Ok(None),
         };
-        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(
+            &doc.content,
+            position.line as usize,
+            position.character as usize,
+        );
+        match resolver.resolve_at(
+            &doc.tree,
+            &doc.content,
+            position.line as usize,
+            byte_col,
+            index,
+        ) {
             Some(r) => r,
             None => return Ok(None),
         }
@@ -198,8 +228,7 @@ pub async fn references(
             let query_str = format!("((identifier) @ident (#eq? @ident \"{}\"))", word);
             if let Ok(query) = tree_sitter::Query::new(&doc.tree.language(), &query_str) {
                 let mut cursor = QueryCursor::new();
-                let matches =
-                    cursor.matches(&query, doc.tree.root_node(), doc.content.as_bytes());
+                let matches = cursor.matches(&query, doc.tree.root_node(), doc.content.as_bytes());
                 use tree_sitter::StreamingIterator;
                 let mut matches = matches;
                 while let Some(mat) = matches.next() {
@@ -235,19 +264,18 @@ pub async fn references(
                     .detach();
                 while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
                     let edge = &index.topology[edge_idx];
-                    
+
                     // Filter edges for references
                     match edge.edge_type {
-                        crate::model::graph::EdgeType::Calls |
-                        crate::model::graph::EdgeType::Instantiates |
-                        crate::model::graph::EdgeType::TypedAs |
-                        crate::model::graph::EdgeType::DecoratedBy => {},
+                        crate::model::graph::EdgeType::Calls
+                        | crate::model::graph::EdgeType::Instantiates
+                        | crate::model::graph::EdgeType::TypedAs
+                        | crate::model::graph::EdgeType::DecoratedBy => {}
                         _ => continue,
                     }
 
                     let source_node = &index.topology[neighbor_idx];
-                    if let (Some(source_path), Some(range)) =
-                        (source_node.file_path(), &edge.range)
+                    if let (Some(source_path), Some(range)) = (source_node.file_path(), &edge.range)
                     {
                         all_locations.push(Location {
                             uri: Url::from_file_path(source_path).unwrap(),
@@ -290,15 +318,25 @@ pub async fn implementation(
         None => return Ok(None),
     };
     let index = engine.graph();
-    
+
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
         let resolver = match server.resolver.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
-        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(
+            &doc.content,
+            position.line as usize,
+            position.character as usize,
+        );
+        match resolver.resolve_at(
+            &doc.tree,
+            &doc.content,
+            position.line as usize,
+            byte_col,
+            index,
+        ) {
             Some(r) => r,
             None => return Ok(None),
         }

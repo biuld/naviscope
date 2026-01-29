@@ -1,7 +1,7 @@
-use std::sync::{Arc, RwLock};
-use naviscope::index::{Naviscope, CodeGraph};
-use naviscope::query::{QueryEngine, GraphQuery};
+use naviscope::index::{CodeGraph, Naviscope};
 use naviscope::model::graph::GraphNode;
+use naviscope::query::{GraphQuery, QueryEngine};
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
 pub struct ShellContext {
@@ -16,7 +16,10 @@ pub enum ResolveResult {
 }
 
 impl ShellContext {
-    pub fn new(naviscope: Arc<RwLock<Naviscope>>, current_node: Arc<RwLock<Option<String>>>) -> Self {
+    pub fn new(
+        naviscope: Arc<RwLock<Naviscope>>,
+        current_node: Arc<RwLock<Option<String>>>,
+    ) -> Self {
         Self {
             naviscope,
             current_node,
@@ -37,7 +40,7 @@ impl ShellContext {
         if let Some(result) = Self::resolve_special_path(target) {
             return result;
         }
-        
+
         let curr = self.current_fqn();
         let engine_guard = self.naviscope.read().unwrap();
         let graph = engine_guard.graph();
@@ -66,7 +69,11 @@ impl ShellContext {
     }
 
     /// Handles parent navigation ("..").
-    fn resolve_parent(target: &str, current_fqn: &Option<String>, graph: &CodeGraph) -> Option<ResolveResult> {
+    fn resolve_parent(
+        target: &str,
+        current_fqn: &Option<String>,
+        graph: &CodeGraph,
+    ) -> Option<ResolveResult> {
         if target != ".." {
             return None;
         }
@@ -74,10 +81,11 @@ impl ShellContext {
         if let Some(c) = current_fqn {
             // Graph-based parent lookup
             if let Some(&idx) = graph.fqn_map.get(c) {
-                let mut incoming = graph.topology
+                let mut incoming = graph
+                    .topology
                     .neighbors_directed(idx, petgraph::Direction::Incoming)
                     .detach();
-                
+
                 while let Some((edge_idx, neighbor_idx)) = incoming.next(&graph.topology) {
                     let edge = &graph.topology[edge_idx];
                     if edge.edge_type == naviscope::model::graph::EdgeType::Contains {
@@ -87,14 +95,14 @@ impl ShellContext {
                     }
                 }
             }
-            
+
             // Fallback: String manipulation
             if let Some(last_dot) = c.rfind('.') {
                 return Some(ResolveResult::Found(c[0..last_dot].to_string()));
             } else if c.contains("::") {
                 let parts: Vec<&str> = c.split("::").collect();
                 if parts.len() > 1 {
-                    let parent = parts[..parts.len()-1].join("::");
+                    let parent = parts[..parts.len() - 1].join("::");
                     if parent == "module" {
                         return Some(ResolveResult::Found("".to_string())); // Root
                     }
@@ -117,7 +125,11 @@ impl ShellContext {
     }
 
     /// Tries child lookup with exact and fuzzy name matching.
-    fn resolve_child_lookup(target: &str, current_fqn: &Option<String>, graph: &CodeGraph) -> ResolveResult {
+    fn resolve_child_lookup(
+        target: &str,
+        current_fqn: &Option<String>,
+        graph: &CodeGraph,
+    ) -> ResolveResult {
         let query_engine = QueryEngine::new(graph);
         let children_query = GraphQuery::Ls {
             fqn: current_fqn.clone(),
@@ -152,7 +164,8 @@ impl ShellContext {
 
     /// Finds nodes with exact name match.
     fn find_exact_name_match(target: &str, nodes: &[GraphNode]) -> Vec<String> {
-        nodes.iter()
+        nodes
+            .iter()
             .filter(|n| {
                 let name = n.name();
                 // Handle display names with trailing slash
@@ -165,7 +178,8 @@ impl ShellContext {
 
     /// Finds nodes with fuzzy name match (e.g. method name without signature).
     fn find_fuzzy_name_match(target: &str, nodes: &[GraphNode]) -> Vec<String> {
-        nodes.iter()
+        nodes
+            .iter()
             .filter(|n| {
                 let name = n.name();
                 let clean_name = name.trim_end_matches('/');

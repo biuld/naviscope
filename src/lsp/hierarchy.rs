@@ -1,13 +1,15 @@
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
 use crate::lsp::LspServer;
 use crate::model::graph::{EdgeType, NodeKind};
+use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::*;
 
-
-pub async fn prepare_call_hierarchy(server: &LspServer, params: CallHierarchyPrepareParams) -> Result<Option<Vec<CallHierarchyItem>>> {
+pub async fn prepare_call_hierarchy(
+    server: &LspServer,
+    params: CallHierarchyPrepareParams,
+) -> Result<Option<Vec<CallHierarchyItem>>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
-    
+
     let doc = match server.documents.get(&uri) {
         Some(d) => d.clone(),
         None => return Ok(None),
@@ -26,8 +28,18 @@ pub async fn prepare_call_hierarchy(server: &LspServer, params: CallHierarchyPre
             Some(r) => r,
             None => return Ok(None),
         };
-        let byte_col = crate::lsp::util::utf16_col_to_byte_col(&doc.content, position.line as usize, position.character as usize);
-        match resolver.resolve_at(&doc.tree, &doc.content, position.line as usize, byte_col, index) {
+        let byte_col = crate::lsp::util::utf16_col_to_byte_col(
+            &doc.content,
+            position.line as usize,
+            position.character as usize,
+        );
+        match resolver.resolve_at(
+            &doc.tree,
+            &doc.content,
+            position.line as usize,
+            byte_col,
+            index,
+        ) {
             Some(r) => r,
             None => return Ok(None),
         }
@@ -72,9 +84,15 @@ pub async fn prepare_call_hierarchy(server: &LspServer, params: CallHierarchyPre
     }
 }
 
-pub async fn incoming_calls(server: &LspServer, params: CallHierarchyIncomingCallsParams) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
-    let fqn: String = serde_json::from_value(params.item.data.unwrap_or_default()).unwrap_or_default();
-    if fqn.is_empty() { return Ok(None); }
+pub async fn incoming_calls(
+    server: &LspServer,
+    params: CallHierarchyIncomingCallsParams,
+) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+    let fqn: String =
+        serde_json::from_value(params.item.data.unwrap_or_default()).unwrap_or_default();
+    if fqn.is_empty() {
+        return Ok(None);
+    }
 
     let engine_lock = server.engine.read().await;
     let engine = match &*engine_lock {
@@ -89,13 +107,17 @@ pub async fn incoming_calls(server: &LspServer, params: CallHierarchyIncomingCal
     };
 
     let mut calls = Vec::new();
-    let mut incoming = index.topology.neighbors_directed(node_idx, petgraph::Direction::Incoming).detach();
-    
+    let mut incoming = index
+        .topology
+        .neighbors_directed(node_idx, petgraph::Direction::Incoming)
+        .detach();
+
     while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
         let edge = &index.topology[edge_idx];
         if edge.edge_type == EdgeType::Calls {
             let source_node = &index.topology[neighbor_idx];
-            if let (Some(source_path), Some(range)) = (source_node.file_path(), source_node.range()) {
+            if let (Some(source_path), Some(range)) = (source_node.file_path(), source_node.range())
+            {
                 let lsp_range = Range {
                     start: Position::new(range.start_line as u32, range.start_col as u32),
                     end: Position::new(range.end_line as u32, range.end_col as u32),
@@ -132,9 +154,15 @@ pub async fn incoming_calls(server: &LspServer, params: CallHierarchyIncomingCal
     Ok(Some(calls))
 }
 
-pub async fn outgoing_calls(server: &LspServer, params: CallHierarchyOutgoingCallsParams) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
-    let fqn: String = serde_json::from_value(params.item.data.unwrap_or_default()).unwrap_or_default();
-    if fqn.is_empty() { return Ok(None); }
+pub async fn outgoing_calls(
+    server: &LspServer,
+    params: CallHierarchyOutgoingCallsParams,
+) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+    let fqn: String =
+        serde_json::from_value(params.item.data.unwrap_or_default()).unwrap_or_default();
+    if fqn.is_empty() {
+        return Ok(None);
+    }
 
     let engine_lock = server.engine.read().await;
     let engine = match &*engine_lock {
@@ -149,13 +177,17 @@ pub async fn outgoing_calls(server: &LspServer, params: CallHierarchyOutgoingCal
     };
 
     let mut calls = Vec::new();
-    let mut outgoing = index.topology.neighbors_directed(node_idx, petgraph::Direction::Outgoing).detach();
-    
+    let mut outgoing = index
+        .topology
+        .neighbors_directed(node_idx, petgraph::Direction::Outgoing)
+        .detach();
+
     while let Some((edge_idx, neighbor_idx)) = outgoing.next(&index.topology) {
         let edge = &index.topology[edge_idx];
         if edge.edge_type == EdgeType::Calls {
             let target_node = &index.topology[neighbor_idx];
-            if let (Some(target_path), Some(range)) = (target_node.file_path(), target_node.range()) {
+            if let (Some(target_path), Some(range)) = (target_node.file_path(), target_node.range())
+            {
                 let lsp_range = Range {
                     start: Position::new(range.start_line as u32, range.start_col as u32),
                     end: Position::new(range.end_line as u32, range.end_col as u32),

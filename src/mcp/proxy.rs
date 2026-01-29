@@ -1,8 +1,8 @@
+use crate::mcp::{SessionInfo, get_session_path};
+use futures::{SinkExt, StreamExt};
 use std::path::Path;
-use futures::{StreamExt, SinkExt};
-use crate::mcp::{get_session_path, SessionInfo};
-use tracing::{warn, info};
-use tokio::time::{sleep, Duration, timeout};
+use tokio::time::{Duration, sleep, timeout};
+use tracing::{info, warn};
 
 pub async fn run_mcp_proxy(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Find session file
@@ -11,7 +11,7 @@ pub async fn run_mcp_proxy(path: &Path) -> Result<(), Box<dyn std::error::Error>
     // Wait for LSP to start (if session file doesn't exist yet)
     if !session_path.exists() {
         info!("LSP session not found, waiting for LSP server to start...");
-        
+
         // Wait up to 60 seconds for LSP to start
         let wait_result = timeout(Duration::from_secs(60), async {
             loop {
@@ -20,7 +20,8 @@ pub async fn run_mcp_proxy(path: &Path) -> Result<(), Box<dyn std::error::Error>
                 }
                 sleep(Duration::from_millis(500)).await;
             }
-        }).await;
+        })
+        .await;
 
         if wait_result.is_err() {
             return Err(format!(
@@ -28,21 +29,29 @@ pub async fn run_mcp_proxy(path: &Path) -> Result<(), Box<dyn std::error::Error>
                 path.display()
             ).into());
         }
-        
+
         info!("LSP session file detected, connecting...");
     }
 
     // 2. Read session and check PID
-    let session: SessionInfo = match std::fs::read_to_string(&session_path).ok().and_then(|s| serde_json::from_str(&s).ok()) {
+    let session: SessionInfo = match std::fs::read_to_string(&session_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+    {
         Some(s) => s,
         None => {
-            return Err(format!("Failed to parse session file at {}", session_path.display()).into());
+            return Err(
+                format!("Failed to parse session file at {}", session_path.display()).into(),
+            );
         }
     };
 
     // Check if PID is alive
     if !is_pid_alive(session.pid) {
-        warn!("LSP process (PID: {}) is not alive, removing stale session file", session.pid);
+        warn!(
+            "LSP process (PID: {}) is not alive, removing stale session file",
+            session.pid
+        );
         let _ = std::fs::remove_file(session_path);
         return Err(format!("LSP process (PID: {}) is not running", session.pid).into());
     }
@@ -69,17 +78,17 @@ fn is_pid_alive(pid: u32) -> bool {
     #[cfg(not(unix))]
     {
         // Simple fallback for non-unix, might need better implementation
-        true 
+        true
     }
 }
 
 async fn start_ws_proxy(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
     use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-    
+
     let url = format!("ws://127.0.0.1:{}/mcp", port);
     let (ws_stream, _) = connect_async(&url).await?;
-    
+
     let (mut ws_sink, mut ws_stream) = ws_stream.split();
     let mut stdin = stdin();
     let mut stdout = stdout();
@@ -88,7 +97,9 @@ async fn start_ws_proxy(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let mut stdin_to_ws = tokio::spawn(async move {
         let mut buf = vec![0u8; 4096];
         while let Ok(n) = stdin.read(&mut buf).await {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             let msg = Message::Binary(buf[..n].to_vec().into());
             if ws_sink.send(msg).await.is_err() {
                 break;

@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use rayon::prelude::*;
 use crate::error::Result;
 use crate::model::graph::{GraphOp, ResolvedUnit};
 use crate::project::scanner::ParsedFile;
 use crate::project::source::{BuildTool, Language};
-use crate::resolver::{SemanticResolver, BuildResolver, LangResolver, ProjectContext};
 use crate::resolver::lang::gradle::GradleResolver;
 use crate::resolver::lang::java::JavaResolver;
+use crate::resolver::{BuildResolver, LangResolver, ProjectContext, SemanticResolver};
+use rayon::prelude::*;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Main resolver that dispatches to specific strategies based on file type for indexing
 pub struct IndexResolver {
@@ -73,7 +73,7 @@ impl IndexResolver {
 
         // Phase 1: Resolve Build Tools (Structure)
         let mut project_context = ProjectContext::new();
-        
+
         // Group build files by tool
         let mut builds_by_tool: HashMap<BuildTool, Vec<&ParsedFile>> = HashMap::new();
         for f in &build_files {
@@ -87,7 +87,9 @@ impl IndexResolver {
                 let (unit, context) = strategy.resolve(&tool_files)?;
                 all_ops.extend(unit.ops);
                 // Merge context
-                project_context.path_to_module.extend(context.path_to_module);
+                project_context
+                    .path_to_module
+                    .extend(context.path_to_module);
             }
         }
 

@@ -1,9 +1,9 @@
+use super::view::{ShellNodeView, ShellNodeViewShort, get_kind_weight};
 use clap::Parser;
 use naviscope::model::graph::{EdgeType, NodeKind};
 use naviscope::query::{GraphQuery, QueryResult};
-use super::view::{ShellNodeView, ShellNodeViewShort, get_kind_weight};
-use tabled::{Table, settings::Style};
 use shlex;
+use tabled::{Table, settings::Style};
 
 /// Helper struct for Clap parsing within the shell
 #[derive(Parser)]
@@ -63,10 +63,12 @@ pub enum ShellCommand {
 
 use clap::error::ErrorKind;
 
-pub fn parse_shell_command(input: &str) -> Result<Option<ShellCommand>, Box<dyn std::error::Error>> {
+pub fn parse_shell_command(
+    input: &str,
+) -> Result<Option<ShellCommand>, Box<dyn std::error::Error>> {
     // Use shlex to split arguments while respecting quotes
     let args = shlex::split(input).ok_or("Invalid quoting")?;
-    
+
     // Parse using Clap
     match ShellCommand::try_parse_from(args) {
         Ok(c) => Ok(Some(c)),
@@ -82,33 +84,51 @@ pub fn parse_shell_command(input: &str) -> Result<Option<ShellCommand>, Box<dyn 
 }
 
 impl ShellCommand {
-    pub fn to_graph_query(&self, current_node: &Option<String>) -> Result<GraphQuery, Box<dyn std::error::Error>> {
+    pub fn to_graph_query(
+        &self,
+        current_node: &Option<String>,
+    ) -> Result<GraphQuery, Box<dyn std::error::Error>> {
         match self {
-            ShellCommand::Ls { fqn, kind, modifiers, .. } => {
+            ShellCommand::Ls {
+                fqn,
+                kind,
+                modifiers,
+                ..
+            } => {
                 let target_fqn = fqn.clone().or_else(|| current_node.clone());
                 Ok(GraphQuery::Ls {
                     fqn: target_fqn,
                     kind: kind.clone(),
                     modifiers: modifiers.clone(),
                 })
-            },
-            ShellCommand::Grep { pattern, kind, limit } => Ok(GraphQuery::Grep {
+            }
+            ShellCommand::Grep {
+                pattern,
+                kind,
+                limit,
+            } => Ok(GraphQuery::Grep {
                 pattern: pattern.clone(),
                 kind: kind.clone(),
                 limit: *limit,
             }),
-            ShellCommand::Cat { target } => {
-                 Ok(GraphQuery::Cat { fqn: target.clone() })
-            },
-            ShellCommand::Deps { fqn, rev, edge_types } => {
-                 let target_fqn = fqn.clone().or_else(|| current_node.clone())
+            ShellCommand::Cat { target } => Ok(GraphQuery::Cat {
+                fqn: target.clone(),
+            }),
+            ShellCommand::Deps {
+                fqn,
+                rev,
+                edge_types,
+            } => {
+                let target_fqn = fqn
+                    .clone()
+                    .or_else(|| current_node.clone())
                     .ok_or("No FQN provided and no current context")?;
                 Ok(GraphQuery::Deps {
                     fqn: target_fqn,
                     rev: *rev,
                     edge_types: edge_types.clone(),
                 })
-            },
+            }
             ShellCommand::Cd { .. } | ShellCommand::Pwd | ShellCommand::Clear => {
                 Err("Internal shell command should be handled by ReplServer".into())
             }
@@ -122,17 +142,27 @@ impl ShellCommand {
 
         match self {
             ShellCommand::Ls { long: false, .. } => {
-                let mut views: Vec<ShellNodeViewShort> = result.nodes.iter().map(|node| {
-                    ShellNodeViewShort {
+                let mut views: Vec<ShellNodeViewShort> = result
+                    .nodes
+                    .iter()
+                    .map(|node| ShellNodeViewShort {
                         kind: node.kind().to_string(),
-                        name: if is_container(node.kind()) { format!("{}/", node.name()) } else { node.name().to_string() },
-                    }
-                }).collect();
-                
+                        name: if is_container(node.kind()) {
+                            format!("{}/", node.name())
+                        } else {
+                            node.name().to_string()
+                        },
+                    })
+                    .collect();
+
                 views.sort_by(|a, b| {
                     let wa = get_kind_weight(&a.kind);
                     let wb = get_kind_weight(&b.kind);
-                    if wa != wb { wa.cmp(&wb) } else { a.name.cmp(&b.name) }
+                    if wa != wb {
+                        wa.cmp(&wb)
+                    } else {
+                        a.name.cmp(&b.name)
+                    }
                 });
 
                 Ok(Table::new(&views).with(Style::psql()).to_string())
@@ -142,19 +172,36 @@ impl ShellCommand {
             }
             _ => {
                 // Default detailed table view for Grep, Deps, and Ls -l
-                let mut views: Vec<ShellNodeView> = result.nodes.iter().map(|node| {
-                    let relation = result.edges.iter()
-                        .filter(|e| e.to == node.fqn() || e.from == node.fqn())
-                        .map(|e| format!("{:?}", e.data.edge_type))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    ShellNodeView::from_node(node, if relation.is_empty() { None } else { Some(relation) })
-                }).collect();
+                let mut views: Vec<ShellNodeView> = result
+                    .nodes
+                    .iter()
+                    .map(|node| {
+                        let relation = result
+                            .edges
+                            .iter()
+                            .filter(|e| e.to == node.fqn() || e.from == node.fqn())
+                            .map(|e| format!("{:?}", e.data.edge_type))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        ShellNodeView::from_node(
+                            node,
+                            if relation.is_empty() {
+                                None
+                            } else {
+                                Some(relation)
+                            },
+                        )
+                    })
+                    .collect();
 
                 views.sort_by(|a, b| {
                     let wa = get_kind_weight(&a.kind);
                     let wb = get_kind_weight(&b.kind);
-                    if wa != wb { wa.cmp(&wb) } else { a.name.cmp(&b.name) }
+                    if wa != wb {
+                        wa.cmp(&wb)
+                    } else {
+                        a.name.cmp(&b.name)
+                    }
                 });
 
                 Ok(Table::new(&views).with(Style::psql()).to_string())
@@ -164,5 +211,13 @@ impl ShellCommand {
 }
 
 fn is_container(kind: NodeKind) -> bool {
-    matches!(kind, NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation | NodeKind::Module | NodeKind::Package)
+    matches!(
+        kind,
+        NodeKind::Class
+            | NodeKind::Interface
+            | NodeKind::Enum
+            | NodeKind::Annotation
+            | NodeKind::Module
+            | NodeKind::Package
+    )
 }

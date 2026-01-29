@@ -1,5 +1,5 @@
-use crate::parser::java::JavaParser;
 use crate::parser::SymbolResolution;
+use crate::parser::java::JavaParser;
 use crate::resolver::lang::java::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
 
@@ -8,20 +8,36 @@ pub struct ImportScope<'a> {
 }
 
 impl SemanticScope<ResolutionContext<'_>> for ImportScope<'_> {
-    fn resolve(&self, name: &str, context: &ResolutionContext) -> Option<Result<SymbolResolution, ()>> {
+    fn resolve(
+        &self,
+        name: &str,
+        context: &ResolutionContext,
+    ) -> Option<Result<SymbolResolution, ()>> {
         // 1. Precise imports
-        context.imports.iter()
+        context
+            .imports
+            .iter()
             .find(|imp| imp.ends_with(&format!(".{}", name)))
             .map(|imp| Ok(SymbolResolution::Precise(imp.clone(), context.intent)))
             .or_else(|| {
                 // 2. Current package
-                context.package.as_ref()
+                context
+                    .package
+                    .as_ref()
                     .map(|pkg| format!("{}.{}", pkg, name))
-                    .and_then(|candidate| context.index.fqn_map.contains_key(&candidate).then_some(candidate))
+                    .and_then(|candidate| {
+                        context
+                            .index
+                            .fqn_map
+                            .contains_key(&candidate)
+                            .then_some(candidate)
+                    })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
             })
     }
-    fn name(&self) -> &'static str { "Import" }
+    fn name(&self) -> &'static str {
+        "Import"
+    }
 }
 
 #[cfg(test)]
@@ -34,14 +50,19 @@ mod tests {
     fn test_import_scope_precise() {
         let source = "import java.util.List; class Test { List x; }";
         let mut parser = Parser::new();
-        parser.set_language(&crate::parser::java::JavaParser::new().unwrap().language).expect("Error loading Java grammar");
+        parser
+            .set_language(&crate::parser::java::JavaParser::new().unwrap().language)
+            .expect("Error loading Java grammar");
         let tree = parser.parse(source, None).unwrap();
-        
-        let list_node = tree.root_node().named_descendant_for_point_range(
-            tree_sitter::Point::new(0, 36),
-            tree_sitter::Point::new(0, 40)
-        ).unwrap();
-        
+
+        let list_node = tree
+            .root_node()
+            .named_descendant_for_point_range(
+                tree_sitter::Point::new(0, 36),
+                tree_sitter::Point::new(0, 40),
+            )
+            .unwrap();
+
         let java_parser = JavaParser::new().unwrap();
         let index = CodeGraph::new();
 
@@ -54,9 +75,11 @@ mod tests {
             &java_parser,
         );
 
-        let scope = ImportScope { parser: &java_parser };
+        let scope = ImportScope {
+            parser: &java_parser,
+        };
         let res = scope.resolve("List", &context);
-        
+
         assert!(res.is_some());
         match res.unwrap() {
             Ok(SymbolResolution::Precise(fqn, _)) => {

@@ -1,9 +1,9 @@
 mod common;
 
-use naviscope::resolver::lang::java::JavaResolver;
-use naviscope::resolver::SemanticResolver;
-use naviscope::model::graph::EdgeType;
 use common::setup_java_test_graph;
+use naviscope::model::graph::EdgeType;
+use naviscope::resolver::SemanticResolver;
+use naviscope::resolver::lang::java::JavaResolver;
 use petgraph::Direction;
 
 fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
@@ -30,13 +30,18 @@ fn test_goto_references_method() {
     // Resolve 'target' in A
     let usage_pos = a_content.find("target()").unwrap();
     let (line, col) = offset_to_point(a_content, usage_pos);
-    let res = resolver.resolve_at(a_tree, a_content, line, col, &index).expect("Should resolve target");
+    let res = resolver
+        .resolve_at(a_tree, a_content, line, col, &index)
+        .expect("Should resolve target");
     let matches = resolver.find_matches(&index, &res);
     let target_idx = matches[0];
 
     // Check incoming 'Calls' edges
     let mut callers = Vec::new();
-    let mut incoming = index.topology.neighbors_directed(target_idx, Direction::Incoming).detach();
+    let mut incoming = index
+        .topology
+        .neighbors_directed(target_idx, Direction::Incoming)
+        .detach();
     while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
         let edge = &index.topology[edge_idx];
         if edge.edge_type == EdgeType::Calls {

@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::index::CodeGraph;
-use crate::model::graph::{ResolvedUnit};
+use crate::model::graph::ResolvedUnit;
 use crate::parser::SymbolResolution;
 use crate::project::scanner::ParsedFile;
 use petgraph::stable_graph::NodeIndex;
@@ -15,7 +15,14 @@ pub mod scope;
 /// Core interface for resolving a symbol at a specific position in a document.
 pub trait SemanticResolver: Send + Sync {
     /// Resolve a symbol at a specific position in a document (local view)
-    fn resolve_at(&self, tree: &Tree, source: &str, line: usize, byte_col: usize, index: &CodeGraph) -> Option<SymbolResolution>;
+    fn resolve_at(
+        &self,
+        tree: &Tree,
+        source: &str,
+        line: usize,
+        byte_col: usize,
+        index: &CodeGraph,
+    ) -> Option<SymbolResolution>;
 
     /// Find nodes in the global graph matching a resolution result (global view)
     fn find_matches(&self, index: &CodeGraph, res: &SymbolResolution) -> Vec<NodeIndex>;

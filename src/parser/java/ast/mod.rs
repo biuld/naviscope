@@ -1,8 +1,8 @@
+use super::JavaParser;
 use crate::model::graph::{EdgeType, Range};
 use crate::model::lang::java::JavaElement;
-use tree_sitter::{Node, QueryCapture, Tree, StreamingIterator};
-use super::JavaParser;
 use std::collections::HashMap;
+use tree_sitter::{Node, QueryCapture, StreamingIterator, Tree};
 
 mod entities;
 mod metadata;
@@ -69,9 +69,14 @@ impl JavaParser {
         }
     }
 
-    pub(crate) fn collect_matches<'a>(&self, tree: &'a Tree, source: &'a str) -> Vec<Vec<QueryCapture<'a>>> {
+    pub(crate) fn collect_matches<'a>(
+        &self,
+        tree: &'a Tree,
+        source: &'a str,
+    ) -> Vec<Vec<QueryCapture<'a>>> {
         let mut cursor = tree_sitter::QueryCursor::new();
-        let mut matches = cursor.matches(&self.definition_query, tree.root_node(), source.as_bytes());
+        let mut matches =
+            cursor.matches(&self.definition_query, tree.root_node(), source.as_bytes());
         let mut all_matches = Vec::new();
         while let Some(mat) = matches.next() {
             all_matches.push(mat.captures.to_vec());

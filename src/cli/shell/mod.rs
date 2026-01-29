@@ -8,8 +8,8 @@ mod view;
 use naviscope::index::Naviscope;
 use naviscope::project::watcher::Watcher;
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, DefaultHinter, Emacs, FileBackedHistory, KeyCode,
-    KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Signal,
+    ColumnarMenu, DefaultHinter, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder,
+    Reedline, ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -17,9 +17,9 @@ use std::thread;
 use std::time::Duration;
 use tracing::{error, info};
 
+use self::command::{ShellCommand, parse_shell_command};
 use self::completer::NaviscopeCompleter;
 use self::context::ShellContext;
-use self::command::{ShellCommand, parse_shell_command};
 use self::prompt::DefaultPrompt;
 
 pub struct ReplServer {
@@ -33,7 +33,7 @@ impl ReplServer {
         let naviscope = Arc::new(RwLock::new(engine));
         let current_node = Arc::new(RwLock::new(None));
         let context = ShellContext::new(naviscope, current_node);
-        
+
         Self {
             context,
             project_path,
@@ -42,12 +42,12 @@ impl ReplServer {
 
     pub fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         println!("Project: {:?}", self.project_path);
-        
+
         self.initialize_index()?;
         self.start_watcher();
-        
+
         println!("Type 'help' for commands.");
-        
+
         let line_editor = self.setup_line_editor()?;
         self.run_loop(line_editor)
     }
@@ -55,7 +55,7 @@ impl ReplServer {
     fn initialize_index(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = self.context.naviscope.write().unwrap();
         let start = std::time::Instant::now();
-        
+
         // Try to load existing index
         match engine.load() {
             Ok(true) => {
@@ -83,7 +83,11 @@ impl ReplServer {
             println!("Warning: Index synchronization failed: {}", e);
         } else {
             let index = engine.graph();
-            println!("Index synchronized in {:?}. Total nodes: {}", sync_start.elapsed(), index.topology.node_count());
+            println!(
+                "Index synchronized in {:?}. Total nodes: {}",
+                sync_start.elapsed(),
+                index.topology.node_count()
+            );
         }
         Ok(())
     }
@@ -91,7 +95,7 @@ impl ReplServer {
     fn start_watcher(&self) {
         let naviscope_clone = self.context.naviscope.clone();
         let path_clone = self.project_path.clone();
-        
+
         thread::spawn(move || {
             let mut watcher = match Watcher::new(&path_clone) {
                 Ok(w) => w,
@@ -103,7 +107,11 @@ impl ReplServer {
 
             loop {
                 if let Some(event) = watcher.next_event() {
-                    if !event.paths.iter().any(|p| naviscope::project::is_relevant_path(p)) {
+                    if !event
+                        .paths
+                        .iter()
+                        .any(|p| naviscope::project::is_relevant_path(p))
+                    {
                         continue;
                     }
 
@@ -111,7 +119,7 @@ impl ReplServer {
                     while watcher.try_next_event().is_some() {}
 
                     info!("Change detected. Re-indexing...");
-                    
+
                     match naviscope_clone.write() {
                         Ok(mut engine) => {
                             if let Err(e) = engine.refresh() {
@@ -134,15 +142,20 @@ impl ReplServer {
 
     fn setup_line_editor(&self) -> Result<Reedline, Box<dyn std::error::Error>> {
         let commands = vec![
-            "help".into(), "exit".into(), "quit".into(), "ls".into(), "cd".into(),
-            "pwd".into(), "clear".into(), "grep".into(), "cat".into(), "deps".into(),
+            "help".into(),
+            "exit".into(),
+            "quit".into(),
+            "ls".into(),
+            "cd".into(),
+            "pwd".into(),
+            "clear".into(),
+            "grep".into(),
+            "cat".into(),
+            "deps".into(),
         ];
-        
-        let completer = Box::new(NaviscopeCompleter::new(
-            commands,
-            self.context.clone(),
-        ));
-        
+
+        let completer = Box::new(NaviscopeCompleter::new(commands, self.context.clone()));
+
         let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 
         let mut keybindings = default_emacs_keybindings();
@@ -174,7 +187,13 @@ impl ReplServer {
             .with_history(history)
             .with_completer(completer)
             .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
-            .with_hinter(Box::new(DefaultHinter::default().with_style(nu_ansi_term::Style::new().italic().fg(nu_ansi_term::Color::LightGray))))
+            .with_hinter(Box::new(
+                DefaultHinter::default().with_style(
+                    nu_ansi_term::Style::new()
+                        .italic()
+                        .fg(nu_ansi_term::Color::LightGray),
+                ),
+            ))
             .with_edit_mode(Box::new(Emacs::new(keybindings))))
     }
 
@@ -185,12 +204,16 @@ impl ReplServer {
             let curr = context.current_fqn();
             let prompt = DefaultPrompt::new(curr.clone());
             let sig = line_editor.read_line(&prompt);
-            
+
             match sig {
                 Ok(Signal::Success(buffer)) => {
                     let trimmed = buffer.trim();
-                    if trimmed.is_empty() { continue; }
-                    if trimmed == "exit" || trimmed == "quit" { break; }
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if trimmed == "exit" || trimmed == "quit" {
+                        break;
+                    }
 
                     match parse_shell_command(trimmed) {
                         Ok(Some(cmd)) => {
@@ -198,15 +221,17 @@ impl ReplServer {
 
                             match handler.handle(&cmd, &mut context) {
                                 Ok(output) => {
-                                    if !output.is_empty() { println!("{}", output); }
+                                    if !output.is_empty() {
+                                        println!("{}", output);
+                                    }
                                     if matches!(cmd, ShellCommand::Clear) {
                                         let _ = line_editor.clear_screen();
                                     }
-                                },
+                                }
                                 Err(e) => eprintln!("Error: {}", e),
                             }
-                        },
-                        Ok(None) => {}, // Help or handled by Clap
+                        }
+                        Ok(None) => {} // Help or handled by Clap
                         Err(e) => eprintln!("Error: {}", e),
                     }
                 }
@@ -222,7 +247,8 @@ impl ReplServer {
 }
 
 pub fn run(path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let project_path = path.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let project_path =
+        path.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let server = ReplServer::new(project_path);
     server.run()
 }

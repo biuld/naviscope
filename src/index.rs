@@ -49,7 +49,7 @@ impl CodeGraph {
 
     pub fn find_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
         let nodes = self.path_to_nodes.get(path)?;
-        
+
         for &idx in nodes {
             if let Some(node) = self.topology.node_weight(idx) {
                 if let Some(range) = node.name_range() {
@@ -64,12 +64,20 @@ impl CodeGraph {
 
     /// Finds an edge whose range contains the given position.
     /// This is used to find references from source code.
-    pub fn find_edge_at(&self, path: &Path, line: usize, col: usize) -> Option<(NodeIndex, NodeIndex, &GraphEdge)> {
+    pub fn find_edge_at(
+        &self,
+        path: &Path,
+        line: usize,
+        col: usize,
+    ) -> Option<(NodeIndex, NodeIndex, &GraphEdge)> {
         let nodes = self.path_to_nodes.get(path)?;
-        
+
         for &node_idx in nodes {
             // Check outgoing edges from nodes in this file
-            let mut edges = self.topology.neighbors_directed(node_idx, petgraph::Direction::Outgoing).detach();
+            let mut edges = self
+                .topology
+                .neighbors_directed(node_idx, petgraph::Direction::Outgoing)
+                .detach();
             while let Some((edge_idx, neighbor_idx)) = edges.next(&self.topology) {
                 let edge = &self.topology[edge_idx];
                 if let Some(range) = &edge.range {
@@ -138,7 +146,10 @@ impl Naviscope {
     /// Gets the index file path for the current project.
     fn get_project_index_path(&self) -> PathBuf {
         let base_dir = Self::get_base_index_dir();
-        let abs_path = self.project_root.canonicalize().unwrap_or(self.project_root.clone());
+        let abs_path = self
+            .project_root
+            .canonicalize()
+            .unwrap_or(self.project_root.clone());
         let hash = xxh3_64(abs_path.to_string_lossy().as_bytes());
         base_dir.join(format!("{:016x}.bin", hash))
     }
@@ -204,7 +215,7 @@ impl Naviscope {
         if self.graph.file_map.is_empty() {
             let _ = self.load();
         }
-        
+
         // Refresh will handle version compatibility check and rebuild if needed
         self.refresh()
     }
@@ -232,8 +243,9 @@ impl Naviscope {
         let parse_results = Scanner::scan_and_parse(&self.project_root, &self.graph.file_map);
 
         // Detect and handle deleted files
-        let current_paths: HashSet<PathBuf> =
-            Scanner::collect_paths(&self.project_root).into_iter().collect();
+        let current_paths: HashSet<PathBuf> = Scanner::collect_paths(&self.project_root)
+            .into_iter()
+            .collect();
 
         let mut deleted_paths = Vec::new();
         for path in self.graph.file_map.keys() {
@@ -283,11 +295,7 @@ impl Naviscope {
 
                 // Update path_to_nodes mapping
                 if let Some(p) = path {
-                    self.graph
-                        .path_to_nodes
-                        .entry(p)
-                        .or_default()
-                        .push(idx);
+                    self.graph.path_to_nodes.entry(p).or_default().push(idx);
                 }
             }
             GraphOp::AddEdge {
@@ -302,7 +310,9 @@ impl Naviscope {
                 if let (Some(s_idx), Some(t_idx)) = (from_idx, to_idx) {
                     // For structural edges (Contains), avoid duplicates
                     if edge.edge_type == EdgeType::Contains {
-                        let already_exists = self.graph.topology
+                        let already_exists = self
+                            .graph
+                            .topology
                             .edges_connecting(s_idx, t_idx)
                             .any(|e| e.weight().edge_type == EdgeType::Contains);
                         if !already_exists {

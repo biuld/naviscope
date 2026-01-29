@@ -1,7 +1,7 @@
-use crate::model::graph::{GraphNode, NodeKind, Range};
-use tree_sitter::Tree;
-use std::path::Path;
 use crate::error::Result;
+use crate::model::graph::{GraphNode, NodeKind, Range};
+use std::path::Path;
+use tree_sitter::Tree;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolIntent {
@@ -14,7 +14,10 @@ pub enum SymbolIntent {
 
 pub fn matches_intent(node_kind: &NodeKind, intent: SymbolIntent) -> bool {
     match intent {
-        SymbolIntent::Type => matches!(node_kind, NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation),
+        SymbolIntent::Type => matches!(
+            node_kind,
+            NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
+        ),
         SymbolIntent::Method => matches!(node_kind, NodeKind::Method | NodeKind::Constructor),
         SymbolIntent::Field => matches!(node_kind, NodeKind::Field),
         SymbolIntent::Variable => false, // Graph nodes are rarely variables, usually only Definitions
@@ -29,7 +32,11 @@ pub enum SymbolResolution {
 }
 
 pub trait LspParser: Send + Sync {
-    fn parse(&self, source: &str, old_tree: Option<&tree_sitter::Tree>) -> Option<tree_sitter::Tree>;
+    fn parse(
+        &self,
+        source: &str,
+        old_tree: Option<&tree_sitter::Tree>,
+    ) -> Option<tree_sitter::Tree>;
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DocumentSymbol>;
     /// Maps a language-specific symbol kind string to an LSP SymbolKind
     fn symbol_kind(&self, kind: &NodeKind) -> tower_lsp::lsp_types::SymbolKind;
