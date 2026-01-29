@@ -481,8 +481,7 @@ impl LangResolver for JavaResolver {
                     }
                 }
 
-                let mut edge = GraphEdge::new(edge_type.clone());
-                edge.range = *range;
+                let edge = GraphEdge::new(edge_type.clone());
                 unit.add_edge(source_fqn.clone(), resolved_target, edge);
             }
         }

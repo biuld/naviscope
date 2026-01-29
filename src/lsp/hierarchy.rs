@@ -134,14 +134,7 @@ pub async fn incoming_calls(
                     data: Some(serde_json::to_value(source_node.fqn().to_string()).unwrap()),
                 };
 
-                let call_range = if let Some(r) = &edge.range {
-                    Range {
-                        start: Position::new(r.start_line as u32, r.start_col as u32),
-                        end: Position::new(r.end_line as u32, r.end_col as u32),
-                    }
-                } else {
-                    lsp_range
-                };
+                let call_range = lsp_range;
 
                 calls.push(CallHierarchyIncomingCall {
                     from: from_item,
@@ -204,14 +197,7 @@ pub async fn outgoing_calls(
                     data: Some(serde_json::to_value(target_node.fqn().to_string()).unwrap()),
                 };
 
-                let call_range = if let Some(r) = &edge.range {
-                    Range {
-                        start: Position::new(r.start_line as u32, r.start_col as u32),
-                        end: Position::new(r.end_line as u32, r.end_col as u32),
-                    }
-                } else {
-                    lsp_range
-                };
+                let call_range = lsp_range;
 
                 calls.push(CallHierarchyOutgoingCall {
                     to: to_item,

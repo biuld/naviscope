@@ -252,21 +252,10 @@ pub enum EdgeType {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
 pub struct GraphEdge {
     pub edge_type: EdgeType,
-    pub range: Option<Range>,
 }
 
 impl GraphEdge {
     pub fn new(edge_type: EdgeType) -> Self {
-        Self {
-            edge_type,
-            range: None,
-        }
-    }
-
-    pub fn with_range(edge_type: EdgeType, range: Range) -> Self {
-        Self {
-            edge_type,
-            range: Some(range),
-        }
+        Self { edge_type }
     }
 }

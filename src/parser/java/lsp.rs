@@ -95,4 +95,50 @@ impl LspParser for JavaParser {
             _ => SymbolKind::VARIABLE,
         }
     }
+
+    fn find_occurrences(
+        &self,
+        source: &str,
+        tree: &Tree,
+        target: &crate::parser::SymbolResolution,
+    ) -> Vec<crate::model::graph::Range> {
+        let mut ranges = Vec::new();
+        let name = match target {
+            crate::parser::SymbolResolution::Local(_, _) => {
+                // Local resolution is usually handled by the caller or by a separate pass
+                return Vec::new();
+            }
+            crate::parser::SymbolResolution::Precise(fqn, _) => {
+                fqn.split('.').last().unwrap_or(fqn).to_string()
+            }
+        };
+
+        if name.is_empty() {
+            return ranges;
+        }
+
+        let query_str = format!(
+            "((identifier) @ident (#eq? @ident \"{}\"))
+             ((type_identifier) @ident (#eq? @ident \"{}\"))",
+            name, name
+        );
+
+        if let Ok(query) = tree_sitter::Query::new(&tree.language(), &query_str) {
+            let mut cursor = tree_sitter::QueryCursor::new();
+            let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
+            use tree_sitter::StreamingIterator;
+            while let Some(mat) = matches.next() {
+                for cap in mat.captures {
+                    let r = cap.node.range();
+                    ranges.push(crate::model::graph::Range {
+                        start_line: r.start_point.row,
+                        start_col: r.start_point.column,
+                        end_line: r.end_point.row,
+                        end_col: r.end_point.column,
+                    });
+                }
+            }
+        }
+        ranges
+    }
 }

@@ -1,5 +1,5 @@
 use crate::error::{NaviscopeError, Result};
-use crate::model::graph::{EdgeType, GraphEdge, GraphNode};
+use crate::model::graph::{GraphEdge, GraphNode};
 use crate::project::scanner::Scanner;
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -55,34 +55,6 @@ impl CodeGraph {
                 if let Some(range) = node.name_range() {
                     if range.contains(line, col) {
                         return Some(idx);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Finds an edge whose range contains the given position.
-    /// This is used to find references from source code.
-    pub fn find_edge_at(
-        &self,
-        path: &Path,
-        line: usize,
-        col: usize,
-    ) -> Option<(NodeIndex, NodeIndex, &GraphEdge)> {
-        let nodes = self.path_to_nodes.get(path)?;
-
-        for &node_idx in nodes {
-            // Check outgoing edges from nodes in this file
-            let mut edges = self
-                .topology
-                .neighbors_directed(node_idx, petgraph::Direction::Outgoing)
-                .detach();
-            while let Some((edge_idx, neighbor_idx)) = edges.next(&self.topology) {
-                let edge = &self.topology[edge_idx];
-                if let Some(range) = &edge.range {
-                    if range.contains(line, col) {
-                        return Some((node_idx, neighbor_idx, edge));
                     }
                 }
             }
@@ -308,18 +280,14 @@ impl Naviscope {
                 let to_idx = self.graph.fqn_map.get(&to_id).cloned();
 
                 if let (Some(s_idx), Some(t_idx)) = (from_idx, to_idx) {
-                    // For structural edges (Contains), avoid duplicates
-                    if edge.edge_type == EdgeType::Contains {
-                        let already_exists = self
-                            .graph
-                            .topology
-                            .edges_connecting(s_idx, t_idx)
-                            .any(|e| e.weight().edge_type == EdgeType::Contains);
-                        if !already_exists {
-                            self.graph.topology.add_edge(s_idx, t_idx, edge);
-                        }
-                    } else {
-                        // For other edges (Calls, References, etc.), always add to capture multiple occurrences
+                    // Meso-level optimization: avoid duplicate edges of the same type between same nodes
+                    let already_exists = self
+                        .graph
+                        .topology
+                        .edges_connecting(s_idx, t_idx)
+                        .any(|e| e.weight().edge_type == edge.edge_type);
+
+                    if !already_exists {
                         self.graph.topology.add_edge(s_idx, t_idx, edge);
                     }
                 }

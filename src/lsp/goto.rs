@@ -256,44 +256,50 @@ pub async fn references(
                 Some(r) => r,
                 None => return Ok(None),
             };
+
             let matches = resolver.find_matches(index, &resolution);
-            for node_idx in matches {
-                let mut incoming = index
-                    .topology
-                    .neighbors_directed(node_idx, petgraph::Direction::Incoming)
-                    .detach();
-                while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
-                    let edge = &index.topology[edge_idx];
+            let discovery = crate::analysis::discovery::DiscoveryEngine::new(index);
+            let candidate_paths = discovery.scout_references(&matches);
 
-                    // Filter edges for references
-                    match edge.edge_type {
-                        crate::model::graph::EdgeType::Calls
-                        | crate::model::graph::EdgeType::Instantiates
-                        | crate::model::graph::EdgeType::TypedAs
-                        | crate::model::graph::EdgeType::DecoratedBy => {}
-                        _ => continue,
+            for path in candidate_paths {
+                let target_uri = Url::from_file_path(&path).unwrap();
+                let doc_data = if let Some(d) = server.documents.get(&target_uri) {
+                    Some((d.content.clone(), d.parser.clone()))
+                } else {
+                    let content = std::fs::read_to_string(&path).ok();
+                    if let Some(content) = content {
+                        if let Some((parser, _)) = server.get_parser_and_lang_for_uri(&target_uri) {
+                            Some((content, parser))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
                     }
+                };
 
-                    let source_node = &index.topology[neighbor_idx];
-                    if let (Some(source_path), Some(range)) = (source_node.file_path(), &edge.range)
-                    {
-                        all_locations.push(Location {
-                            uri: Url::from_file_path(source_path).unwrap(),
-                            range: Range {
-                                start: Position::new(
-                                    range.start_line as u32,
-                                    range.start_col as u32,
-                                ),
-                                end: Position::new(range.end_line as u32, range.end_col as u32),
-                            },
-                        });
-                    }
+                if let Some((content, parser)) = doc_data {
+                    all_locations.extend(discovery.scan_file(
+                        parser.as_ref(),
+                        &content,
+                        &resolution,
+                        &target_uri,
+                    ));
                 }
             }
         }
     }
 
     if !all_locations.is_empty() {
+        // De-duplicate locations
+        all_locations.sort_by_key(|l| {
+            (
+                l.uri.to_string(),
+                l.range.start.line,
+                l.range.start.character,
+            )
+        });
+        all_locations.dedup();
         return Ok(Some(all_locations));
     }
 
