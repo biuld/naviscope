@@ -78,7 +78,62 @@ impl EngineHandle {
 
     /// Watch for filesystem changes
     pub async fn watch(&self) -> Result<()> {
-        // TODO: Implement file watching
+        let root = self.engine.root_path().to_path_buf();
+        let engine = self.engine.clone();
+
+        tokio::spawn(async move {
+            let mut watcher = match crate::project::watcher::Watcher::new(&root) {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!("Failed to start watcher: {}", e);
+                    return;
+                }
+            };
+
+            tracing::info!("Started watching {}", root.display());
+
+            let mut pending_events: Vec<notify::Event> = Vec::new();
+            let debounce_interval = std::time::Duration::from_millis(500);
+
+            loop {
+                tokio::select! {
+                    event = watcher.next_event_async() => {
+                        match event {
+                            Some(e) => pending_events.push(e),
+                            None => break, // Channel closed
+                        }
+                    }
+                    _ = tokio::time::sleep(debounce_interval), if !pending_events.is_empty() => {
+                        // Extract unique paths
+                        let mut paths = std::collections::HashSet::new();
+                        for event in &pending_events {
+                            // Filter for modify/create/remove events to be safe?
+                            // For now, accept all relevant file events.
+                            for path in &event.paths {
+                                // Basic relevance check (e.g. ignore .git, tmp)
+                                // Assuming crate::project::is_relevant_path exists and is public
+                                if crate::project::is_relevant_path(path) {
+                                     paths.insert(path.clone());
+                                }
+                            }
+                        }
+
+                        pending_events.clear();
+
+                        if !paths.is_empty() {
+                            let path_vec: Vec<_> = paths.into_iter().collect();
+                            tracing::info!("Detected changes in {} files. Updating...", path_vec.len());
+                            if let Err(e) = engine.update_files(path_vec).await {
+                                tracing::error!("Failed to update index: {}", e);
+                            } else {
+                                tracing::info!("Index updated successfully.");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         Ok(())
     }
 

@@ -39,6 +39,11 @@ impl NaviscopeEngine {
         }
     }
 
+    /// Get the project root path
+    pub fn root_path(&self) -> &Path {
+        &self.project_root
+    }
+
     /// Compute index storage path for a project
     fn compute_index_path(project_root: &Path) -> PathBuf {
         let base_dir = index::Naviscope::get_base_index_dir();

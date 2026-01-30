@@ -36,6 +36,14 @@ impl Watcher {
         }
     }
 
+    /// Returns the next event (async).
+    pub async fn next_event_async(&mut self) -> Option<Event> {
+        match self.rx.recv().await {
+            Some(Ok(event)) => Some(event),
+            _ => None,
+        }
+    }
+
     /// Tries to receive an event without blocking.
     pub fn try_next_event(&mut self) -> Option<Event> {
         match self.rx.try_recv() {

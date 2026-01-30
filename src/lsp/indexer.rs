@@ -56,20 +56,17 @@ pub fn spawn_indexer(
         }
 
         // 2. Setup file watcher
-        // TODO: In Phase 2/3, implement real file watching using handle.watch()
-        // For now, we utilize the handle's watch stub or implement a temporary watcher here if needed.
-        // Since handle.watch() is a TODO, we can temporarily disable auto-reindexing or
-        // keep the old manual watcher logic if critical.
-        // Given constraint of Phase 1->2 migration, let's keep it simple first.
-
-        client
-            .log_message(
-                MessageType::INFO,
-                "File watcher placeholder (implementation pending in engine).",
-            )
-            .await;
-
-        // Note: The previous manual watcher logic is removed in favor of moving
-        // watching logic into the EngineHandle in the future.
+        if let Err(e) = handle.watch().await {
+            client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("Failed to start file watcher: {}", e),
+                )
+                .await;
+        } else {
+            client
+                .log_message(MessageType::INFO, "File watcher started successfully.")
+                .await;
+        }
     });
 }
