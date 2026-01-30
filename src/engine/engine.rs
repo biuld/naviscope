@@ -126,11 +126,13 @@ impl NaviscopeEngine {
             return Ok(None);
         }
 
-        let file = std::fs::File::open(path)?;
-        let reader = std::io::BufReader::new(file);
+        let bytes = std::fs::read(path)?;
 
-        match rmp_serde::from_read(reader) {
-            Ok(inner) => Ok(Some(CodeGraph::from_inner(inner))),
+        match CodeGraph::deserialize(&bytes) {
+            Ok(graph) => {
+                tracing::info!("Loaded index from {}", path.display());
+                Ok(Some(graph))
+            }
             Err(e) => {
                 tracing::warn!(
                     "Failed to parse index at {}: {}. Will rebuild.",
@@ -143,17 +145,23 @@ impl NaviscopeEngine {
         }
     }
 
-    fn save_to_disk(_graph: &CodeGraph, path: &Path) -> Result<()> {
+    fn save_to_disk(graph: &CodeGraph, path: &Path) -> Result<()> {
         // Ensure directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        // TODO: Implement actual serialization
-        // Currently we need to expose a way to serialize CodeGraphInner
-        // or implement Serialize for CodeGraph directly
+        // Serialize the graph
+        let bytes = graph
+            .serialize()
+            .map_err(|e| NaviscopeError::Internal(format!("Serialization failed: {}", e)))?;
 
-        tracing::warn!("Index persistence not yet implemented for new engine");
+        // Write to file atomically (write to temp, then rename)
+        let temp_path = path.with_extension("tmp");
+        std::fs::write(&temp_path, bytes)?;
+        std::fs::rename(temp_path, path)?;
+
+        tracing::info!("Saved index to {}", path.display());
 
         Ok(())
     }

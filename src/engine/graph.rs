@@ -133,6 +133,19 @@ impl CodeGraph {
     pub fn edge_count(&self) -> usize {
         self.inner.topology.edge_count()
     }
+
+    // ---- Serialization support ----
+
+    /// Serialize to bytes for persistence
+    pub fn serialize(&self) -> Result<Vec<u8>, rmp_serde::encode::Error> {
+        rmp_serde::to_vec(&*self.inner)
+    }
+
+    /// Deserialize from bytes
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, rmp_serde::decode::Error> {
+        let inner: CodeGraphInner = rmp_serde::from_slice(bytes)?;
+        Ok(Self::from_inner(inner))
+    }
 }
 
 #[cfg(test)]

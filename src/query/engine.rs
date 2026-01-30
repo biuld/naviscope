@@ -1,17 +1,59 @@
 use crate::error::{NaviscopeError, Result};
-use crate::index::CodeGraph;
 use crate::model::graph::{EdgeType, NodeKind};
 use crate::query::dsl::GraphQuery;
 use crate::query::model::{QueryResult, QueryResultEdge};
 use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
 
+// Trait to abstract over different CodeGraph implementations
+pub trait CodeGraphLike {
+    fn topology(
+        &self,
+    ) -> &petgraph::stable_graph::StableDiGraph<
+        crate::model::graph::GraphNode,
+        crate::model::graph::GraphEdge,
+    >;
+    fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex>;
+}
+
+// Implement for old CodeGraph
+impl CodeGraphLike for crate::index::CodeGraph {
+    fn topology(
+        &self,
+    ) -> &petgraph::stable_graph::StableDiGraph<
+        crate::model::graph::GraphNode,
+        crate::model::graph::GraphEdge,
+    > {
+        &self.topology
+    }
+
+    fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex> {
+        &self.fqn_map
+    }
+}
+
+// Implement for new CodeGraph
+impl CodeGraphLike for crate::engine::CodeGraph {
+    fn topology(
+        &self,
+    ) -> &petgraph::stable_graph::StableDiGraph<
+        crate::model::graph::GraphNode,
+        crate::model::graph::GraphEdge,
+    > {
+        self.topology()
+    }
+
+    fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex> {
+        self.fqn_map()
+    }
+}
+
 pub struct QueryEngine<'a> {
-    graph: &'a CodeGraph,
+    graph: &'a dyn CodeGraphLike,
 }
 
 impl<'a> QueryEngine<'a> {
-    pub fn new(graph: &'a CodeGraph) -> Self {
+    pub fn new(graph: &'a dyn CodeGraphLike) -> Self {
         Self { graph }
     }
 
@@ -29,7 +71,7 @@ impl<'a> QueryEngine<'a> {
 
                 let mut nodes = Vec::new();
 
-                for node in self.graph.topology.node_weights() {
+                for node in self.graph.topology().node_weights() {
                     // Check if either FQN or Name matches the pattern
                     if regex.is_match(node.fqn()) || regex.is_match(node.name()) {
                         if kind.is_empty() || kind.contains(&node.kind()) {
@@ -60,12 +102,12 @@ impl<'a> QueryEngine<'a> {
                     let mut nodes = Vec::new();
 
                     // 1. Try to find Modules first (this is what we almost always want in root)
-                    for idx in self.graph.topology.node_indices() {
-                        let node = &self.graph.topology[idx];
+                    for idx in self.graph.topology().node_indices() {
+                        let node = &self.graph.topology()[idx];
                         if node.kind() == NodeKind::Module {
                             let has_parent = self
                                 .graph
-                                .topology
+                                .topology()
                                 .edges_directed(idx, PetDirection::Incoming)
                                 .any(|e| e.weight().edge_type == EdgeType::Contains);
 
@@ -77,11 +119,11 @@ impl<'a> QueryEngine<'a> {
 
                     // 2. If no top-level modules, but user asked for specific kind or we found nothing
                     if nodes.is_empty() {
-                        for idx in self.graph.topology.node_indices() {
-                            let node = &self.graph.topology[idx];
+                        for idx in self.graph.topology().node_indices() {
+                            let node = &self.graph.topology()[idx];
                             let has_parent = self
                                 .graph
-                                .topology
+                                .topology()
                                 .edges_directed(idx, PetDirection::Incoming)
                                 .any(|e| e.weight().edge_type == EdgeType::Contains);
 
@@ -100,8 +142,8 @@ impl<'a> QueryEngine<'a> {
                 }
             }
             GraphQuery::Cat { fqn } => {
-                if let Some(&idx) = self.graph.fqn_map.get(fqn) {
-                    let node = &self.graph.topology[idx];
+                if let Some(&idx) = self.graph.fqn_map().get(fqn) {
+                    let node = &self.graph.topology()[idx];
                     Ok(QueryResult::new(vec![node.clone()], vec![]))
                 } else {
                     Ok(QueryResult::empty())
@@ -129,14 +171,17 @@ impl<'a> QueryEngine<'a> {
         dir: PetDirection,
         kind_filter: &[NodeKind],
     ) -> Result<QueryResult> {
-        let start_idx = self.graph.fqn_map.get(fqn).ok_or_else(|| {
+        let start_idx = self.graph.fqn_map().get(fqn).ok_or_else(|| {
             // Debug log to help identify the mismatch
             eprintln!(
                 "DEBUG: traverse_neighbors failed. Looking for FQN: '{}'",
                 fqn
             );
-            eprintln!("DEBUG: Available FQNs count: {}", self.graph.fqn_map.len());
-            if let Some(closest) = self.graph.fqn_map.keys().find(|k| k.contains(fqn)) {
+            eprintln!(
+                "DEBUG: Available FQNs count: {}",
+                self.graph.fqn_map().len()
+            );
+            if let Some(closest) = self.graph.fqn_map().keys().find(|k| k.contains(fqn)) {
                 eprintln!("DEBUG: Found something containing '{}': '{}'", fqn, closest);
             }
             NaviscopeError::Parsing(format!("Node not found: {}", fqn))
@@ -144,17 +189,14 @@ impl<'a> QueryEngine<'a> {
 
         let mut nodes = Vec::new();
         let mut edges_result = Vec::new();
-        let mut edges = self
-            .graph
-            .topology
-            .neighbors_directed(*start_idx, dir)
-            .detach();
+        let topology = self.graph.topology();
+        let mut edges = topology.neighbors_directed(*start_idx, dir).detach();
 
-        while let Some((edge_idx, neighbor_idx)) = edges.next(&self.graph.topology) {
-            let edge_data = &self.graph.topology[edge_idx];
+        while let Some((edge_idx, neighbor_idx)) = edges.next(topology) {
+            let edge_data = &topology[edge_idx];
             if edge_filter.is_empty() || edge_filter.contains(&edge_data.edge_type) {
-                let neighbor_node = &self.graph.topology[neighbor_idx];
-                let start_node = &self.graph.topology[*start_idx];
+                let neighbor_node = &topology[neighbor_idx];
+                let start_node = &topology[*start_idx];
 
                 if kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind()) {
                     nodes.push(neighbor_node.clone());
