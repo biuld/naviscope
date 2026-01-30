@@ -2,7 +2,7 @@ use crate::model::graph::{EdgeType, NodeKind};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum GraphQuery {
     /// List members or structure (Rich Listing)

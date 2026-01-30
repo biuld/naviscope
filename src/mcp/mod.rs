@@ -117,7 +117,9 @@ impl McpServer {
         let engine = self.get_or_build_index().await?;
 
         let result = tokio::task::spawn_blocking(move || {
-            let query_engine = QueryEngine::new(engine.graph());
+            // Clone the graph to own it (old CodeGraph doesn't use Arc yet)
+            let graph_clone = engine.graph().clone();
+            let query_engine = QueryEngine::new(graph_clone);
             let result = query_engine.execute(&query).map_err(|e| e.to_string())?;
             serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
         })

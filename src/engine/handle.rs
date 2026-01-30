@@ -37,13 +37,21 @@ impl EngineHandle {
     }
 
     /// Execute a query (async)
-    ///
-    /// Note: Query functionality temporarily disabled pending QueryEngine refactor
-    /// The trait object lifetime issue needs to be resolved in Phase 2
-    pub async fn query(&self, _query: &GraphQuery) -> Result<QueryResult> {
-        // TODO Phase 2: Implement query with proper trait object handling
-        // See: https://github.com/rust-lang/rust/issues/96097
-        unimplemented!("Query functionality will be restored in Phase 2")
+    pub async fn query(&self, query: &GraphQuery) -> Result<QueryResult> {
+        let graph = self.graph().await; // Arc clone - cheap
+        let query_owned = query.clone();
+
+        // Execute in blocking pool to avoid blocking async runtime
+        // Since graph is owned (Arc), we can safely move it into the closure
+        let result = tokio::task::spawn_blocking(move || -> Result<QueryResult> {
+            // Create QueryEngine with owned graph - no lifetime issues!
+            let engine = crate::query::QueryEngine::new(graph);
+            engine.execute(&query_owned)
+        })
+        .await
+        .map_err(|e| crate::error::NaviscopeError::Internal(e.to_string()))??;
+
+        Ok(result)
     }
 
     /// Rebuild the index (async)
@@ -84,10 +92,11 @@ impl EngineHandle {
     }
 
     /// Execute a query (sync)
-    ///
-    /// Note: Query functionality temporarily disabled pending QueryEngine refactor  
-    pub fn query_blocking(&self, _query: &GraphQuery) -> Result<QueryResult> {
-        unimplemented!("Query functionality will be restored in Phase 2")
+    pub fn query_blocking(&self, query: &GraphQuery) -> Result<QueryResult> {
+        let graph = self.graph_blocking();
+        // Use the generic QueryEngine - it owns the graph
+        let engine = crate::query::QueryEngine::new(graph);
+        engine.execute(query)
     }
 
     /// Rebuild the index (sync)
@@ -150,5 +159,47 @@ mod tests {
         while let Some(result) = set.join_next().await {
             result.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn test_query_functionality() {
+        use crate::query::GraphQuery;
+
+        let engine = Arc::new(NaviscopeEngine::new(PathBuf::from(".")));
+        let handle = EngineHandle::from_engine(engine);
+
+        // Test async query
+        let query = GraphQuery::Find {
+            pattern: "test".to_string(),
+            kind: vec![],
+            limit: 10,
+        };
+
+        let result = handle.query(&query).await;
+        assert!(result.is_ok(), "Query should execute successfully");
+    }
+
+    #[test]
+    fn test_query_blocking() {
+        use crate::query::GraphQuery;
+
+        std::thread::spawn(|| {
+            let engine = Arc::new(NaviscopeEngine::new(PathBuf::from(".")));
+            let handle = EngineHandle::from_engine(engine);
+
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let _guard = rt.enter();
+
+            let query = GraphQuery::Find {
+                pattern: "test".to_string(),
+                kind: vec![],
+                limit: 10,
+            };
+
+            let result = handle.query_blocking(&query);
+            assert!(result.is_ok(), "Blocking query should execute successfully");
+        })
+        .join()
+        .unwrap();
     }
 }

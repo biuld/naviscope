@@ -48,12 +48,12 @@ impl CodeGraphLike for crate::engine::CodeGraph {
     }
 }
 
-pub struct QueryEngine<'a> {
-    graph: &'a dyn CodeGraphLike,
+pub struct QueryEngine<G> {
+    graph: G,
 }
 
-impl<'a> QueryEngine<'a> {
-    pub fn new(graph: &'a dyn CodeGraphLike) -> Self {
+impl<G: CodeGraphLike> QueryEngine<G> {
+    pub fn new(graph: G) -> Self {
         Self { graph }
     }
 
