@@ -8,6 +8,8 @@ pub enum NaviscopeError {
     Json(#[from] serde_json::Error),
     #[error("Parsing error: {0}")]
     Parsing(String),
+    #[error("Internal error: {0}")]
+    Internal(String),
     #[error("Unknown error")]
     Unknown,
 }

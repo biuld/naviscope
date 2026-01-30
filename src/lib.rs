@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod engine;
 pub mod error;
 pub mod index;
 pub mod logging;
