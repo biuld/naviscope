@@ -17,3 +17,6 @@ pub use builder::CodeGraphBuilder;
 pub use engine::NaviscopeEngine;
 pub use graph::CodeGraph;
 pub use handle::EngineHandle;
+
+pub const CURRENT_VERSION: u32 = 1;
+pub const DEFAULT_INDEX_DIR: &str = ".naviscope/indices";

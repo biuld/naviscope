@@ -2,7 +2,6 @@
 
 use super::{CodeGraph, CodeGraphBuilder};
 use crate::error::{NaviscopeError, Result};
-use crate::index;
 use crate::project::scanner::Scanner;
 use crate::resolver::engine::IndexResolver;
 use std::path::{Path, PathBuf};
@@ -46,7 +45,7 @@ impl NaviscopeEngine {
 
     /// Compute index storage path for a project
     fn compute_index_path(project_root: &Path) -> PathBuf {
-        let base_dir = index::Naviscope::get_base_index_dir();
+        let base_dir = Self::get_base_index_dir();
         let abs_path = project_root
             .canonicalize()
             .unwrap_or_else(|_| project_root.to_path_buf());
@@ -122,6 +121,39 @@ impl NaviscopeEngine {
         // For now, just rebuild
         // TODO: implement change detection
         self.rebuild().await
+    }
+
+    /// Clear the index for the current project
+    pub async fn clear_project_index(&self) -> Result<()> {
+        let path = self.index_path.clone();
+        if path.exists() {
+            tokio::fs::remove_file(path).await?;
+        }
+
+        // Reset current graph
+        let mut lock = self.current.write().await;
+        *lock = Arc::new(CodeGraph::empty());
+
+        Ok(())
+    }
+
+    /// Clear all indices
+    pub fn clear_all_indices() -> Result<()> {
+        let base_dir = Self::get_base_index_dir();
+        if base_dir.exists() {
+            std::fs::remove_dir_all(&base_dir)?;
+        }
+        Ok(())
+    }
+
+    /// Gets the base directory for storing indices, supporting NAVISCOPE_INDEX_DIR env var.
+    pub fn get_base_index_dir() -> PathBuf {
+        if let Ok(env_dir) = std::env::var("NAVISCOPE_INDEX_DIR") {
+            return PathBuf::from(env_dir);
+        }
+
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        Path::new(&home).join(super::DEFAULT_INDEX_DIR)
     }
 
     // ---- Helper methods ----

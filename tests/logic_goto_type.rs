@@ -39,7 +39,7 @@ fn test_goto_type_definition_variable() {
     assert!(!type_res.is_empty());
     let matches = resolver.find_matches(&index, &type_res[0]);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology[matches[0]].fqn(), "Model");
+    assert_eq!(index.topology()[matches[0]].fqn(), "Model");
 }
 
 #[test]
@@ -69,5 +69,5 @@ fn test_goto_type_definition_method_return() {
     assert!(!type_res.is_empty());
     let matches = resolver.find_matches(&index, &type_res[0]);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology[matches[0]].fqn(), "Model");
+    assert_eq!(index.topology()[matches[0]].fqn(), "Model");
 }

@@ -1,5 +1,5 @@
+use crate::engine::CodeGraph;
 use crate::error::Result;
-use crate::index::CodeGraph;
 use crate::model::graph::{EdgeType, GraphEdge, GraphNode, NodeKind, ResolvedUnit};
 use crate::model::lang::java::{JavaElement, JavaPackage};
 use crate::model::signature::TypeRef;
@@ -330,7 +330,7 @@ impl SemanticResolver for JavaResolver {
 impl LangResolver for JavaResolver {
     fn resolve(&self, file: &ParsedFile, context: &ProjectContext) -> Result<ResolvedUnit> {
         let mut unit = ResolvedUnit::new();
-        let dummy_index = CodeGraph::new();
+        let dummy_index = CodeGraph::empty();
 
         if let ParsedContent::Java(parse_result) = &file.content {
             let module_id = context

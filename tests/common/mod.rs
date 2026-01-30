@@ -1,4 +1,4 @@
-use naviscope::index::CodeGraph;
+use naviscope::engine::{CodeGraph, CodeGraphBuilder};
 use naviscope::model::graph::GraphOp;
 use naviscope::parser::IndexParser;
 use naviscope::parser::java::JavaParser;
@@ -12,7 +12,7 @@ use tree_sitter::Parser;
 pub fn setup_java_test_graph(
     files: Vec<(&str, &str)>,
 ) -> (CodeGraph, Vec<(PathBuf, String, tree_sitter::Tree)>) {
-    let mut index = CodeGraph::new();
+    let mut builder = CodeGraphBuilder::new();
     let mut parsed_files = Vec::new();
     let java_parser = JavaParser::new().unwrap();
     let mut ts_parser = Parser::new();
@@ -48,43 +48,20 @@ pub fn setup_java_test_graph(
         parsed_files.push((pf.file.path.clone(), content.to_string(), tree));
     }
 
-    // Apply Node operations first
+    // Apply operations in two passes to ensure nodes exist before edges
+    // Pass 1: Nodes
     for op in &all_ops {
         if let GraphOp::AddNode { .. } = op {
-            apply_op_to_graph(&mut index, op.clone());
+            builder.apply_op(op.clone()).unwrap();
         }
     }
 
-    // Apply Edge operations next
+    // Pass 2: Edges and others
     for op in &all_ops {
-        if let GraphOp::AddEdge { .. } = op {
-            apply_op_to_graph(&mut index, op.clone());
+        if !matches!(op, GraphOp::AddNode { .. }) {
+            builder.apply_op(op.clone()).unwrap();
         }
     }
 
-    (index, parsed_files)
-}
-
-pub fn apply_op_to_graph(index: &mut CodeGraph, op: GraphOp) {
-    match op {
-        GraphOp::AddNode { id, data } => {
-            let path = data.file_path().cloned();
-            let idx = index.get_or_create_node(&id, data);
-            if let Some(p) = path {
-                index.path_to_nodes.entry(p).or_default().push(idx);
-            }
-        }
-        GraphOp::AddEdge {
-            from_id,
-            to_id,
-            edge,
-        } => {
-            let from_idx = index.fqn_map.get(&from_id).cloned();
-            let to_idx = index.fqn_map.get(&to_id).cloned();
-            if let (Some(s_idx), Some(t_idx)) = (from_idx, to_idx) {
-                index.topology.add_edge(s_idx, t_idx, edge);
-            }
-        }
-        _ => {}
-    }
+    (builder.build(), parsed_files)
 }

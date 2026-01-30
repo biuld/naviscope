@@ -42,12 +42,12 @@ fn test_call_hierarchy_incoming() {
     // Check callers
     let mut callers = Vec::new();
     let mut incoming = index
-        .topology
+        .topology()
         .neighbors_directed(target_idx, Direction::Incoming)
         .detach();
-    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
-        if index.topology[edge_idx].edge_type == EdgeType::Calls {
-            callers.push(index.topology[neighbor_idx].fqn().to_string());
+    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology()) {
+        if index.topology()[edge_idx].edge_type == EdgeType::Calls {
+            callers.push(index.topology()[neighbor_idx].fqn().to_string());
         }
     }
 
@@ -83,12 +83,12 @@ fn test_call_hierarchy_outgoing() {
     // Check callees
     let mut callees = Vec::new();
     let mut outgoing = index
-        .topology
+        .topology()
         .neighbors_directed(target_idx, Direction::Outgoing)
         .detach();
-    while let Some((edge_idx, neighbor_idx)) = outgoing.next(&index.topology) {
-        if index.topology[edge_idx].edge_type == EdgeType::Calls {
-            callees.push(index.topology[neighbor_idx].fqn().to_string());
+    while let Some((edge_idx, neighbor_idx)) = outgoing.next(&index.topology()) {
+        if index.topology()[edge_idx].edge_type == EdgeType::Calls {
+            callees.push(index.topology()[neighbor_idx].fqn().to_string());
         }
     }
 
@@ -120,12 +120,13 @@ fn test_call_hierarchy_recursion() {
 
     // Incoming should contain itself
     let callers: Vec<_> = index
-        .topology
+        .topology()
         .neighbors_directed(idx, Direction::Incoming)
         .filter(|&n| {
-            index.topology[index.topology.find_edge(n, idx).unwrap()].edge_type == EdgeType::Calls
+            index.topology()[index.topology().find_edge(n, idx).unwrap()].edge_type
+                == EdgeType::Calls
         })
-        .map(|n| index.topology[n].fqn().to_string())
+        .map(|n| index.topology()[n].fqn().to_string())
         .collect();
 
     assert!(callers.contains(&"Test.rec".to_string()));

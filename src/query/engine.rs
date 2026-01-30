@@ -42,29 +42,6 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
     }
 }
 
-// Implement for old CodeGraph
-impl CodeGraphLike for crate::index::CodeGraph {
-    fn topology(
-        &self,
-    ) -> &petgraph::stable_graph::StableDiGraph<
-        crate::model::graph::GraphNode,
-        crate::model::graph::GraphEdge,
-    > {
-        &self.topology
-    }
-
-    fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex> {
-        &self.fqn_map
-    }
-
-    fn path_to_nodes(
-        &self,
-    ) -> &std::collections::HashMap<std::path::PathBuf, Vec<petgraph::stable_graph::NodeIndex>>
-    {
-        &self.path_to_nodes
-    }
-}
-
 // Implement for new CodeGraph
 impl CodeGraphLike for crate::engine::CodeGraph {
     fn topology(

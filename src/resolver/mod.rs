@@ -1,5 +1,4 @@
 use crate::error::Result;
-// use crate::index::CodeGraph; // Removed
 use crate::model::graph::ResolvedUnit;
 use crate::parser::SymbolResolution;
 use crate::project::scanner::ParsedFile;

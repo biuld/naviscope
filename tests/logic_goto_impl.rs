@@ -43,7 +43,7 @@ fn test_goto_implementation_interface() {
 
     let fqns: Vec<_> = impls
         .iter()
-        .map(|&i| index.topology[i].fqn().to_string())
+        .map(|&i| index.topology()[i].fqn().to_string())
         .collect();
     assert!(fqns.contains(&"ImplA".to_string()));
     assert!(fqns.contains(&"ImplB".to_string()));
@@ -73,5 +73,5 @@ fn test_goto_implementation_method() {
 
     let impls = resolver.find_implementations(&index, &res);
     assert_eq!(impls.len(), 1);
-    assert_eq!(index.topology[impls[0]].fqn(), "Impl.act");
+    assert_eq!(index.topology()[impls[0]].fqn(), "Impl.act");
 }

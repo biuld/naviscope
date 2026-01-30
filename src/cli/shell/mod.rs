@@ -6,16 +6,12 @@ mod highlighter;
 mod prompt;
 mod view;
 
-use naviscope::index::Naviscope;
-use naviscope::project::watcher::Watcher;
 use reedline::{
     ColumnarMenu, DefaultHinter, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder,
     Reedline, ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::thread;
-use std::time::Duration;
 use tracing::{error, info};
 
 use self::command::{ShellCommand, parse_shell_command};
@@ -25,24 +21,29 @@ use self::highlighter::NaviscopeHighlighter;
 use self::prompt::DefaultPrompt;
 
 // Shell configuration constants
+// Shell configuration constants
 const SHELL_HISTORY_SIZE: usize = 500;
-const WATCHER_DEBOUNCE_MS: u64 = 500;
 
 pub struct ReplServer {
     context: ShellContext,
     project_path: PathBuf,
+    // Runtime must be kept alive for the shell session
+    rt: tokio::runtime::Runtime,
 }
 
 impl ReplServer {
     pub fn new(project_path: PathBuf) -> Self {
-        let engine = Naviscope::new(project_path.clone());
-        let naviscope = Arc::new(RwLock::new(engine));
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+        let engine = naviscope::engine::handle::EngineHandle::new(project_path.clone());
         let current_node = Arc::new(RwLock::new(None));
-        let context = ShellContext::new(naviscope, current_node);
+
+        // Pass runtime handle to context for blocking async calls
+        let context = ShellContext::new(engine, rt.handle().clone(), current_node);
 
         Self {
             context,
             project_path,
+            rt,
         }
     }
 
@@ -50,7 +51,13 @@ impl ReplServer {
         println!("Project: {:?}", self.project_path);
 
         self.initialize_index()?;
-        self.start_watcher();
+
+        // Start watcher (spawns background task on the runtime)
+        if let Err(e) = self.rt.block_on(self.context.engine.watch()) {
+            error!("Failed to start file watcher: {}", e);
+        } else {
+            info!("File watcher started.");
+        }
 
         println!("Type 'help' for commands.");
 
@@ -59,109 +66,65 @@ impl ReplServer {
     }
 
     fn initialize_index(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut engine = self.context.naviscope.write().unwrap();
+        let engine = &self.context.engine;
         let start = std::time::Instant::now();
 
-        // Try to load existing index
-        match engine.load() {
+        // Load index (blocking on async)
+        match self.rt.block_on(engine.load()) {
             Ok(true) => {
-                let index = engine.graph();
+                let index = self.context.graph();
                 println!(
                     "Index loaded from disk in {:?}. Nodes: {}, Edges: {}",
                     start.elapsed(),
-                    index.topology.node_count(),
-                    index.topology.edge_count()
+                    index.topology().node_count(),
+                    index.topology().edge_count()
                 );
             }
             Ok(false) => {
-                println!("No existing index found. Building fresh index...");
+                println!("No existing index found or it was stale. Rebuilding...");
+                // If load returns false, we should verify/rebuild.
+                // But refresh() below will handle it anyway.
             }
             Err(e) => {
                 error!("Failed to load index: {}", e);
-                println!("Failed to load index: {}. Starting fresh scan...", e);
+                // Continue to rebuild
             }
         }
 
-        // Sync with filesystem (refresh) synchronously before starting the shell
+        // Sync with filesystem (rebuild/refresh)
         let sync_start = std::time::Instant::now();
-        if let Err(e) = engine.refresh() {
+        if let Err(e) = self.rt.block_on(engine.refresh()) {
             error!("Synchronization failed: {}", e);
             println!("Warning: Index synchronization failed: {}", e);
         } else {
-            let index = engine.graph();
+            let index = self.context.graph();
             println!(
                 "Index synchronized in {:?}. Total nodes: {}",
                 sync_start.elapsed(),
-                index.topology.node_count()
+                index.topology().node_count()
             );
 
             // Auto-set context to Project node if it exists
             use naviscope::model::graph::NodeKind;
 
             let project_nodes: Vec<_> = index
-                .topology
+                .topology()
                 .node_indices()
                 .filter(|&idx| {
-                    let node = &index.topology[idx];
+                    let node = &index.topology()[idx];
                     node.kind() == NodeKind::Project
                 })
                 .collect();
 
             if project_nodes.len() == 1 {
-                let fqn = index.topology[project_nodes[0]].fqn().to_string();
+                let fqn = index.topology()[project_nodes[0]].fqn().to_string();
                 self.context.set_current_fqn(Some(fqn));
             }
         }
         Ok(())
     }
 
-    fn start_watcher(&self) {
-        let naviscope_clone = self.context.naviscope.clone();
-        let path_clone = self.project_path.clone();
-
-        thread::spawn(move || {
-            let mut watcher = match Watcher::new(&path_clone) {
-                Ok(w) => w,
-                Err(e) => {
-                    error!("Failed to start watcher: {}", e);
-                    return;
-                }
-            };
-
-            loop {
-                if let Some(event) = watcher.next_event() {
-                    if !event
-                        .paths
-                        .iter()
-                        .any(|p| naviscope::project::is_relevant_path(p))
-                    {
-                        continue;
-                    }
-
-                    thread::sleep(Duration::from_millis(WATCHER_DEBOUNCE_MS));
-                    while watcher.try_next_event().is_some() {}
-
-                    info!("Change detected. Re-indexing...");
-
-                    match naviscope_clone.write() {
-                        Ok(mut engine) => {
-                            if let Err(e) = engine.refresh() {
-                                error!("Error during re-indexing: {}", e);
-                            } else {
-                                let index = engine.graph();
-                                info!(
-                                    "Indexing complete! Nodes: {}, Edges: {}",
-                                    index.topology.node_count(),
-                                    index.topology.edge_count()
-                                );
-                            }
-                        }
-                        Err(e) => error!("Failed to acquire lock for re-indexing: {}", e),
-                    }
-                }
-            }
-        });
-    }
+    // Manual start_watcher removed - handled by EngineHandle::watch()
 
     fn setup_line_editor(&self) -> Result<Reedline, Box<dyn std::error::Error>> {
         let commands = ShellCommand::command_names();

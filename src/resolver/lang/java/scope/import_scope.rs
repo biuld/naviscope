@@ -43,7 +43,7 @@ impl SemanticScope<ResolutionContext<'_>> for ImportScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::CodeGraph;
+    use crate::engine::CodeGraph;
     use tree_sitter::Parser;
 
     #[test]
@@ -64,7 +64,7 @@ mod tests {
             .unwrap();
 
         let java_parser = JavaParser::new().unwrap();
-        let index = CodeGraph::new();
+        let index = CodeGraph::empty();
 
         let context = ResolutionContext::new(
             list_node,

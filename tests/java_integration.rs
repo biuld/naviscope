@@ -87,7 +87,7 @@ fn test_inheritance_and_implementations() {
     let impls = resolver.find_implementations(&index, &res);
     assert_eq!(impls.len(), 1);
 
-    let node = &index.topology[impls[0]];
+    let node = &index.topology()[impls[0]];
     assert_eq!(node.fqn(), "C");
 }
 
@@ -431,6 +431,11 @@ public class DefaultApplicationArguments {
             "org.springframework.boot.DefaultApplicationArguments.Source.getNonOptionArgs"
         );
     } else {
+        println!("Graph nodes:");
+        for (fqn, idx) in index.fqn_map() {
+            let node = &index.topology()[*idx];
+            println!(" - {} ({:?})", fqn, node.kind());
+        }
         panic!("Failed to resolve Spring Boot scenario, got {:?}", res);
     }
 }

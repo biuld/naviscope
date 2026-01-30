@@ -1,11 +1,13 @@
-use naviscope::index::{CodeGraph, Naviscope};
+use naviscope::engine::CodeGraph;
+use naviscope::engine::handle::EngineHandle;
 use naviscope::model::graph::GraphNode;
-use naviscope::query::{GraphQuery, QueryEngine};
+use naviscope::query::GraphQuery;
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
 pub struct ShellContext {
-    pub naviscope: Arc<RwLock<Naviscope>>,
+    pub engine: EngineHandle,
+    pub rt_handle: tokio::runtime::Handle,
     pub current_node: Arc<RwLock<Option<String>>>,
 }
 
@@ -17,11 +19,13 @@ pub enum ResolveResult {
 
 impl ShellContext {
     pub fn new(
-        naviscope: Arc<RwLock<Naviscope>>,
+        engine: EngineHandle,
+        rt_handle: tokio::runtime::Handle,
         current_node: Arc<RwLock<Option<String>>>,
     ) -> Self {
         Self {
-            naviscope,
+            engine,
+            rt_handle,
             current_node,
         }
     }
@@ -34,6 +38,19 @@ impl ShellContext {
         *self.current_node.write().unwrap() = fqn;
     }
 
+    /// Helper to get graph snapshot synchronously
+    pub fn graph(&self) -> CodeGraph {
+        self.rt_handle.block_on(self.engine.graph())
+    }
+
+    /// Helper to execute query synchronously
+    pub fn execute_query(
+        &self,
+        query: &GraphQuery,
+    ) -> naviscope::error::Result<naviscope::query::QueryResult> {
+        self.rt_handle.block_on(self.engine.query(query))
+    }
+
     /// Resolves a user input path (absolute FQN, relative path, or fuzzy name) to a concrete FQN.
     pub fn resolve_node(&self, target: &str) -> ResolveResult {
         // 1. Handle special paths
@@ -42,16 +59,15 @@ impl ShellContext {
         }
 
         let curr = self.current_fqn();
-        let engine_guard = self.naviscope.read().unwrap();
-        let graph = engine_guard.graph();
+        let graph = self.graph();
 
         // 2. Handle Parent (..) navigation
-        if let Some(result) = Self::resolve_parent(target, &curr, graph) {
+        if let Some(result) = Self::resolve_parent(target, &curr, &graph) {
             return result;
         }
 
         // 3. Try Exact Match (Absolute FQN)
-        if let Some(result) = Self::resolve_exact_match(target, graph) {
+        if let Some(result) = Self::resolve_exact_match(target, &graph) {
             return result;
         }
 
@@ -60,29 +76,27 @@ impl ShellContext {
             // Join current FQN and target
             let separator = if curr_fqn.contains("::") { "::" } else { "." };
             let joined = format!("{}{}{}", curr_fqn, separator, target);
-            if let Some(result) = Self::resolve_exact_match(&joined, graph) {
+            if let Some(result) = Self::resolve_exact_match(&joined, &graph) {
                 return result;
             }
         }
 
         // 5. Try Child Lookup (Immediate / Fuzzy)
-        Self::resolve_child_lookup(target, &curr, graph)
+        self.resolve_child_lookup(target, &curr, &graph)
     }
 
     /// Handles special paths like "/" (root) and "root".
     fn resolve_special_path(&self, target: &str) -> Option<ResolveResult> {
         if target == "/" || target == "root" {
-            let engine_guard = self.naviscope.read().unwrap();
-            let graph = engine_guard.graph();
-
+            let graph = self.graph();
             use naviscope::model::graph::NodeKind;
 
             // Find all Project nodes
             let project_nodes: Vec<_> = graph
-                .topology
+                .topology()
                 .node_indices()
                 .filter_map(|idx| {
-                    let node = &graph.topology[idx];
+                    let node = &graph.topology()[idx];
                     if node.kind() == NodeKind::Project {
                         Some(node.fqn().to_string())
                     } else {
@@ -113,16 +127,16 @@ impl ShellContext {
 
         if let Some(c) = current_fqn {
             // Graph-based parent lookup
-            if let Some(&idx) = graph.fqn_map.get(c) {
+            if let Some(&idx) = graph.fqn_map().get(c) {
                 let mut incoming = graph
-                    .topology
+                    .topology()
                     .neighbors_directed(idx, petgraph::Direction::Incoming)
                     .detach();
 
-                while let Some((edge_idx, neighbor_idx)) = incoming.next(&graph.topology) {
-                    let edge = &graph.topology[edge_idx];
+                while let Some((edge_idx, neighbor_idx)) = incoming.next(graph.topology()) {
+                    let edge = &graph.topology()[edge_idx];
                     if edge.edge_type == naviscope::model::graph::EdgeType::Contains {
-                        if let Some(parent_node) = graph.topology.node_weight(neighbor_idx) {
+                        if let Some(parent_node) = graph.topology().node_weight(neighbor_idx) {
                             return Some(ResolveResult::Found(parent_node.fqn().to_string()));
                         }
                     }
@@ -150,7 +164,7 @@ impl ShellContext {
 
     /// Tries exact match against absolute FQN.
     fn resolve_exact_match(target: &str, graph: &CodeGraph) -> Option<ResolveResult> {
-        if graph.fqn_map.contains_key(target) {
+        if graph.fqn_map().contains_key(target) {
             Some(ResolveResult::Found(target.to_string()))
         } else {
             None
@@ -159,18 +173,18 @@ impl ShellContext {
 
     /// Tries child lookup with exact and fuzzy name matching.
     fn resolve_child_lookup(
+        &self,
         target: &str,
         current_fqn: &Option<String>,
-        graph: &CodeGraph,
+        _graph: &CodeGraph, // We use self.execute_query instead
     ) -> ResolveResult {
-        let query_engine = QueryEngine::new(graph);
         let children_query = GraphQuery::Ls {
             fqn: current_fqn.clone(),
             kind: vec![],
             modifiers: vec![],
         };
 
-        if let Ok(res) = query_engine.execute(&children_query) {
+        if let Ok(res) = self.execute_query(&children_query) {
             // First pass: Exact Name Match
             let exact_matches = Self::find_exact_name_match(target, &res.nodes);
             if !exact_matches.is_empty() {

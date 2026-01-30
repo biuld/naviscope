@@ -1,8 +1,6 @@
 use crate::engine::handle::EngineHandle; // Updated import
-// use crate::index::Naviscope; // Removed
 use crate::model::graph::{EdgeType, NodeKind};
 use crate::query::GraphQuery;
-// use crate::query::QueryEngine; // Removed - handled by EngineHandle
 use rmcp::{
     ErrorData as McpError,
     handler::server::{tool::ToolRouter, wrapper::Parameters},

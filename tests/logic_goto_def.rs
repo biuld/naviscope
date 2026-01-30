@@ -68,7 +68,7 @@ fn test_goto_definition_cross_file() {
         .expect("Should resolve A");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology[matches[0]].fqn(), "com.A");
+    assert_eq!(index.topology()[matches[0]].fqn(), "com.A");
 
     // 2. Resolve Method hello
     let hello_usage = b_content.find("hello()").unwrap();
@@ -78,7 +78,7 @@ fn test_goto_definition_cross_file() {
         .expect("Should resolve hello");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology[matches[0]].fqn(), "com.A.hello");
+    assert_eq!(index.topology()[matches[0]].fqn(), "com.A.hello");
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn test_goto_definition_constructor() {
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     // In our model, constructor might be the class or the method depending on implementation
-    assert!(index.topology[matches[0]].fqn().contains("A"));
+    assert!(index.topology()[matches[0]].fqn().contains("A"));
 }
 
 #[test]
@@ -155,5 +155,5 @@ fn test_goto_definition_static() {
         .expect("Should resolve static field");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology[matches[0]].fqn(), "A.VAL");
+    assert_eq!(index.topology()[matches[0]].fqn(), "A.VAL");
 }

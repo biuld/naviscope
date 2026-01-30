@@ -15,21 +15,21 @@ fn cap_structural_nesting() {
 
     // Assert FQNs exist
     // Note: JavaResolver prepends "module::root." to packages when no specific module is found
-    assert!(index.fqn_map.contains_key("module::root.com.example"));
-    assert!(index.fqn_map.contains_key("com.example.MyClass"));
-    assert!(index.fqn_map.contains_key("com.example.MyClass.field"));
-    assert!(index.fqn_map.contains_key("com.example.MyClass.method"));
+    assert!(index.fqn_map().contains_key("module::root.com.example"));
+    assert!(index.fqn_map().contains_key("com.example.MyClass"));
+    assert!(index.fqn_map().contains_key("com.example.MyClass.field"));
+    assert!(index.fqn_map().contains_key("com.example.MyClass.method"));
 
     // Assert nesting via 'Contains' edges
-    let class_idx = index.fqn_map["com.example.MyClass"];
-    let pkg_idx = index.fqn_map["module::root.com.example"];
+    let class_idx = index.fqn_map()["com.example.MyClass"];
+    let pkg_idx = index.fqn_map()["module::root.com.example"];
 
-    assert!(index.topology.contains_edge(pkg_idx, class_idx));
+    assert!(index.topology().contains_edge(pkg_idx, class_idx));
 
-    let field_idx = index.fqn_map["com.example.MyClass.field"];
-    let method_idx = index.fqn_map["com.example.MyClass.method"];
-    assert!(index.topology.contains_edge(class_idx, field_idx));
-    assert!(index.topology.contains_edge(class_idx, method_idx));
+    let field_idx = index.fqn_map()["com.example.MyClass.field"];
+    let method_idx = index.fqn_map()["com.example.MyClass.method"];
+    assert!(index.topology().contains_edge(class_idx, field_idx));
+    assert!(index.topology().contains_edge(class_idx, method_idx));
 }
 
 /// Capability 2: Inheritance & Implementation
@@ -42,11 +42,11 @@ fn cap_inheritance_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let base_idx = index.fqn_map["Base"];
-    let impl_idx = index.fqn_map["Impl"];
+    let base_idx = index.fqn_map()["Base"];
+    let impl_idx = index.fqn_map()["Impl"];
 
     let has_implements = index
-        .topology
+        .topology()
         .edges_connecting(impl_idx, base_idx)
         .any(|e| e.weight().edge_type == EdgeType::Implements);
 
@@ -72,11 +72,11 @@ fn cap_cross_file_typing() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let field_idx = index.fqn_map["com.app.Main.field"];
-    let type_a_idx = index.fqn_map["com.lib.TypeA"];
+    let field_idx = index.fqn_map()["com.app.Main.field"];
+    let type_a_idx = index.fqn_map()["com.lib.TypeA"];
 
     let has_typed_as = index
-        .topology
+        .topology()
         .edges_connecting(field_idx, type_a_idx)
         .any(|e| e.weight().edge_type == EdgeType::TypedAs);
 
@@ -96,11 +96,11 @@ fn cap_instantiation_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let b_m_idx = index.fqn_map["B.m"];
-    let a_idx = index.fqn_map["A"];
+    let b_m_idx = index.fqn_map()["B.m"];
+    let a_idx = index.fqn_map()["A"];
 
     let has_instantiates = index
-        .topology
+        .topology()
         .edges_connecting(b_m_idx, a_idx)
         .any(|e| e.weight().edge_type == EdgeType::Instantiates);
 
@@ -120,11 +120,11 @@ fn cap_method_call_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let b_m_idx = index.fqn_map["B.m"];
-    let a_target_idx = index.fqn_map["A.target"];
+    let b_m_idx = index.fqn_map()["B.m"];
+    let a_target_idx = index.fqn_map()["A.target"];
 
     let has_calls = index
-        .topology
+        .topology()
         .edges_connecting(b_m_idx, a_target_idx)
         .any(|e| e.weight().edge_type == EdgeType::Calls);
 
@@ -146,11 +146,11 @@ fn cap_interface_extension() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let super_idx = index.fqn_map["Super"];
-    let sub_idx = index.fqn_map["Sub"];
+    let super_idx = index.fqn_map()["Super"];
+    let sub_idx = index.fqn_map()["Sub"];
 
     let has_inherits = index
-        .topology
+        .topology()
         .edges_connecting(sub_idx, super_idx)
         .any(|e| e.weight().edge_type == EdgeType::InheritsFrom);
 
@@ -170,11 +170,11 @@ fn cap_annotation_usage() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let app_idx = index.fqn_map["App"];
-    let anno_idx = index.fqn_map["MyAnno"];
+    let app_idx = index.fqn_map()["App"];
+    let anno_idx = index.fqn_map()["MyAnno"];
 
     let has_decorated = index
-        .topology
+        .topology()
         .edges_connecting(app_idx, anno_idx)
         .any(|e| e.weight().edge_type == EdgeType::DecoratedBy);
 
@@ -197,11 +197,11 @@ fn cap_static_field_access() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let main_s_idx = index.fqn_map["Main.s"];
-    let config_key_idx = index.fqn_map["Config.KEY"];
+    let main_s_idx = index.fqn_map()["Main.s"];
+    let config_key_idx = index.fqn_map()["Config.KEY"];
 
     let has_edge = index
-        .topology
+        .topology()
         .edges_connecting(main_s_idx, config_key_idx)
         .count()
         > 0;
@@ -225,11 +225,11 @@ fn cap_generic_type_link() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let list_idx = index.fqn_map["Main.list"];
-    let type_a_idx = index.fqn_map["TypeA"];
+    let list_idx = index.fqn_map()["Main.list"];
+    let type_a_idx = index.fqn_map()["TypeA"];
 
     let has_link = index
-        .topology
+        .topology()
         .edges_connecting(list_idx, type_a_idx)
         .any(|e| e.weight().edge_type == EdgeType::TypedAs);
 

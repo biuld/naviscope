@@ -8,7 +8,6 @@ pub mod symbols;
 pub mod util;
 
 use crate::engine::handle::EngineHandle; // Use new EngineHandle
-// use crate::index::Naviscope; // Removed
 use crate::lsp::util::Document;
 use dashmap::DashMap;
 use std::path::PathBuf;

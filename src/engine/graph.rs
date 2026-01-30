@@ -32,7 +32,7 @@ impl CodeGraph {
     pub fn empty() -> Self {
         Self {
             inner: std::sync::Arc::new(CodeGraphInner {
-                version: crate::index::CURRENT_VERSION,
+                version: crate::engine::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
                 fqn_map: HashMap::new(),
                 name_map: HashMap::new(),
@@ -146,6 +146,15 @@ impl CodeGraph {
         let inner: CodeGraphInner = rmp_serde::from_slice(bytes)?;
         Ok(Self::from_inner(inner))
     }
+
+    /// Save graph to JSON file (for debugging)
+    pub fn save_to_json<P: AsRef<std::path::Path>>(&self, path: P) -> crate::error::Result<()> {
+        let file = std::fs::File::create(path)?;
+        let writer = std::io::BufWriter::new(file);
+        serde_json::to_writer_pretty(writer, &*self.inner)
+            .map_err(|e| crate::error::NaviscopeError::Parsing(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -176,6 +185,6 @@ mod tests {
         let graph = CodeGraph::empty();
         assert_eq!(graph.node_count(), 0);
         assert_eq!(graph.edge_count(), 0);
-        assert_eq!(graph.version(), crate::index::CURRENT_VERSION);
+        assert_eq!(graph.version(), crate::engine::CURRENT_VERSION);
     }
 }

@@ -39,13 +39,13 @@ fn test_goto_references_method() {
     // Check incoming 'Calls' edges
     let mut callers = Vec::new();
     let mut incoming = index
-        .topology
+        .topology()
         .neighbors_directed(target_idx, Direction::Incoming)
         .detach();
-    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
-        let edge = &index.topology[edge_idx];
+    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology()) {
+        let edge = &index.topology()[edge_idx];
         if edge.edge_type == EdgeType::Calls {
-            callers.push(index.topology[neighbor_idx].fqn().to_string());
+            callers.push(index.topology()[neighbor_idx].fqn().to_string());
         }
     }
 

@@ -1,7 +1,6 @@
 use super::command::ShellCommand;
 use super::context::{ResolveResult, ShellContext};
 use naviscope::query::GraphQuery;
-use naviscope::query::QueryEngine;
 
 pub trait CommandHandler {
     fn handle(
@@ -72,10 +71,8 @@ impl CommandHandler for CatHandler {
                 return Err("Cannot cat root.".into());
             }
 
-            let engine_guard = context.naviscope.read().unwrap();
-            let engine = QueryEngine::new(engine_guard.graph());
             let query = GraphQuery::Cat { fqn };
-            let result = engine.execute(&query)?;
+            let result = context.execute_query(&query)?;
 
             cmd.render(result)
         } else {
@@ -132,15 +129,13 @@ impl CommandHandler for GenericQueryHandler {
         };
 
         let query = resolved_cmd.to_graph_query(&current_node)?;
-        let engine_guard = context.naviscope.read().unwrap();
-        let engine = QueryEngine::new(engine_guard.graph());
-
-        let result = engine.execute(&query)?;
+        let result = context.execute_query(&query)?;
 
         if result.is_empty() {
             if let Some(target) = resolved_target_fqn {
                 // Check if node itself exists in the graph
-                if engine_guard.graph().fqn_map.contains_key(&target) {
+                let graph = context.graph();
+                if graph.fqn_map().contains_key(&target) {
                     return Ok(format!(
                         "Node '{}' exists but has no children/relationships matching your criteria.",
                         target

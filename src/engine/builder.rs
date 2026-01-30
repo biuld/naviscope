@@ -21,7 +21,7 @@ impl CodeGraphBuilder {
     pub fn new() -> Self {
         Self {
             inner: CodeGraphInner {
-                version: crate::index::CURRENT_VERSION,
+                version: crate::engine::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
                 fqn_map: HashMap::new(),
                 name_map: HashMap::new(),

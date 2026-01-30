@@ -363,7 +363,9 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::CodeGraph;
+    use crate::engine::CodeGraphBuilder;
+    use crate::model::graph::{BuildSystem, GraphNode};
+    use std::path::PathBuf;
     use tree_sitter::Parser;
 
     #[test]
@@ -385,11 +387,16 @@ mod tests {
             .unwrap();
 
         let java_parser = JavaParser::new().unwrap();
-        let mut index = CodeGraph::new();
-        // Register Test.field in index
-        index
-            .fqn_map
-            .insert("Test.field".to_string(), petgraph::graph::NodeIndex::new(0));
+
+        // Build graph with Test.field
+        let mut builder = CodeGraphBuilder::new();
+        let dummy_node = GraphNode::project(
+            "Test.field".to_string(),
+            PathBuf::from("."),
+            BuildSystem::Unknown,
+        );
+        builder.add_node("Test.field".to_string(), dummy_node);
+        let index = builder.build();
 
         let context = ResolutionContext::new(
             field_node,
