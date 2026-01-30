@@ -7,7 +7,8 @@ pub mod indexer;
 pub mod symbols;
 pub mod util;
 
-use crate::index::Naviscope;
+use crate::engine::handle::EngineHandle; // Use new EngineHandle
+// use crate::index::Naviscope; // Removed
 use crate::lsp::util::Document;
 use dashmap::DashMap;
 use std::path::PathBuf;
@@ -20,7 +21,7 @@ use tower_lsp::{Client, LanguageServer};
 
 pub struct LspServer {
     client: Client,
-    pub engine: Arc<RwLock<Option<Naviscope>>>,
+    pub engine: Arc<RwLock<Option<EngineHandle>>>, // Updated type
     pub documents: DashMap<Url, Arc<Document>>,
     pub resolver: Arc<crate::resolver::engine::IndexResolver>,
     session_path: Arc<RwLock<Option<PathBuf>>>,

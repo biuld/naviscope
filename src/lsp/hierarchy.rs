@@ -1,5 +1,6 @@
 use crate::lsp::LspServer;
 use crate::model::graph::{EdgeType, NodeKind};
+use crate::query::CodeGraphLike;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
@@ -20,7 +21,10 @@ pub async fn prepare_call_hierarchy(
         Some(n) => n,
         None => return Ok(None),
     };
-    let index = engine.graph();
+
+    // EngineHandle::graph is async and returns CodeGraph
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
@@ -54,8 +58,10 @@ pub async fn prepare_call_hierarchy(
         resolver.find_matches(index, &resolution)
     };
 
+    let topology = index.topology();
+
     for idx in matches {
-        let node = &index.topology[idx];
+        let node = &topology[idx];
         let kind = node.kind();
         if kind == NodeKind::Method || kind == NodeKind::Constructor {
             if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
@@ -100,22 +106,24 @@ pub async fn incoming_calls(
         None => return Ok(None),
     };
 
-    let index = engine.graph();
-    let node_idx = match index.fqn_map.get(&fqn) {
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
+
+    let node_idx = match index.fqn_map().get(&fqn) {
         Some(&idx) => idx,
         None => return Ok(None),
     };
 
     let mut calls = Vec::new();
-    let mut incoming = index
-        .topology
+    let topology = index.topology();
+    let mut incoming = topology
         .neighbors_directed(node_idx, petgraph::Direction::Incoming)
         .detach();
 
-    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
-        let edge = &index.topology[edge_idx];
+    while let Some((edge_idx, neighbor_idx)) = incoming.next(topology) {
+        let edge = &topology[edge_idx];
         if edge.edge_type == EdgeType::Calls {
-            let source_node = &index.topology[neighbor_idx];
+            let source_node = &topology[neighbor_idx];
             if let (Some(source_path), Some(range)) = (source_node.file_path(), source_node.range())
             {
                 let lsp_range = Range {
@@ -163,22 +171,24 @@ pub async fn outgoing_calls(
         None => return Ok(None),
     };
 
-    let index = engine.graph();
-    let node_idx = match index.fqn_map.get(&fqn) {
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
+
+    let node_idx = match index.fqn_map().get(&fqn) {
         Some(&idx) => idx,
         None => return Ok(None),
     };
 
     let mut calls = Vec::new();
-    let mut outgoing = index
-        .topology
+    let topology = index.topology();
+    let mut outgoing = topology
         .neighbors_directed(node_idx, petgraph::Direction::Outgoing)
         .detach();
 
-    while let Some((edge_idx, neighbor_idx)) = outgoing.next(&index.topology) {
-        let edge = &index.topology[edge_idx];
+    while let Some((edge_idx, neighbor_idx)) = outgoing.next(topology) {
+        let edge = &topology[edge_idx];
         if edge.edge_type == EdgeType::Calls {
-            let target_node = &index.topology[neighbor_idx];
+            let target_node = &topology[neighbor_idx];
             if let (Some(target_path), Some(range)) = (target_node.file_path(), target_node.range())
             {
                 let lsp_range = Range {

@@ -18,7 +18,7 @@ pub struct CodeGraph {
 
 /// Internal data structure (shared via Arc)
 #[derive(Serialize, Deserialize, Clone)]
-pub(super) struct CodeGraphInner {
+pub(crate) struct CodeGraphInner {
     pub version: u32,
     pub topology: StableDiGraph<GraphNode, GraphEdge>,
     pub fqn_map: HashMap<String, NodeIndex>,

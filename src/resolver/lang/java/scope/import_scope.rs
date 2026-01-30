@@ -28,7 +28,7 @@ impl SemanticScope<ResolutionContext<'_>> for ImportScope<'_> {
                     .and_then(|candidate| {
                         context
                             .index
-                            .fqn_map
+                            .fqn_map()
                             .contains_key(&candidate)
                             .then_some(candidate)
                     })

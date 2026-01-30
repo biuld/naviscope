@@ -60,7 +60,7 @@ impl MemberScope<'_> {
 
     fn resolve_fqn_from_context(&self, name: &str, context: &ResolutionContext) -> Option<String> {
         // 1. Check if it's already an FQN in the index or current unit
-        if context.index.fqn_map.contains_key(name)
+        if context.index.fqn_map().contains_key(name)
             || context.unit.map_or(false, |u| u.nodes.contains_key(name))
         {
             return Some(name.to_string());
@@ -69,7 +69,7 @@ impl MemberScope<'_> {
         // 2. Check inner classes in enclosing classes
         for container_fqn in &context.enclosing_classes {
             let candidate = format!("{}.{}", container_fqn, name);
-            if context.index.fqn_map.contains_key(&candidate)
+            if context.index.fqn_map().contains_key(&candidate)
                 || context
                     .unit
                     .map_or(false, |u| u.nodes.contains_key(&candidate))
@@ -122,8 +122,8 @@ impl MemberScope<'_> {
                     let candidate = format!("{}.{}", container_fqn, name);
 
                     // Check index
-                    if let Some(&idx) = context.index.fqn_map.get(&candidate) {
-                        let node = &context.index.topology[idx];
+                    if let Some(&idx) = context.index.fqn_map().get(&candidate) {
+                        let node = &context.index.topology()[idx];
                         if let GraphNode::Code(crate::model::graph::CodeElement::Java {
                             element: JavaElement::Field(f),
                             ..
@@ -154,7 +154,7 @@ impl MemberScope<'_> {
                         .resolve_type_name_to_fqn(name, context.tree, context.source)?;
 
                 // If it's a known class, return it.
-                if context.index.fqn_map.contains_key(&fqn)
+                if context.index.fqn_map().contains_key(&fqn)
                     || context.unit.map_or(false, |u| u.nodes.contains_key(&fqn))
                 {
                     return Some(TypeRef::Id(fqn.clone()));
@@ -176,11 +176,11 @@ impl MemberScope<'_> {
                 let field_fqn = format!("{}.{}", receiver_type, field_name);
 
                 // Check index
-                if let Some(&idx) = context.index.fqn_map.get(&field_fqn) {
+                if let Some(&idx) = context.index.fqn_map().get(&field_fqn) {
                     if let GraphNode::Code(crate::model::graph::CodeElement::Java {
                         element: JavaElement::Field(f),
                         ..
-                    }) = &context.index.topology[idx]
+                    }) = &context.index.topology()[idx]
                     {
                         return Some(f.type_ref.clone());
                     }
@@ -213,11 +213,11 @@ impl MemberScope<'_> {
                 let method_fqn = format!("{}.{}", receiver_type, method_name);
 
                 // Check index
-                if let Some(&idx) = context.index.fqn_map.get(&method_fqn) {
+                if let Some(&idx) = context.index.fqn_map().get(&method_fqn) {
                     if let GraphNode::Code(crate::model::graph::CodeElement::Java {
                         element: JavaElement::Method(m),
                         ..
-                    }) = &context.index.topology[idx]
+                    }) = &context.index.topology()[idx]
                     {
                         return Some(m.return_type.clone());
                     }
@@ -331,7 +331,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                     .and_then(|raw_type_fqn| self.resolve_fqn_from_context(&raw_type_fqn, context))
                     .map(|type_fqn| format!("{}.{}", type_fqn, name))
                     .and_then(|candidate| {
-                        let exists = context.index.fqn_map.contains_key(&candidate)
+                        let exists = context.index.fqn_map().contains_key(&candidate)
                             || context
                                 .unit
                                 .map_or(false, |u| u.nodes.contains_key(&candidate));
@@ -347,7 +347,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                     .iter()
                     .map(|container_fqn| format!("{}.{}", container_fqn, name))
                     .find(|candidate| {
-                        context.index.fqn_map.contains_key(candidate)
+                        context.index.fqn_map().contains_key(candidate)
                             || context
                                 .unit
                                 .map_or(false, |u| u.nodes.contains_key(candidate))

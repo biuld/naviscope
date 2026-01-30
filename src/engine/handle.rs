@@ -108,7 +108,6 @@ impl EngineHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[tokio::test]
     async fn test_async_graph_access() {

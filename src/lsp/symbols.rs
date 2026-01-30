@@ -1,6 +1,6 @@
-use crate::index::CodeGraph;
 use crate::lsp::LspServer;
 use crate::model::graph::EdgeType;
+use crate::query::CodeGraphLike;
 use petgraph::stable_graph::NodeIndex;
 use std::collections::HashSet;
 use std::path::Path;
@@ -20,8 +20,9 @@ pub async fn document_symbol(
     // 1. Try to get symbols from the global graph first (semantic view)
     let engine_lock = server.engine.read().await;
     if let Some(engine) = &*engine_lock {
-        let graph = engine.graph();
-        let symbols = get_symbols_from_graph(graph, &path);
+        let graph = engine.graph().await;
+        // Coerce &CodeGraph to &dyn CodeGraphLike
+        let symbols = get_symbols_from_graph(&graph, &path);
         if !symbols.is_empty() {
             if let Some((parser, _)) = server.get_parser_and_lang_for_uri(&uri) {
                 let lsp_symbols = convert_symbols(symbols, parser.as_ref());
@@ -43,8 +44,11 @@ pub async fn document_symbol(
     Ok(None)
 }
 
-fn get_symbols_from_graph(graph: &CodeGraph, path: &Path) -> Vec<crate::parser::DocumentSymbol> {
-    let node_indices = match graph.path_to_nodes.get(path) {
+fn get_symbols_from_graph(
+    graph: &dyn CodeGraphLike,
+    path: &Path,
+) -> Vec<crate::parser::DocumentSymbol> {
+    let node_indices = match graph.path_to_nodes().get(path) {
         Some(indices) => indices,
         None => return vec![],
     };
@@ -53,15 +57,15 @@ fn get_symbols_from_graph(graph: &CodeGraph, path: &Path) -> Vec<crate::parser::
 
     // Find roots: nodes in this file that don't have a parent in this same file
     let mut roots = Vec::new();
+    let topology = graph.topology();
+
     for &idx in node_indices {
         let mut has_parent_in_file = false;
-        let mut incoming = graph
-            .topology
+        let mut incoming = topology
             .neighbors_directed(idx, petgraph::Direction::Incoming)
             .detach();
-        while let Some((edge_idx, parent_idx)) = incoming.next(&graph.topology) {
-            if graph.topology[edge_idx].edge_type == EdgeType::Contains
-                && node_set.contains(&parent_idx)
+        while let Some((edge_idx, parent_idx)) = incoming.next(topology) {
+            if topology[edge_idx].edge_type == EdgeType::Contains && node_set.contains(&parent_idx)
             {
                 has_parent_in_file = true;
                 break;
@@ -74,8 +78,8 @@ fn get_symbols_from_graph(graph: &CodeGraph, path: &Path) -> Vec<crate::parser::
 
     // Sort roots by line number
     roots.sort_by(|&a, &b| {
-        let ra = graph.topology[a].range();
-        let rb = graph.topology[b].range();
+        let ra = topology[a].range();
+        let rb = topology[b].range();
         match (ra, rb) {
             (Some(a), Some(b)) => a.start_line.cmp(&b.start_line),
             (Some(_), None) => std::cmp::Ordering::Less,
@@ -91,28 +95,27 @@ fn get_symbols_from_graph(graph: &CodeGraph, path: &Path) -> Vec<crate::parser::
 }
 
 fn build_symbol_tree(
-    graph: &CodeGraph,
+    graph: &dyn CodeGraphLike,
     idx: NodeIndex,
     node_set: &HashSet<NodeIndex>,
 ) -> crate::parser::DocumentSymbol {
-    let node = &graph.topology[idx];
+    let topology = graph.topology();
+    let node = &topology[idx];
 
     let mut children_indices = Vec::new();
-    let mut outgoing = graph
-        .topology
+    let mut outgoing = topology
         .neighbors_directed(idx, petgraph::Direction::Outgoing)
         .detach();
-    while let Some((edge_idx, child_idx)) = outgoing.next(&graph.topology) {
-        if graph.topology[edge_idx].edge_type == EdgeType::Contains && node_set.contains(&child_idx)
-        {
+    while let Some((edge_idx, child_idx)) = outgoing.next(topology) {
+        if topology[edge_idx].edge_type == EdgeType::Contains && node_set.contains(&child_idx) {
             children_indices.push(child_idx);
         }
     }
 
     // Sort children by line number
     children_indices.sort_by(|&a, &b| {
-        let ra = graph.topology[a].range();
-        let rb = graph.topology[b].range();
+        let ra = topology[a].range();
+        let rb = topology[b].range();
         match (ra, rb) {
             (Some(a), Some(b)) => a.start_line.cmp(&b.start_line),
             (Some(_), None) => std::cmp::Ordering::Less,
@@ -204,11 +207,14 @@ pub async fn workspace_symbol(
         None => return Ok(None),
     };
 
-    let index = engine.graph();
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
+
     let query = params.query.to_lowercase();
     let mut symbols = Vec::new();
+    let topology = index.topology();
 
-    for node in index.topology.node_weights() {
+    for node in topology.node_weights() {
         if node.name().to_lowercase().contains(&query)
             || node.fqn().to_string().to_lowercase().contains(&query)
         {

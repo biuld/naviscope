@@ -1,7 +1,8 @@
-use crate::index::Naviscope;
+use crate::engine::handle::EngineHandle; // Updated import
+// use crate::index::Naviscope; // Removed
 use crate::model::graph::{EdgeType, NodeKind};
 use crate::query::GraphQuery;
-use crate::query::QueryEngine;
+// use crate::query::QueryEngine; // Removed - handled by EngineHandle
 use rmcp::{
     ErrorData as McpError,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
@@ -41,7 +42,7 @@ pub fn get_session_path(root_path: &Path) -> PathBuf {
 #[derive(Clone)]
 pub struct McpServer {
     pub(crate) tool_router: ToolRouter<Self>,
-    pub(crate) engine: Arc<RwLock<Option<Naviscope>>>,
+    pub(crate) engine: Arc<RwLock<Option<EngineHandle>>>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -87,18 +88,18 @@ pub struct GetGuideArgs {}
 
 #[tool_router]
 impl McpServer {
-    pub fn new(engine: Arc<RwLock<Option<Naviscope>>>) -> Self {
+    pub fn new(engine: Arc<RwLock<Option<EngineHandle>>>) -> Self {
         Self {
             tool_router: Self::tool_router(),
             engine,
         }
     }
 
-    pub(crate) async fn get_or_build_index(&self) -> Result<Naviscope, McpError> {
+    pub(crate) async fn get_or_build_index(&self) -> Result<EngineHandle, McpError> {
         let lock = self.engine.read().await;
 
         match &*lock {
-            Some(navi) => Ok(navi.clone()),
+            Some(handle) => Ok(handle.clone()),
             None => {
                 // Index not yet built by LSP, return error
                 Err(McpError::new(
@@ -116,19 +117,19 @@ impl McpServer {
     ) -> Result<CallToolResult, McpError> {
         let engine = self.get_or_build_index().await?;
 
-        let result = tokio::task::spawn_blocking(move || {
-            // Clone the graph to own it (old CodeGraph doesn't use Arc yet)
-            let graph_clone = engine.graph().clone();
-            let query_engine = QueryEngine::new(graph_clone);
-            let result = query_engine.execute(&query).map_err(|e| e.to_string())?;
-            serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
-        })
-        .await
-        .map_err(|e| McpError::new(rmcp::model::ErrorCode(-32000), e.to_string(), None))?;
+        // EngineHandle now handles async execution and error mapping internally
+        let result = engine
+            .query(&query)
+            .await
+            .map_err(|e| McpError::new(rmcp::model::ErrorCode(-32000), e.to_string(), None))?;
 
-        match result {
+        match serde_json::to_string_pretty(&result) {
             Ok(json_str) => Ok(CallToolResult::success(vec![Content::text(json_str)])),
-            Err(e) => Err(McpError::new(rmcp::model::ErrorCode(-32000), e, None)),
+            Err(e) => Err(McpError::new(
+                rmcp::model::ErrorCode(-32000),
+                e.to_string(),
+                None,
+            )),
         }
     }
 

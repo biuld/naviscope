@@ -162,7 +162,7 @@ impl Default for CodeGraphBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::graph::{BuildSystem, NodeKind};
+    use crate::model::graph::BuildSystem;
 
     #[test]
     fn test_build_from_scratch() {

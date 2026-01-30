@@ -1,6 +1,7 @@
 use crate::lsp::LspServer;
 use crate::lsp::util::get_word_from_content;
 use crate::parser::SymbolResolution;
+use crate::query::CodeGraphLike;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tree_sitter::QueryCursor;
@@ -22,7 +23,10 @@ pub async fn definition(
         Some(e) => e,
         None => return Ok(None),
     };
-    let index = engine.graph();
+
+    // EngineHandle::graph is async and returns CodeGraph (cheap clone)
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
@@ -71,9 +75,10 @@ pub async fn definition(
         resolver.find_matches(index, &resolution)
     };
     let mut locations = Vec::new();
+    let topology = index.topology();
 
     for &node_idx in &matches {
-        let node = &index.topology[node_idx];
+        let node = &topology[node_idx];
         if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
             locations.push(Location {
                 uri: Url::from_file_path(target_path).unwrap(),
@@ -113,7 +118,9 @@ pub async fn type_definition(
         Some(e) => e,
         None => return Ok(None),
     };
-    let index = engine.graph();
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
+    let topology = index.topology();
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
@@ -149,7 +156,7 @@ pub async fn type_definition(
     for res in type_resolutions {
         let matches = resolver.find_matches(index, &res);
         for idx in matches {
-            let target = &index.topology[idx];
+            let target = &topology[idx];
             if let (Some(tp), Some(tr)) = (target.file_path(), target.range()) {
                 let loc = Location {
                     uri: Url::from_file_path(tp).unwrap(),
@@ -189,7 +196,8 @@ pub async fn references(
         Some(e) => e,
         None => return Ok(None),
     };
-    let index = engine.graph();
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
@@ -258,6 +266,7 @@ pub async fn references(
             };
 
             let matches = resolver.find_matches(index, &resolution);
+
             let discovery = crate::analysis::discovery::DiscoveryEngine::new(index);
             let candidate_paths = discovery.scout_references(&matches);
 
@@ -323,7 +332,9 @@ pub async fn implementation(
         Some(n) => n,
         None => return Ok(None),
     };
-    let index = engine.graph();
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
+    let topology = index.topology();
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
@@ -357,7 +368,7 @@ pub async fn implementation(
     let mut locations = Vec::new();
 
     for &node_idx in &implementations {
-        let node = &index.topology[node_idx];
+        let node = &topology[node_idx];
         if let (Some(source_path), Some(range)) = (node.file_path(), node.range()) {
             locations.push(Location {
                 uri: Url::from_file_path(source_path).unwrap(),

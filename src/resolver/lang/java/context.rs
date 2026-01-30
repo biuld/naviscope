@@ -1,13 +1,13 @@
-use crate::index::CodeGraph;
 use crate::model::graph::ResolvedUnit;
 use crate::parser::SymbolIntent;
 use crate::parser::java::JavaParser;
+use crate::query::CodeGraphLike; // Updated
 use tree_sitter::{Node, Tree};
 
 pub struct ResolutionContext<'a> {
     pub node: Node<'a>,
     pub name: String,
-    pub index: &'a CodeGraph,
+    pub index: &'a dyn CodeGraphLike, // Updated type
     pub unit: Option<&'a ResolvedUnit>,
     pub source: &'a str,
     pub tree: &'a Tree,
@@ -22,7 +22,7 @@ impl<'a> ResolutionContext<'a> {
     pub fn new(
         node: Node<'a>,
         name: String,
-        index: &'a CodeGraph,
+        index: &'a dyn CodeGraphLike, // Updated type
         source: &'a str,
         tree: &'a Tree,
         parser: &JavaParser,
@@ -33,7 +33,7 @@ impl<'a> ResolutionContext<'a> {
     pub fn new_with_unit(
         node: Node<'a>,
         name: String,
-        index: &'a CodeGraph,
+        index: &'a dyn CodeGraphLike, // Updated type
         unit: Option<&'a ResolvedUnit>,
         source: &'a str,
         tree: &'a Tree,

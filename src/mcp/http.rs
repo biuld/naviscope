@@ -1,4 +1,4 @@
-use crate::index::Naviscope;
+use crate::engine::handle::EngineHandle;
 use crate::mcp::McpServer;
 use axum::{
     Router,
@@ -19,7 +19,7 @@ use tracing::info;
 
 pub fn spawn_http_server(
     client: Client,
-    engine: Arc<RwLock<Option<Naviscope>>>,
+    engine: Arc<RwLock<Option<EngineHandle>>>,
     root_path: PathBuf,
     session_path_lock: Arc<RwLock<Option<PathBuf>>>,
     client_name: Option<String>,
@@ -84,7 +84,7 @@ fn write_cursor_config(root_path: &Path) {
 }
 
 pub async fn run_http_server(
-    engine: Arc<RwLock<Option<Naviscope>>>,
+    engine: Arc<RwLock<Option<EngineHandle>>>,
     _root_path: Option<PathBuf>, // Kept for API compatibility, but not used in McpServer
     port: u16,
     cancel_token: CancellationToken,

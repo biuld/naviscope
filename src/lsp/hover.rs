@@ -2,6 +2,7 @@ use crate::lsp::LspServer;
 use crate::model::graph::{BuildElement, CodeElement, GraphNode};
 use crate::model::signature::TypeRef;
 use crate::parser::SymbolResolution;
+use crate::query::CodeGraphLike;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
@@ -71,7 +72,10 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         Some(e) => e,
         None => return Ok(None),
     };
-    let index = engine.graph();
+
+    // EngineHandle::graph is async and returns CodeGraph
+    let graph = engine.graph().await;
+    let index: &dyn CodeGraphLike = &graph;
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
@@ -112,8 +116,10 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         resolver.find_matches(index, &resolution)
     };
 
+    let topology = index.topology();
+
     for &idx in &matches {
-        let node = &index.topology[idx];
+        let node = &topology[idx];
         if !hover_text.is_empty() {
             hover_text.push_str("\n\n---\n\n");
         }

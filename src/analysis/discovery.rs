@@ -1,6 +1,6 @@
-use crate::index::CodeGraph;
 use crate::model::graph::EdgeType;
 use crate::parser::{LspParser, SymbolResolution};
+use crate::query::CodeGraphLike;
 use petgraph::Direction;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -8,11 +8,11 @@ use tower_lsp::lsp_types::{Location, Url};
 
 /// DiscoveryEngine bridges Meso-level graph knowledge with Micro-level file scanning.
 pub struct DiscoveryEngine<'a> {
-    index: &'a CodeGraph,
+    index: &'a dyn CodeGraphLike,
 }
 
 impl<'a> DiscoveryEngine<'a> {
-    pub fn new(index: &'a CodeGraph) -> Self {
+    pub fn new(index: &'a dyn CodeGraphLike) -> Self {
         Self { index }
     }
 
@@ -20,15 +20,14 @@ impl<'a> DiscoveryEngine<'a> {
     /// Returns a set of unique file paths.
     pub fn scout_references(&self, matches: &[petgraph::prelude::NodeIndex]) -> HashSet<PathBuf> {
         let mut unique_paths = HashSet::new();
+        let topology = self.index.topology();
 
         for &node_idx in matches {
-            let mut incoming = self
-                .index
-                .topology
+            let mut incoming = topology
                 .neighbors_directed(node_idx, Direction::Incoming)
                 .detach();
-            while let Some((edge_idx, neighbor_idx)) = incoming.next(&self.index.topology) {
-                let edge = &self.index.topology[edge_idx];
+            while let Some((edge_idx, neighbor_idx)) = incoming.next(topology) {
+                let edge = &topology[edge_idx];
 
                 // Filter edges for references
                 match edge.edge_type {
@@ -36,7 +35,7 @@ impl<'a> DiscoveryEngine<'a> {
                     | EdgeType::Instantiates
                     | EdgeType::TypedAs
                     | EdgeType::DecoratedBy => {
-                        if let Some(source_path) = self.index.topology[neighbor_idx].file_path() {
+                        if let Some(source_path) = topology[neighbor_idx].file_path() {
                             unique_paths.insert(source_path.clone());
                         }
                     }

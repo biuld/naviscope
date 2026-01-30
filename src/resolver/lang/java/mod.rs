@@ -7,6 +7,7 @@ use crate::parser::SymbolIntent;
 use crate::parser::java::JavaParser;
 use crate::parser::{SymbolResolution, matches_intent};
 use crate::project::scanner::{ParsedContent, ParsedFile};
+use crate::query::CodeGraphLike;
 use crate::resolver::SemanticResolver;
 use crate::resolver::{LangResolver, ProjectContext};
 use petgraph::stable_graph::NodeIndex;
@@ -143,7 +144,7 @@ impl SemanticResolver for JavaResolver {
         source: &str,
         line: usize,
         byte_col: usize,
-        index: &CodeGraph,
+        index: &dyn CodeGraphLike,
     ) -> Option<SymbolResolution> {
         let point = tree_sitter::Point::new(line, byte_col);
         let node = tree
@@ -162,12 +163,16 @@ impl SemanticResolver for JavaResolver {
         self.resolve_symbol_internal(&context)
     }
 
-    fn find_matches(&self, index: &CodeGraph, resolution: &SymbolResolution) -> Vec<NodeIndex> {
+    fn find_matches(
+        &self,
+        index: &dyn CodeGraphLike,
+        resolution: &SymbolResolution,
+    ) -> Vec<NodeIndex> {
         match resolution {
             SymbolResolution::Local(_, _) => vec![],
             SymbolResolution::Precise(fqn, intent) => {
-                if let Some(&idx) = index.fqn_map.get(fqn) {
-                    if let Some(node) = index.topology.node_weight(idx) {
+                if let Some(&idx) = index.fqn_map().get(fqn) {
+                    if let Some(node) = index.topology().node_weight(idx) {
                         if *intent == SymbolIntent::Unknown || matches_intent(&node.kind(), *intent)
                         {
                             return vec![idx];
@@ -181,7 +186,7 @@ impl SemanticResolver for JavaResolver {
 
     fn resolve_type_of(
         &self,
-        index: &CodeGraph,
+        index: &dyn CodeGraphLike,
         resolution: &SymbolResolution,
     ) -> Vec<SymbolResolution> {
         // Reuse original logic
@@ -195,8 +200,8 @@ impl SemanticResolver for JavaResolver {
                 }
             }
             SymbolResolution::Precise(fqn, intent) => {
-                if let Some(&idx) = index.fqn_map.get(fqn) {
-                    let node = &index.topology[idx];
+                if let Some(&idx) = index.fqn_map().get(fqn) {
+                    let node = &index.topology()[idx];
                     if let GraphNode::Code(crate::model::graph::CodeElement::Java {
                         element, ..
                     }) = node
@@ -242,27 +247,28 @@ impl SemanticResolver for JavaResolver {
 
     fn find_implementations(
         &self,
-        index: &CodeGraph,
+        index: &dyn CodeGraphLike,
         resolution: &SymbolResolution,
     ) -> Vec<NodeIndex> {
         let target_nodes = self.find_matches(index, resolution);
         let mut results = Vec::new();
 
         for &node_idx in &target_nodes {
-            let node = &index.topology[node_idx];
+            let node = &index.topology()[node_idx];
 
             // Check if it's a method
             if let GraphNode::Code(crate::model::graph::CodeElement::Java { element, .. }) = node {
                 if let crate::model::lang::java::JavaElement::Method(m) = element {
                     // 1. Find the enclosing class/interface
                     let mut parent_incoming = index
-                        .topology
+                        .topology()
                         .neighbors_directed(node_idx, petgraph::Direction::Incoming)
                         .detach();
-                    while let Some((edge_idx, parent_idx)) = parent_incoming.next(&index.topology) {
-                        if index.topology[edge_idx].edge_type == EdgeType::Contains {
+                    while let Some((edge_idx, parent_idx)) = parent_incoming.next(index.topology())
+                    {
+                        if index.topology()[edge_idx].edge_type == EdgeType::Contains {
                             // 2. Find all implementations of this parent
-                            let parent_fqn = index.topology[parent_idx].fqn().to_string();
+                            let parent_fqn = index.topology()[parent_idx].fqn().to_string();
                             let parent_res =
                                 SymbolResolution::Precise(parent_fqn, SymbolIntent::Type);
                             let impl_classes = self.find_implementations(index, &parent_res);
@@ -270,16 +276,17 @@ impl SemanticResolver for JavaResolver {
                             // 3. For each impl class, find a method with same name
                             for impl_class_idx in impl_classes {
                                 let mut children = index
-                                    .topology
+                                    .topology()
                                     .neighbors_directed(
                                         impl_class_idx,
                                         petgraph::Direction::Outgoing,
                                     )
                                     .detach();
                                 while let Some((c_edge_idx, child_idx)) =
-                                    children.next(&index.topology)
+                                    children.next(index.topology())
                                 {
-                                    if index.topology[c_edge_idx].edge_type == EdgeType::Contains {
+                                    if index.topology()[c_edge_idx].edge_type == EdgeType::Contains
+                                    {
                                         if let GraphNode::Code(
                                             crate::model::graph::CodeElement::Java {
                                                 element:
@@ -288,7 +295,7 @@ impl SemanticResolver for JavaResolver {
                                                     ),
                                                 ..
                                             },
-                                        ) = &index.topology[child_idx]
+                                        ) = &index.topology()[child_idx]
                                         {
                                             if child_m.name == m.name {
                                                 results.push(child_idx);
@@ -304,11 +311,11 @@ impl SemanticResolver for JavaResolver {
             }
 
             let mut incoming = index
-                .topology
+                .topology()
                 .neighbors_directed(node_idx, petgraph::Direction::Incoming)
                 .detach();
-            while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology) {
-                let edge = &index.topology[edge_idx];
+            while let Some((edge_idx, neighbor_idx)) = incoming.next(index.topology()) {
+                let edge = &index.topology()[edge_idx];
                 if edge.edge_type == EdgeType::Implements
                     || edge.edge_type == EdgeType::InheritsFrom
                 {
