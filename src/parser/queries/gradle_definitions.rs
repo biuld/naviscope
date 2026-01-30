@@ -5,7 +5,6 @@ crate::decl_indices!(GradleIndices, {
     project_item => "project_dependency_item",
     project_path => "project_path",
     root_assignment => "root_project_assignment",
-    root_assignment_alt => "root_project_assignment_alt",
     root_name => "root_name",
     include_call => "include_call",
     included_path => "included_path",

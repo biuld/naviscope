@@ -5,8 +5,11 @@ use naviscope::query::{GraphQuery, QueryResult};
 use shlex;
 use tabled::{Table, settings::Style};
 
+/// Default limit for search results
+const DEFAULT_SEARCH_LIMIT: usize = 20;
+
 /// Helper struct for Clap parsing within the shell
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[command(no_binary_name = true)]
 pub enum ShellCommand {
     /// List members or structure
@@ -40,7 +43,7 @@ pub enum ShellCommand {
         #[arg(long, value_delimiter = ',')]
         kind: Vec<NodeKind>,
         /// Limit number of results
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
         limit: usize,
     },
     /// Inspect node details
@@ -62,6 +65,18 @@ pub enum ShellCommand {
 }
 
 use clap::error::ErrorKind;
+
+impl ShellCommand {
+    /// Automatically generates the list of available command names from the enum.
+    /// This eliminates the need to manually maintain a hardcoded command list.
+    pub fn command_names() -> Vec<String> {
+        use clap::CommandFactory;
+        let cmd = Self::command();
+        let mut names = vec!["help".to_string(), "exit".to_string(), "quit".to_string()];
+        names.extend(cmd.get_subcommands().map(|s| s.get_name().to_string()));
+        names
+    }
+}
 
 pub fn parse_shell_command(
     input: &str,

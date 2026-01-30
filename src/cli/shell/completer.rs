@@ -59,39 +59,31 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
                 // Get current context
                 let parent_fqn = self.context.current_fqn();
 
-                // Query graph for children of current context (or partial match)
-                // If last_word contains dots, we might need to resolve relative to root or parent
-                // For simplicity: list children of current_node, filtering by last_word
-
-                let search_fqn = if let Some(parent) = &parent_fqn {
-                    if last_word.is_empty() {
-                        Some(parent.clone())
-                    } else {
-                        // Naive: just look for children of parent that start with last_word
-                        Some(parent.clone())
-                    }
-                } else {
-                    None // Root
-                };
-
-                // Use engine to list children
-                let query = GraphQuery::Ls {
-                    fqn: search_fqn,
-                    kind: vec![],
-                    modifiers: vec![],
-                };
-
                 if let Ok(naviscope) = self.context.naviscope.read() {
-                    let engine = QueryEngine::new(naviscope.graph());
+                    let graph = naviscope.graph();
+                    let mut suggestions = Vec::new();
 
-                    if let Ok(result) = engine.execute(&query) {
-                        return result
-                            .nodes
-                            .iter()
-                            .map(|node| node.name())
-                            .filter(|name| name.starts_with(last_word))
-                            .map(|name| Suggestion {
-                                value: name.to_string(),
+                    // Case A: Global FQN completion
+                    // We only do this if:
+                    // 1. The word already contains navigation markers ('.' or '::')
+                    // 2. OR we are at root and the word is NOT empty (to avoid listing all FQNs on empty tab)
+                    if last_word.contains('.')
+                        || last_word.contains("::")
+                        || (parent_fqn.is_none() && !last_word.is_empty())
+                    {
+                        // Find potential FQNs starting with last_word from the global map
+                        // Limit results to avoid performance issues
+                        let matches: Vec<String> = graph
+                            .fqn_map
+                            .keys()
+                            .filter(|fqn| fqn.starts_with(last_word))
+                            .take(20) // Reduced from 50 to 20 for global search
+                            .cloned()
+                            .collect();
+
+                        for fqn in matches {
+                            suggestions.push(Suggestion {
+                                value: fqn,
                                 description: None,
                                 style: None,
                                 extra: None,
@@ -101,9 +93,59 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
                                 },
                                 append_whitespace: true,
                                 match_indices: None,
-                            })
-                            .collect();
+                            });
+                        }
                     }
+
+                    // Case B: Relative completion from current context (or root)
+                    let query = GraphQuery::Ls {
+                        fqn: parent_fqn.clone(),
+                        kind: vec![],
+                        modifiers: vec![],
+                    };
+                    let engine = QueryEngine::new(graph);
+
+                    if let Ok(result) = engine.execute(&query) {
+                        for node in result.nodes {
+                            let name = node.name();
+                            if name.starts_with(last_word) {
+                                // De-duplicate if already added by Case A
+                                if suggestions.iter().any(|s| s.value == name) {
+                                    continue;
+                                }
+
+                                suggestions.push(Suggestion {
+                                    value: name.to_string(),
+                                    description: Some(node.kind().to_string()),
+                                    style: None,
+                                    extra: None,
+                                    span: reedline::Span {
+                                        start: span_start,
+                                        end: pos,
+                                    },
+                                    append_whitespace: true,
+                                    match_indices: None,
+                                });
+                            }
+                        }
+                    }
+
+                    // Sort suggestions: Relative first (shorter names that aren't FQNs usually)
+                    // Then by length
+                    suggestions.sort_by(|a, b| {
+                        let a_is_fqn = a.value.contains('.') || a.value.contains("::");
+                        let b_is_fqn = b.value.contains('.') || b.value.contains("::");
+                        if a_is_fqn != b_is_fqn {
+                            a_is_fqn.cmp(&b_is_fqn) // Non-FQN first
+                        } else {
+                            a.value.len().cmp(&b.value.len())
+                        }
+                    });
+
+                    // Final limit to total suggestions to keep UI clean
+                    suggestions.truncate(50);
+
+                    return suggestions;
                 }
             }
         }

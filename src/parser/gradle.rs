@@ -1,12 +1,25 @@
 use crate::error::{NaviscopeError, Result};
 use crate::model::lang::gradle::{GradleDependency, GradleSettings};
-use tree_sitter::{Parser, QueryCursor, StreamingIterator};
+use once_cell::sync::Lazy;
+use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
 unsafe extern "C" {
     fn tree_sitter_groovy() -> tree_sitter::Language;
 }
 
 use crate::parser::queries::gradle_definitions::GradleIndices;
+
+/// Cached Gradle query to avoid re-parsing the SCM file on every parse call.
+static GRADLE_QUERY: Lazy<Query> = Lazy::new(|| {
+    let language = unsafe { tree_sitter_groovy() };
+    crate::parser::utils::load_query(&language, include_str!("queries/gradle_definitions.scm"))
+        .expect("Failed to load Gradle query - this is a fatal error")
+});
+
+/// Gets the cached Gradle query.
+fn get_gradle_query() -> &'static Query {
+    &GRADLE_QUERY
+}
 
 pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
     let mut parser = Parser::new();
@@ -19,12 +32,9 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
         .parse(source_code, None)
         .ok_or_else(|| NaviscopeError::Parsing("Failed to parse gradle file".to_string()))?;
 
-    let query = crate::parser::utils::load_query(
-        &language,
-        include_str!("queries/gradle_definitions.scm"),
-    )?;
+    let query = get_gradle_query();
 
-    let indices = GradleIndices::new(&query)?;
+    let indices = GradleIndices::new(query)?;
 
     let mut query_cursor = QueryCursor::new();
     let mut matches = query_cursor.matches(&query, tree.root_node(), source_code.as_bytes());
@@ -92,12 +102,9 @@ pub fn parse_settings(source_code: &str) -> Result<GradleSettings> {
         NaviscopeError::Parsing("Failed to parse gradle settings file".to_string())
     })?;
 
-    let query = crate::parser::utils::load_query(
-        &language,
-        include_str!("queries/gradle_definitions.scm"),
-    )?;
+    let query = get_gradle_query();
 
-    let indices = GradleIndices::new(&query)?;
+    let indices = GradleIndices::new(query)?;
 
     let mut query_cursor = QueryCursor::new();
     let mut matches = query_cursor.matches(&query, tree.root_node(), source_code.as_bytes());
@@ -112,12 +119,6 @@ pub fn parse_settings(source_code: &str) -> Result<GradleSettings> {
             .captures
             .iter()
             .find(|c| c.index == indices.root_assignment)
-        {
-            found_root = true;
-        } else if let Some(_) = mat
-            .captures
-            .iter()
-            .find(|c| c.index == indices.root_assignment_alt)
         {
             found_root = true;
         }
@@ -197,5 +198,55 @@ mod tests {
         );
         assert_eq!(settings.included_projects.len(), 2);
         assert_eq!(settings.included_projects[0], "core:spring-boot");
+    }
+
+    #[test]
+    fn test_parse_settings_multi_include() {
+        let settings_file = r#"
+            include 'a', 'b', "c"
+            include 'd'
+        "#;
+
+        let settings = parse_settings(settings_file).unwrap();
+        assert_eq!(settings.included_projects.len(), 4);
+        assert!(settings.included_projects.contains(&"a".to_string()));
+        assert!(settings.included_projects.contains(&"b".to_string()));
+        assert!(settings.included_projects.contains(&"c".to_string()));
+        assert!(settings.included_projects.contains(&"d".to_string()));
+    }
+
+    #[test]
+    fn test_parse_complex_spring_boot_settings() {
+        let settings_file = r#"
+            pluginManagement {
+                repositories {
+                    gradlePluginPortal()
+                }
+            }
+            rootProject.name = "spring-boot-build"
+            include "spring-boot-project:spring-boot"
+            include "spring-boot-project:spring-boot-actuator"
+            include ":smoke-test:spring-boot-smoke-test-xml"
+        "#;
+
+        let settings = parse_settings(settings_file).unwrap();
+
+        assert_eq!(
+            settings.root_project_name,
+            Some("spring-boot-build".to_string()),
+            "Failed to parse double-quoted rootProject.name"
+        );
+
+        assert!(
+            settings
+                .included_projects
+                .contains(&"spring-boot-project:spring-boot".to_string()),
+            "Failed to parse double-quoted include"
+        );
+        assert!(
+            settings
+                .included_projects
+                .contains(&":smoke-test:spring-boot-smoke-test-xml".to_string())
+        );
     }
 }

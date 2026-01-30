@@ -39,7 +39,13 @@ impl ShellNodeView {
 
         let is_container = matches!(
             node.kind(),
-            NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
+            NodeKind::Project
+                | NodeKind::Module
+                | NodeKind::Package
+                | NodeKind::Class
+                | NodeKind::Interface
+                | NodeKind::Enum
+                | NodeKind::Annotation
         );
 
         let name = if is_container {
@@ -49,6 +55,9 @@ impl ShellNodeView {
         };
 
         let signature = match node {
+            GraphNode::Project(p) => {
+                format!("{:?} project at {}", p.build_system, p.root_path.display())
+            }
             GraphNode::Code(code_el) => match code_el {
                 CodeElement::Java { element, .. } => match element {
                     JavaElement::Method(m) => {
@@ -94,7 +103,8 @@ impl ShellNodeView {
 }
 
 pub fn shorten_fqn(fqn: &str) -> String {
-    let parts: Vec<&str> = fqn.split('.').collect();
+    let separator = if fqn.contains("::") { "::" } else { "." };
+    let parts: Vec<&str> = fqn.split(separator).collect();
     if parts.len() <= 2 {
         return fqn.to_string();
     }
@@ -103,12 +113,12 @@ pub fn shorten_fqn(fqn: &str) -> String {
         if i < parts.len() - 2 {
             if let Some(c) = part.chars().next() {
                 result.push(c);
-                result.push('.');
+                result.push_str(separator);
             }
         } else {
             result.push_str(part);
             if i < parts.len() - 1 {
-                result.push('.');
+                result.push_str(separator);
             }
         }
     }

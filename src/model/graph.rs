@@ -42,6 +42,7 @@ pub enum NodeKind {
     Field,
     Package,
     // Build specific
+    Project,
     Module,
     Dependency,
     Task,
@@ -61,6 +62,7 @@ impl From<&str> for NodeKind {
             "constructor" => NodeKind::Constructor,
             "field" => NodeKind::Field,
             "package" => NodeKind::Package,
+            "project" => NodeKind::Project,
             "module" => NodeKind::Module,
             "dependency" => NodeKind::Dependency,
             "task" => NodeKind::Task,
@@ -81,6 +83,7 @@ impl ToString for NodeKind {
             NodeKind::Constructor => "constructor".to_string(),
             NodeKind::Field => "field".to_string(),
             NodeKind::Package => "package".to_string(),
+            NodeKind::Project => "project".to_string(),
             NodeKind::Module => "module".to_string(),
             NodeKind::Dependency => "dependency".to_string(),
             NodeKind::Task => "task".to_string(),
@@ -92,8 +95,24 @@ impl ToString for NodeKind {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GraphNode {
+    Project(ProjectElement),
     Code(CodeElement),
     Build(BuildElement),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ProjectElement {
+    pub name: String,
+    pub root_path: PathBuf,
+    pub build_system: BuildSystem,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum BuildSystem {
+    Gradle,
+    Maven,
+    Cargo,
+    Unknown,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -115,6 +134,7 @@ pub enum BuildElement {
 impl GraphNode {
     pub fn language(&self) -> Language {
         match self {
+            GraphNode::Project(_) => Language::BuildFile,
             GraphNode::Code(CodeElement::Java { .. }) => Language::Java,
             GraphNode::Build(BuildElement::Gradle { .. }) => Language::BuildFile,
         }
@@ -122,6 +142,7 @@ impl GraphNode {
 
     pub fn fqn(&self) -> &str {
         match self {
+            GraphNode::Project(p) => &p.name,
             GraphNode::Code(CodeElement::Java { element, .. }) => element.id(),
             GraphNode::Build(BuildElement::Gradle { element, .. }) => element.id(),
         }
@@ -129,6 +150,7 @@ impl GraphNode {
 
     pub fn name(&self) -> &str {
         match self {
+            GraphNode::Project(p) => &p.name,
             GraphNode::Code(CodeElement::Java { element, .. }) => element.name(),
             GraphNode::Build(BuildElement::Gradle { element, .. }) => element.name(),
         }
@@ -136,6 +158,7 @@ impl GraphNode {
 
     pub fn kind(&self) -> NodeKind {
         match self {
+            GraphNode::Project(_) => NodeKind::Project,
             GraphNode::Code(CodeElement::Java { element, .. }) => match element {
                 JavaElement::Class(_) => NodeKind::Class,
                 JavaElement::Interface(_) => NodeKind::Interface,
@@ -159,6 +182,7 @@ impl GraphNode {
 
     pub fn file_path(&self) -> Option<&PathBuf> {
         match self {
+            GraphNode::Project(p) => Some(&p.root_path),
             GraphNode::Code(CodeElement::Java { file_path, .. }) => file_path.as_ref(),
             GraphNode::Build(BuildElement::Gradle { file_path, .. }) => file_path.as_ref(),
         }
@@ -166,6 +190,7 @@ impl GraphNode {
 
     pub fn range(&self) -> Option<&Range> {
         match self {
+            GraphNode::Project(_) => None,
             GraphNode::Code(CodeElement::Java { element, .. }) => element.range(),
             GraphNode::Build(_) => None,
         }
@@ -173,6 +198,7 @@ impl GraphNode {
 
     pub fn name_range(&self) -> Option<&Range> {
         match self {
+            GraphNode::Project(_) => None,
             GraphNode::Code(CodeElement::Java { element, .. }) => element.name_range(),
             GraphNode::Build(_) => None,
         }
@@ -184,6 +210,14 @@ impl GraphNode {
 
     pub fn gradle(element: GradleElement, file_path: Option<PathBuf>) -> Self {
         GraphNode::Build(BuildElement::Gradle { element, file_path })
+    }
+
+    pub fn project(name: String, root_path: PathBuf, build_system: BuildSystem) -> Self {
+        GraphNode::Project(ProjectElement {
+            name,
+            root_path,
+            build_system,
+        })
     }
 }
 

@@ -37,7 +37,7 @@ impl ShellContext {
     /// Resolves a user input path (absolute FQN, relative path, or fuzzy name) to a concrete FQN.
     pub fn resolve_node(&self, target: &str) -> ResolveResult {
         // 1. Handle special paths
-        if let Some(result) = Self::resolve_special_path(target) {
+        if let Some(result) = self.resolve_special_path(target) {
             return result;
         }
 
@@ -55,14 +55,47 @@ impl ShellContext {
             return result;
         }
 
-        // 4. Try Child Lookup (Relative / Fuzzy)
+        // 4. Try Relative Path from current context
+        if let Some(curr_fqn) = &curr {
+            // Join current FQN and target
+            let separator = if curr_fqn.contains("::") { "::" } else { "." };
+            let joined = format!("{}{}{}", curr_fqn, separator, target);
+            if let Some(result) = Self::resolve_exact_match(&joined, graph) {
+                return result;
+            }
+        }
+
+        // 5. Try Child Lookup (Immediate / Fuzzy)
         Self::resolve_child_lookup(target, &curr, graph)
     }
 
-    /// Handles special paths like "/" (root).
-    fn resolve_special_path(target: &str) -> Option<ResolveResult> {
-        if target == "/" {
-            Some(ResolveResult::Found("".to_string())) // Marker for root
+    /// Handles special paths like "/" (root) and "root".
+    fn resolve_special_path(&self, target: &str) -> Option<ResolveResult> {
+        if target == "/" || target == "root" {
+            let engine_guard = self.naviscope.read().unwrap();
+            let graph = engine_guard.graph();
+
+            use naviscope::model::graph::NodeKind;
+
+            // Find all Project nodes
+            let project_nodes: Vec<_> = graph
+                .topology
+                .node_indices()
+                .filter_map(|idx| {
+                    let node = &graph.topology[idx];
+                    if node.kind() == NodeKind::Project {
+                        Some(node.fqn().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            match project_nodes.len() {
+                1 => Some(ResolveResult::Found(project_nodes[0].clone())),
+                0 => Some(ResolveResult::Found("".to_string())), // Empty graph or virtual root
+                _ => Some(ResolveResult::Ambiguous(project_nodes)),
+            }
         } else {
             None
         }

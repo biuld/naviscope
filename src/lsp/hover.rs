@@ -25,6 +25,7 @@ fn fmt_type(t: &TypeRef) -> String {
 
 fn get_node_signature(node: &GraphNode) -> Option<String> {
     match node {
+        GraphNode::Project(p) => Some(format!("Project: {} ({:?})", p.name, p.build_system)),
         GraphNode::Code(code_el) => match code_el {
             CodeElement::Java { element, .. } => match element {
                 crate::model::lang::java::JavaElement::Method(m) => {

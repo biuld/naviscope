@@ -1414,6 +1414,7 @@ dependencies = [
  "log",
  "notify",
  "nu-ansi-term",
+ "once_cell",
  "petgraph",
  "rayon",
  "reedline",

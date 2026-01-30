@@ -2,6 +2,7 @@ mod command;
 mod completer;
 mod context;
 mod handlers;
+mod highlighter;
 mod prompt;
 mod view;
 
@@ -20,7 +21,12 @@ use tracing::{error, info};
 use self::command::{ShellCommand, parse_shell_command};
 use self::completer::NaviscopeCompleter;
 use self::context::ShellContext;
+use self::highlighter::NaviscopeHighlighter;
 use self::prompt::DefaultPrompt;
+
+// Shell configuration constants
+const SHELL_HISTORY_SIZE: usize = 500;
+const WATCHER_DEBOUNCE_MS: u64 = 500;
 
 pub struct ReplServer {
     context: ShellContext,
@@ -88,6 +94,23 @@ impl ReplServer {
                 sync_start.elapsed(),
                 index.topology.node_count()
             );
+
+            // Auto-set context to Project node if it exists
+            use naviscope::model::graph::NodeKind;
+
+            let project_nodes: Vec<_> = index
+                .topology
+                .node_indices()
+                .filter(|&idx| {
+                    let node = &index.topology[idx];
+                    node.kind() == NodeKind::Project
+                })
+                .collect();
+
+            if project_nodes.len() == 1 {
+                let fqn = index.topology[project_nodes[0]].fqn().to_string();
+                self.context.set_current_fqn(Some(fqn));
+            }
         }
         Ok(())
     }
@@ -115,7 +138,7 @@ impl ReplServer {
                         continue;
                     }
 
-                    thread::sleep(Duration::from_millis(500));
+                    thread::sleep(Duration::from_millis(WATCHER_DEBOUNCE_MS));
                     while watcher.try_next_event().is_some() {}
 
                     info!("Change detected. Re-indexing...");
@@ -141,20 +164,12 @@ impl ReplServer {
     }
 
     fn setup_line_editor(&self) -> Result<Reedline, Box<dyn std::error::Error>> {
-        let commands = vec![
-            "help".into(),
-            "exit".into(),
-            "quit".into(),
-            "ls".into(),
-            "cd".into(),
-            "pwd".into(),
-            "clear".into(),
-            "find".into(),
-            "cat".into(),
-            "deps".into(),
-        ];
+        let commands = ShellCommand::command_names();
 
-        let completer = Box::new(NaviscopeCompleter::new(commands, self.context.clone()));
+        let completer = Box::new(NaviscopeCompleter::new(
+            commands.clone(),
+            self.context.clone(),
+        ));
 
         let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 
@@ -179,13 +194,17 @@ impl ReplServer {
             .unwrap();
 
         let history = Box::new(
-            FileBackedHistory::with_file(500, history_file.clone())
-                .unwrap_or_else(|_| FileBackedHistory::new(500).expect("Failed to create history")),
+            FileBackedHistory::with_file(SHELL_HISTORY_SIZE, history_file.clone()).unwrap_or_else(
+                |_| FileBackedHistory::new(SHELL_HISTORY_SIZE).expect("Failed to create history"),
+            ),
         );
+
+        let highlighter = Box::new(NaviscopeHighlighter::new(commands));
 
         Ok(Reedline::create()
             .with_history(history)
             .with_completer(completer)
+            .with_highlighter(highlighter)
             .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
             .with_hinter(Box::new(
                 DefaultHinter::default().with_style(

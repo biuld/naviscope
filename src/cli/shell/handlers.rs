@@ -54,8 +54,6 @@ impl CommandHandler for CatHandler {
                 ResolveResult::Ambiguous(candidates) => {
                     let mut msg =
                         format!("Ambiguous match for '{}'. Available options:\n\n", target);
-                    // We should probably look up the names for these FQNs to show better hints,
-                    // but for now showing FQNs is correct.
                     for c in candidates {
                         msg.push_str(&format!("  - {}\n", c));
                     }
@@ -63,10 +61,10 @@ impl CommandHandler for CatHandler {
                     return Ok(msg);
                 }
                 ResolveResult::NotFound => {
-                    // If not resolved locally, fallback to trying target as raw FQN (handled by engine)
-                    // This covers cases where target is an FQN but not reachable via 'ls' from current node?
-                    // Actually resolve_node step 3 covers Exact Match. So it's truly not found.
-                    return Ok("NO RECORDS FOUND".to_string());
+                    return Ok(format!(
+                        "Error: Target '{}' not found in current context.",
+                        target
+                    ));
                 }
             };
 
@@ -79,7 +77,6 @@ impl CommandHandler for CatHandler {
             let query = GraphQuery::Cat { fqn };
             let result = engine.execute(&query)?;
 
-            // Re-use ShellCommand's render for consistent output format
             cmd.render(result)
         } else {
             Ok(String::new())
@@ -95,13 +92,65 @@ impl CommandHandler for GenericQueryHandler {
         context: &mut ShellContext,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let current_node = context.current_fqn();
-        let query = cmd.to_graph_query(&current_node)?;
 
+        // Resolve argument FQN if present
+        let mut resolved_target_fqn = None;
+        let resolved_cmd = match cmd {
+            ShellCommand::Ls {
+                fqn: Some(target),
+                kind,
+                modifiers,
+                long,
+            } => {
+                resolved_target_fqn = match context.resolve_node(target) {
+                    ResolveResult::Found(f) => Some(f),
+                    _ => Some(target.clone()),
+                };
+                ShellCommand::Ls {
+                    fqn: resolved_target_fqn.clone(),
+                    kind: kind.clone(),
+                    modifiers: modifiers.clone(),
+                    long: *long,
+                }
+            }
+            ShellCommand::Deps {
+                fqn: Some(target),
+                rev,
+                edge_types,
+            } => {
+                resolved_target_fqn = match context.resolve_node(target) {
+                    ResolveResult::Found(f) => Some(f),
+                    _ => Some(target.clone()),
+                };
+                ShellCommand::Deps {
+                    fqn: resolved_target_fqn.clone(),
+                    rev: *rev,
+                    edge_types: edge_types.clone(),
+                }
+            }
+            _ => cmd.clone(),
+        };
+
+        let query = resolved_cmd.to_graph_query(&current_node)?;
         let engine_guard = context.naviscope.read().unwrap();
         let engine = QueryEngine::new(engine_guard.graph());
 
         let result = engine.execute(&query)?;
-        cmd.render(result)
+
+        if result.is_empty() {
+            if let Some(target) = resolved_target_fqn {
+                // Check if node itself exists in the graph
+                if engine_guard.graph().fqn_map.contains_key(&target) {
+                    return Ok(format!(
+                        "Node '{}' exists but has no children/relationships matching your criteria.",
+                        target
+                    ));
+                }
+            }
+            return Ok("NO RECORDS FOUND".to_string());
+        }
+
+        resolved_cmd.render(result)
     }
 }
 

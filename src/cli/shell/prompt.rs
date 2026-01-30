@@ -1,3 +1,4 @@
+use nu_ansi_term::Color;
 use reedline::{Prompt, PromptEditMode, PromptHistorySearch};
 use std::borrow::Cow;
 
@@ -13,16 +14,21 @@ impl DefaultPrompt {
 
 impl Prompt for DefaultPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
+        let prefix = Color::LightBlue.bold().paint("naviscope");
         match &self.current_node {
             Some(node) => {
-                let display_node = if node.len() > 40 {
+                let display_node = if node.len() > 30 {
                     shorten_fqn(node)
                 } else {
                     node.clone()
                 };
-                Cow::Owned(format!("naviscope {} > ", display_node))
+                let path = Color::Yellow.paint(display_node);
+                Cow::Owned(format!("{} {} > ", prefix, path))
             }
-            None => Cow::Borrowed("naviscope / > "),
+            None => {
+                let path = Color::Yellow.paint("/");
+                Cow::Owned(format!("{} {} > ", prefix, path))
+            }
         }
     }
 
@@ -47,7 +53,8 @@ impl Prompt for DefaultPrompt {
 }
 
 fn shorten_fqn(fqn: &str) -> String {
-    let parts: Vec<&str> = fqn.split('.').collect();
+    let separator = if fqn.contains("::") { "::" } else { "." };
+    let parts: Vec<&str> = fqn.split(separator).collect();
     if parts.len() <= 2 {
         return fqn.to_string();
     }
@@ -58,12 +65,12 @@ fn shorten_fqn(fqn: &str) -> String {
         if i < parts.len() - 2 {
             if let Some(c) = part.chars().next() {
                 result.push(c);
-                result.push('.');
+                result.push_str(separator);
             }
         } else {
             result.push_str(part);
             if i < parts.len() - 1 {
-                result.push('.');
+                result.push_str(separator);
             }
         }
     }
