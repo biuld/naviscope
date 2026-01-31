@@ -14,6 +14,7 @@ pub struct JavaFileModel<'a> {
     pub imports: Vec<String>,
     pub entities: Vec<JavaEntity<'a>>,
     pub relations: Vec<JavaRelation>,
+    pub identifiers: Vec<String>,
 }
 
 pub struct JavaEntity<'a> {
@@ -58,14 +59,15 @@ impl JavaParser {
             &entities_map,
         );
 
-        // Stage 3: Resolve semantic relations (Method Calls, Instantiations)
-        self.resolve_relations(&all_matches, source, &package, &mut relations);
+        // Stage 3: Collect Reference Index (Identifiers)
+        let identifiers = self.collect_identifiers(tree, source);
 
         JavaFileModel {
             package,
             imports,
             entities,
             relations,
+            identifiers,
         }
     }
 
@@ -82,5 +84,25 @@ impl JavaParser {
             all_matches.push(mat.captures.to_vec());
         }
         all_matches
+    }
+    pub(crate) fn collect_identifiers(&self, tree: &Tree, source: &str) -> Vec<String> {
+        let mut identifiers = std::collections::HashSet::new();
+        let mut stack = vec![tree.root_node()];
+
+        while let Some(node) = stack.pop() {
+            let kind = node.kind();
+            if kind == "identifier" || kind == "type_identifier" {
+                if let Ok(text) = node.utf8_text(source.as_bytes()) {
+                    identifiers.insert(text.to_string());
+                }
+            }
+
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
+        }
+
+        identifiers.into_iter().collect()
     }
 }

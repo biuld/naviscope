@@ -14,9 +14,9 @@ pub trait CodeGraphLike {
         crate::model::graph::GraphEdge,
     >;
     fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex>;
-    fn path_to_nodes(
-        &self,
-    ) -> &std::collections::HashMap<std::path::PathBuf, Vec<petgraph::stable_graph::NodeIndex>>;
+    fn path_to_nodes(&self, path: &std::path::Path)
+    -> Option<&[petgraph::stable_graph::NodeIndex]>;
+    fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>>;
 }
 
 // Blanket implementation for references
@@ -36,9 +36,13 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
 
     fn path_to_nodes(
         &self,
-    ) -> &std::collections::HashMap<std::path::PathBuf, Vec<petgraph::stable_graph::NodeIndex>>
-    {
-        (*self).path_to_nodes()
+        path: &std::path::Path,
+    ) -> Option<&[petgraph::stable_graph::NodeIndex]> {
+        (*self).path_to_nodes(path)
+    }
+
+    fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>> {
+        (*self).reference_index()
     }
 }
 
@@ -59,9 +63,13 @@ impl CodeGraphLike for crate::engine::CodeGraph {
 
     fn path_to_nodes(
         &self,
-    ) -> &std::collections::HashMap<std::path::PathBuf, Vec<petgraph::stable_graph::NodeIndex>>
-    {
-        self.path_to_nodes()
+        path: &std::path::Path,
+    ) -> Option<&[petgraph::stable_graph::NodeIndex]> {
+        self.file_index().get(path).map(|e| e.nodes.as_slice())
+    }
+
+    fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>> {
+        self.reference_index()
     }
 }
 

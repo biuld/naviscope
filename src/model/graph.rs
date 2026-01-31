@@ -234,6 +234,11 @@ pub enum GraphOp {
     },
     /// Remove all nodes and edges associated with a specific file path
     RemovePath { path: PathBuf },
+    /// Update the reference index for a specific file
+    UpdateIdentifiers {
+        path: PathBuf,
+        identifiers: Vec<String>,
+    },
 }
 
 /// Result of resolving a single file
@@ -243,6 +248,8 @@ pub struct ResolvedUnit {
     pub ops: Vec<GraphOp>,
     /// Fast access to nodes being added in this unit
     pub nodes: std::collections::HashMap<String, GraphNode>,
+    /// All unique identifier tokens in this file
+    pub identifiers: Vec<String>,
 }
 
 impl ResolvedUnit {
@@ -250,6 +257,7 @@ impl ResolvedUnit {
         Self {
             ops: Vec::new(),
             nodes: std::collections::HashMap::new(),
+            identifiers: Vec::new(),
         }
     }
 

@@ -21,10 +21,26 @@ pub struct CodeGraph {
 pub(crate) struct CodeGraphInner {
     pub version: u32,
     pub topology: StableDiGraph<GraphNode, GraphEdge>,
-    pub fqn_map: HashMap<String, NodeIndex>,
-    pub name_map: HashMap<String, Vec<NodeIndex>>,
-    pub file_map: HashMap<PathBuf, SourceFile>,
-    pub path_to_nodes: HashMap<PathBuf, Vec<NodeIndex>>,
+
+    /// FQN -> NodeIndex mapping for fast lookup
+    pub fqn_index: HashMap<String, NodeIndex>,
+
+    /// Simple name -> NodeIndices for symbol search
+    pub name_index: HashMap<String, Vec<NodeIndex>>,
+
+    /// File-level information: metadata and nodes contained in each file
+    pub file_index: HashMap<PathBuf, FileEntry>,
+
+    /// Reference Index: Token (e.g. Method Name) -> Files that contain this token.
+    /// Used for fast "scouting" during reference discovery.
+    pub reference_index: HashMap<String, Vec<PathBuf>>,
+}
+
+/// Metadata and nodes associated with a single source file
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FileEntry {
+    pub metadata: SourceFile,
+    pub nodes: Vec<NodeIndex>,
 }
 
 impl CodeGraph {
@@ -34,10 +50,10 @@ impl CodeGraph {
             inner: std::sync::Arc::new(CodeGraphInner {
                 version: crate::engine::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
-                fqn_map: HashMap::new(),
-                name_map: HashMap::new(),
-                file_map: HashMap::new(),
-                path_to_nodes: HashMap::new(),
+                fqn_index: HashMap::new(),
+                name_index: HashMap::new(),
+                file_index: HashMap::new(),
+                reference_index: HashMap::new(),
             }),
         }
     }
@@ -69,29 +85,29 @@ impl CodeGraph {
         &self.inner.topology
     }
 
-    /// Get reference to the FQN map
+    /// Get reference to the FQN index
     pub fn fqn_map(&self) -> &HashMap<String, NodeIndex> {
-        &self.inner.fqn_map
+        &self.inner.fqn_index
     }
 
-    /// Get reference to the name map
+    /// Get reference to the name index
     pub fn name_map(&self) -> &HashMap<String, Vec<NodeIndex>> {
-        &self.inner.name_map
+        &self.inner.name_index
     }
 
-    /// Get reference to the file map
-    pub fn file_map(&self) -> &HashMap<PathBuf, SourceFile> {
-        &self.inner.file_map
+    /// Get reference to the file index
+    pub fn file_index(&self) -> &HashMap<PathBuf, FileEntry> {
+        &self.inner.file_index
     }
 
-    /// Get reference to the path-to-nodes map
-    pub fn path_to_nodes(&self) -> &HashMap<PathBuf, Vec<NodeIndex>> {
-        &self.inner.path_to_nodes
+    /// Get reference to the reference index
+    pub fn reference_index(&self) -> &HashMap<String, Vec<PathBuf>> {
+        &self.inner.reference_index
     }
 
     /// Find node index by FQN
     pub fn find_node(&self, fqn: &str) -> Option<NodeIndex> {
-        self.inner.fqn_map.get(fqn).copied()
+        self.inner.fqn_index.get(fqn).copied()
     }
 
     /// Get node data by index
@@ -101,9 +117,9 @@ impl CodeGraph {
 
     /// Find node at a specific location in a file
     pub fn find_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
-        let nodes = self.inner.path_to_nodes.get(path)?;
+        let entry = self.inner.file_index.get(path)?;
 
-        for &idx in nodes {
+        for &idx in &entry.nodes {
             if let Some(node) = self.inner.topology.node_weight(idx) {
                 if let Some(range) = node.name_range() {
                     if range.contains(line, col) {
@@ -117,7 +133,7 @@ impl CodeGraph {
 
     /// Find nodes matching a symbol resolution result
     pub fn find_matches_by_fqn(&self, fqn: &str) -> Vec<NodeIndex> {
-        if let Some(&idx) = self.inner.fqn_map.get(fqn) {
+        if let Some(&idx) = self.inner.fqn_index.get(fqn) {
             vec![idx]
         } else {
             vec![]

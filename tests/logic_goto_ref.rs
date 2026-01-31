@@ -36,20 +36,15 @@ fn test_goto_references_method() {
     let matches = resolver.find_matches(&index, &res);
     let target_idx = matches[0];
 
-    // Check incoming 'Calls' edges
-    let mut callers = Vec::new();
-    let mut incoming = index
-        .topology()
-        .neighbors_directed(target_idx, Direction::Incoming)
-        .detach();
-    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology()) {
-        let edge = &index.topology()[edge_idx];
-        if edge.edge_type == EdgeType::Calls {
-            callers.push(index.topology()[neighbor_idx].fqn().to_string());
-        }
-    }
+    // Check for candidate files via DiscoveryEngine (Meso-scouting)
+    let discovery = naviscope::analysis::discovery::DiscoveryEngine::new(&index);
+    let candidate_files = discovery.scout_references(&[target_idx]);
 
-    assert_eq!(callers.len(), 2);
-    assert!(callers.contains(&"B.m1".to_string()));
-    assert!(callers.contains(&"C.m2".to_string()));
+    assert_eq!(candidate_files.len(), 3);
+    let paths: Vec<String> = candidate_files
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    assert!(paths.contains(&"B.java".to_string()));
+    assert!(paths.contains(&"C.java".to_string()));
 }

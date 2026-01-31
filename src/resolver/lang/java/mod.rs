@@ -1,6 +1,6 @@
 use crate::engine::CodeGraph;
 use crate::error::Result;
-use crate::model::graph::{EdgeType, GraphEdge, GraphNode, NodeKind, ResolvedUnit};
+use crate::model::graph::{EdgeType, GraphEdge, GraphNode, GraphOp, NodeKind, ResolvedUnit};
 use crate::model::lang::java::{JavaElement, JavaPackage};
 use crate::model::signature::TypeRef;
 use crate::parser::SymbolIntent;
@@ -333,6 +333,12 @@ impl LangResolver for JavaResolver {
         let dummy_index = CodeGraph::empty();
 
         if let ParsedContent::Java(parse_result) = &file.content {
+            unit.identifiers = parse_result.identifiers.clone();
+            unit.ops.push(GraphOp::UpdateIdentifiers {
+                path: file.file.path.clone(),
+                identifiers: parse_result.identifiers.clone(),
+            });
+
             let module_id = context
                 .find_module_for_path(&file.file.path)
                 .unwrap_or_else(|| "module::root".to_string());

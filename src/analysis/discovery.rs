@@ -21,8 +21,18 @@ impl<'a> DiscoveryEngine<'a> {
     pub fn scout_references(&self, matches: &[petgraph::prelude::NodeIndex]) -> HashSet<PathBuf> {
         let mut unique_paths = HashSet::new();
         let topology = self.index.topology();
+        let ref_index = self.index.reference_index();
 
         for &node_idx in matches {
+            // 1. Reference Index "Scouting" (New fast path)
+            let node = &topology[node_idx];
+            if let Some(paths) = ref_index.get(node.name()) {
+                for p in paths {
+                    unique_paths.insert(p.clone());
+                }
+            }
+
+            // 2. Meso-graph traversal (legacy fallback for explicit edges)
             let mut incoming = topology
                 .neighbors_directed(node_idx, Direction::Incoming)
                 .detach();

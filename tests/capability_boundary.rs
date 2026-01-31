@@ -1,6 +1,7 @@
 mod common;
 
 use common::setup_java_test_graph;
+use naviscope::analysis::discovery::DiscoveryEngine;
 use naviscope::model::graph::EdgeType;
 
 /// Capability 1: Structural Indexing
@@ -99,14 +100,22 @@ fn cap_instantiation_tracking() {
     let b_m_idx = index.fqn_map()["B.m"];
     let a_idx = index.fqn_map()["A"];
 
-    let has_instantiates = index
+    // 1. Check Meso-graph (Structural only - should NOT have the edge now)
+    let has_instantiates_edge = index
         .topology()
         .edges_connecting(b_m_idx, a_idx)
         .any(|e| e.weight().edge_type == EdgeType::Instantiates);
-
     assert!(
-        has_instantiates,
-        "Method 'B.m' should have Instantiates edge to class 'A'"
+        !has_instantiates_edge,
+        "Meso-graph should NOT have direct Instantiates edge after pruning"
+    );
+
+    // 2. Check DiscoveryEngine "Scouting" (uses Reference Index)
+    let discovery = DiscoveryEngine::new(&index);
+    let candidate_files = discovery.scout_references(&[a_idx]);
+    assert!(
+        candidate_files.contains(&std::path::PathBuf::from("B.java")),
+        "DiscoveryEngine should find B.java as a candidate for references to A"
     );
 }
 
@@ -123,16 +132,22 @@ fn cap_method_call_tracking() {
     let b_m_idx = index.fqn_map()["B.m"];
     let a_target_idx = index.fqn_map()["A.target"];
 
-    let has_calls = index
+    // 1. Check Meso-graph (Structural only - should NOT have the edge now)
+    let has_calls_edge = index
         .topology()
         .edges_connecting(b_m_idx, a_target_idx)
         .any(|e| e.weight().edge_type == EdgeType::Calls);
-
-    // NOTE: This currently fails in the existing implementation because it requires
-    // type inference of variable 'a' during indexing.
     assert!(
-        has_calls,
-        "Method 'B.m' should have Calls edge to 'A.target'"
+        !has_calls_edge,
+        "Meso-graph should NOT have direct Calls edge after pruning"
+    );
+
+    // 2. Check DiscoveryEngine "Scouting" (uses Reference Index)
+    let discovery = DiscoveryEngine::new(&index);
+    let candidate_files = discovery.scout_references(&[a_target_idx]);
+    assert!(
+        candidate_files.contains(&std::path::PathBuf::from("B.java")),
+        "DiscoveryEngine should find B.java as a candidate for calls to A.target"
     );
 }
 
@@ -200,15 +215,12 @@ fn cap_static_field_access() {
     let main_s_idx = index.fqn_map()["Main.s"];
     let config_key_idx = index.fqn_map()["Config.KEY"];
 
-    let has_edge = index
-        .topology()
-        .edges_connecting(main_s_idx, config_key_idx)
-        .count()
-        > 0;
-
+    // Checking if Main.java is discovered as a candidate for Config.KEY
+    let discovery = DiscoveryEngine::new(&index);
+    let candidate_files = discovery.scout_references(&[config_key_idx]);
     assert!(
-        has_edge,
-        "Field 'Main.s' should have an edge to 'Config.KEY'"
+        candidate_files.contains(&std::path::PathBuf::from("Main.java")),
+        "Main.java should be discovered as a candidate for Config.KEY"
     );
 }
 

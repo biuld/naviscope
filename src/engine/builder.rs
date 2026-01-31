@@ -23,10 +23,10 @@ impl CodeGraphBuilder {
             inner: CodeGraphInner {
                 version: crate::engine::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
-                fqn_map: HashMap::new(),
-                name_map: HashMap::new(),
-                file_map: HashMap::new(),
-                path_to_nodes: HashMap::new(),
+                fqn_index: HashMap::new(),
+                name_index: HashMap::new(),
+                file_index: HashMap::new(),
+                reference_index: HashMap::new(),
             },
         }
     }
@@ -45,7 +45,7 @@ impl CodeGraphBuilder {
 
     /// Add or update a node
     pub fn add_node(&mut self, fqn: String, node: GraphNode) -> NodeIndex {
-        if let Some(&idx) = self.inner.fqn_map.get(&fqn) {
+        if let Some(&idx) = self.inner.fqn_index.get(&fqn) {
             // Node already exists, optionally update it
             idx
         } else {
@@ -53,11 +53,14 @@ impl CodeGraphBuilder {
             let path = node.file_path().cloned();
 
             let idx = self.inner.topology.add_node(node);
-            self.inner.fqn_map.insert(fqn, idx);
-            self.inner.name_map.entry(name).or_default().push(idx);
+            self.inner.fqn_index.insert(fqn, idx);
+            self.inner.name_index.entry(name).or_default().push(idx);
 
             if let Some(p) = path {
-                self.inner.path_to_nodes.entry(p).or_default().push(idx);
+                self.inner
+                    .file_index
+                    .entry(p)
+                    .and_modify(|e| e.nodes.push(idx));
             }
 
             idx
@@ -84,13 +87,13 @@ impl CodeGraphBuilder {
             let fqn = node.fqn().to_string();
             let name = node.name().to_string();
 
-            // Remove from maps
-            self.inner.fqn_map.remove(&fqn);
+            // Remove from indices
+            self.inner.fqn_index.remove(&fqn);
 
-            if let Some(nodes) = self.inner.name_map.get_mut(&name) {
+            if let Some(nodes) = self.inner.name_index.get_mut(&name) {
                 nodes.retain(|&i| i != idx);
                 if nodes.is_empty() {
-                    self.inner.name_map.remove(&name);
+                    self.inner.name_index.remove(&name);
                 }
             }
 
@@ -101,17 +104,28 @@ impl CodeGraphBuilder {
 
     /// Remove all nodes associated with a file path
     pub fn remove_path(&mut self, path: &PathBuf) {
-        if let Some(nodes) = self.inner.path_to_nodes.remove(path) {
-            for idx in nodes {
+        if let Some(entry) = self.inner.file_index.remove(path) {
+            for idx in entry.nodes {
                 self.remove_node(idx);
             }
         }
-        self.inner.file_map.remove(path);
+
+        // Also remove from reference_index
+        for files in self.inner.reference_index.values_mut() {
+            files.retain(|p| p != path);
+        }
     }
 
-    /// Update file metadata
+    /// Update file metadata (creates or updates FileEntry)
     pub fn update_file(&mut self, path: PathBuf, source: SourceFile) {
-        self.inner.file_map.insert(path, source);
+        self.inner
+            .file_index
+            .entry(path)
+            .and_modify(|e| e.metadata = source.clone())
+            .or_insert(crate::engine::graph::FileEntry {
+                metadata: source,
+                nodes: Vec::new(),
+            });
     }
 
     /// Apply a graph operation
@@ -126,14 +140,22 @@ impl CodeGraphBuilder {
                 edge,
             } => {
                 if let (Some(&from), Some(&to)) = (
-                    self.inner.fqn_map.get(&from_id),
-                    self.inner.fqn_map.get(&to_id),
+                    self.inner.fqn_index.get(&from_id),
+                    self.inner.fqn_index.get(&to_id),
                 ) {
                     self.add_edge(from, to, edge);
                 }
             }
             GraphOp::RemovePath { path } => {
                 self.remove_path(&path);
+            }
+            GraphOp::UpdateIdentifiers { path, identifiers } => {
+                for token in identifiers {
+                    let files = self.inner.reference_index.entry(token).or_default();
+                    if !files.contains(&path) {
+                        files.push(path.clone());
+                    }
+                }
             }
         }
         Ok(())

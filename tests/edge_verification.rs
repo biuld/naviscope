@@ -53,6 +53,21 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
     );
 }
 
+fn assert_reference_scouted(graph: &CodeGraph, target_fqn: &str, expected_file: &str) {
+    let target_idx = graph
+        .fqn_map()
+        .get(target_fqn)
+        .expect("Target node not found");
+    let discovery = naviscope::analysis::discovery::DiscoveryEngine::new(graph);
+    let candidate_files = discovery.scout_references(&[*target_idx]);
+    assert!(
+        candidate_files.contains(&std::path::PathBuf::from(expected_file)),
+        "File {} should be a candidate for references to {}",
+        expected_file,
+        target_fqn
+    );
+}
+
 #[test]
 fn test_edge_contains() {
     let files = vec![(
@@ -123,12 +138,7 @@ fn test_edge_calls() {
     let (index, _) = setup_java_test_graph(files);
 
     // Using FQN in call to ensure resolution works in batch mode
-    assert_edge(
-        &index,
-        "com.test.Service.run",
-        "com.test.Service.helper",
-        EdgeType::Calls,
-    );
+    assert_reference_scouted(&index, "com.test.Service.helper", "src/Service.java");
 }
 
 #[test]
@@ -146,7 +156,7 @@ fn test_edge_instantiates() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    assert_edge(&index, "Factory.create", "Product", EdgeType::Instantiates);
+    assert_reference_scouted(&index, "Product", "src/Factory.java");
 }
 
 #[test]

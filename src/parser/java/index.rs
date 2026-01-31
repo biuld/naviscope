@@ -34,13 +34,18 @@ impl IndexParser for JavaParser {
             .map(|r| (r.source_fqn, r.target_name, r.rel_type, r.range))
             .collect();
 
+        let package_name = model.package;
+        let imports = model.imports;
+        let identifiers = model.identifiers;
+
         Ok(GlobalParseResult {
-            package_name: model.package,
-            imports: model.imports,
+            package_name,
+            imports,
             nodes,
             relations,
             source: Some(source_code.to_string()),
             tree: Some(tree),
+            identifiers,
         })
     }
 }

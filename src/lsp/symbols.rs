@@ -48,7 +48,7 @@ fn get_symbols_from_graph(
     graph: &dyn CodeGraphLike,
     path: &Path,
 ) -> Vec<crate::parser::DocumentSymbol> {
-    let node_indices = match graph.path_to_nodes().get(path) {
+    let node_indices = match graph.path_to_nodes(path) {
         Some(indices) => indices,
         None => return vec![],
     };
