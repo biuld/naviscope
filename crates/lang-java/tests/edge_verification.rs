@@ -179,7 +179,6 @@ fn test_edge_typed_as() {
 }
 
 #[test]
-#[ignore]
 fn test_edge_decorated_by() {
     let files = vec![
         (

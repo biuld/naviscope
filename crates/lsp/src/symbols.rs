@@ -1,9 +1,11 @@
 use crate::LspServer;
+use naviscope_core::engine::LanguageService;
 use naviscope_core::model::graph::EdgeType;
 use naviscope_core::query::CodeGraphLike;
 use petgraph::stable_graph::NodeIndex;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
@@ -221,10 +223,9 @@ pub async fn workspace_symbol(
             || node.fqn().to_string().to_lowercase().contains(&query)
         {
             if let (Some(path), Some(range)) = (node.file_path(), node.range()) {
-                let kind = server
-                    .resolver
+                let kind = engine
                     .get_lsp_parser(node.language())
-                    .map(|parser| parser.symbol_kind(&node.kind()))
+                    .map(|parser: Arc<dyn naviscope_core::parser::LspParser>| parser.symbol_kind(&node.kind()))
                     .unwrap_or(SymbolKind::VARIABLE);
 
                 #[allow(deprecated)]

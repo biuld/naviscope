@@ -191,18 +191,20 @@ impl Default for CodeGraphBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::graph::BuildSystem;
+    use crate::model::graph::NodeKind;
 
     #[test]
     fn test_build_from_scratch() {
         let mut builder = CodeGraphBuilder::new();
 
-        // Create a simple test node using the correct constructor
-        let node = GraphNode::project(
-            "test_project".to_string(),
-            PathBuf::from("."),
-            BuildSystem::Unknown,
-        );
+        let node = GraphNode {
+            id: "test_project".to_string(),
+            name: "test_project".to_string(),
+            kind: NodeKind::Project,
+            lang: "buildfile".to_string(),
+            location: None,
+            metadata: serde_json::Value::Null,
+        };
 
         let _idx = builder.add_node("test_project".to_string(), node);
         let graph = builder.build();
@@ -213,18 +215,19 @@ mod tests {
 
     #[test]
     fn test_incremental_update() {
-        // Start with empty graph
         let graph = CodeGraph::empty();
         assert_eq!(graph.node_count(), 0);
 
-        // Create builder from existing graph
         let mut builder = CodeGraphBuilder::from_graph(&graph);
 
-        let node = GraphNode::project(
-            "new_project".to_string(),
-            PathBuf::from("."),
-            BuildSystem::Unknown,
-        );
+        let node = GraphNode {
+            id: "new_project".to_string(),
+            name: "new_project".to_string(),
+            kind: NodeKind::Project,
+            lang: "buildfile".to_string(),
+            location: None,
+            metadata: serde_json::Value::Null,
+        };
 
         builder.add_node("new_project".to_string(), node);
         let updated = builder.build();

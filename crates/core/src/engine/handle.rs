@@ -1,6 +1,6 @@
 //! Unified engine handle for all clients
 
-use super::{CodeGraph, NaviscopeEngine};
+use super::{CodeGraph, LanguageService, NaviscopeEngine};
 use crate::error::Result;
 use crate::query::{GraphQuery, QueryResult};
 use std::path::PathBuf;
@@ -157,6 +157,31 @@ impl EngineHandle {
     /// Rebuild the index (sync)
     pub fn rebuild_blocking(&self) -> Result<()> {
         tokio::runtime::Handle::current().block_on(self.rebuild())
+    }
+}
+
+// Implement LanguageService trait for EngineHandle
+impl LanguageService for EngineHandle {
+    fn get_lsp_parser(&self, language: crate::project::source::Language) -> Option<Arc<dyn crate::parser::LspParser>> {
+        self.engine.get_resolver().get_lsp_parser(language)
+    }
+
+    fn get_semantic_resolver(
+        &self,
+        language: crate::project::source::Language,
+    ) -> Option<Arc<dyn crate::resolver::SemanticResolver>> {
+        self.engine.get_resolver().get_semantic_resolver(language)
+    }
+
+    fn get_feature_provider(
+        &self,
+        language: crate::project::source::Language,
+    ) -> Option<Arc<dyn crate::plugin::LanguageFeatureProvider>> {
+        self.engine.get_resolver().get_feature_provider(language)
+    }
+
+    fn get_language_by_extension(&self, ext: &str) -> Option<crate::project::source::Language> {
+        self.engine.get_resolver().get_language_by_extension(ext)
     }
 }
 

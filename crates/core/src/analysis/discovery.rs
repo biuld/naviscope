@@ -1,8 +1,6 @@
-use crate::model::graph::EdgeType;
 use crate::parser::{LspParser, SymbolResolution};
 use crate::query::CodeGraphLike;
 use lsp_types::{Location, Url};
-use petgraph::Direction;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -18,42 +16,67 @@ impl<'a> DiscoveryEngine<'a> {
 
     /// Meso-level: Scout for candidate files that likely contain references to the given nodes.
     /// Returns a set of unique file paths.
+    /// 
+    /// Strategy:
+    /// 1. Extract all possible identifier tokens from node's FQN and name
+    /// 2. Use reference_index (inverted index) to quickly find candidate files containing these tokens
+    /// 
+    /// Note: This relies on reference_index which contains all identifier tokens found during parsing.
+    /// The actual reference verification is done at micro-level using tree-sitter parsing.
     pub fn scout_references(&self, matches: &[petgraph::prelude::NodeIndex]) -> HashSet<PathBuf> {
         let mut unique_paths = HashSet::new();
         let topology = self.index.topology();
         let ref_index = self.index.reference_index();
 
         for &node_idx in matches {
-            // 1. Reference Index "Scouting" (New fast path)
             let node = &topology[node_idx];
-            if let Some(paths) = ref_index.get(node.name()) {
-                for p in paths {
-                    unique_paths.insert(p.clone());
-                }
-            }
-
-            // 2. Meso-graph traversal (legacy fallback for explicit edges)
-            let mut incoming = topology
-                .neighbors_directed(node_idx, Direction::Incoming)
-                .detach();
-            while let Some((edge_idx, neighbor_idx)) = incoming.next(topology) {
-                let edge = &topology[edge_idx];
-
-                // Filter edges for references
-                match edge.edge_type {
-                    EdgeType::Calls
-                    | EdgeType::Instantiates
-                    | EdgeType::TypedAs
-                    | EdgeType::DecoratedBy => {
-                        if let Some(source_path) = topology[neighbor_idx].file_path() {
-                            unique_paths.insert(source_path.clone());
-                        }
+            
+            // 1. Reference Index "Scouting" - Extract all identifier tokens from FQN
+            // For a node like "com.example.UserService.login", we want to search for:
+            // - "login" (method name)
+            // - "UserService" (class name)
+            // - "example" (package name segment, optional)
+            let tokens_to_search = Self::extract_identifier_tokens(node);
+            
+            for token in tokens_to_search {
+                if let Some(paths) = ref_index.get(&token) {
+                    for p in paths {
+                        unique_paths.insert(p.clone());
                     }
-                    _ => continue,
                 }
             }
         }
         unique_paths
+    }
+
+    /// Extract all possible identifier tokens from a node's FQN and name.
+    /// This helps maximize the effectiveness of reference_index lookup.
+    fn extract_identifier_tokens(node: &crate::model::graph::GraphNode) -> Vec<String> {
+        let mut tokens = Vec::new();
+        
+        // Always include the node's simple name (e.g., "login" for a method)
+        tokens.push(node.name().to_string());
+        
+        // Extract tokens from FQN (e.g., "com.example.UserService.login")
+        let fqn = node.fqn();
+        
+        // Split by common separators: '.', '::', '#'
+        // For Java: "com.example.UserService.login" -> ["com", "example", "UserService", "login"]
+        // For modules: "module::root" -> ["module", "root"]
+        let parts: Vec<&str> = fqn
+            .split(|c| c == '.' || c == '#' || c == ':')
+            .filter(|s| !s.is_empty())
+            .collect();
+        
+        // Add all parts as potential tokens (but skip duplicates)
+        for part in parts {
+            let part_str = part.to_string();
+            if !tokens.contains(&part_str) {
+                tokens.push(part_str);
+            }
+        }
+        
+        tokens
     }
 
     /// Micro-level: Scan a specific file for precise symbol occurrences.

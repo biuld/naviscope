@@ -9,7 +9,7 @@ pub mod util;
 
 use crate::util::Document;
 use dashmap::DashMap;
-use naviscope_core::engine::handle::EngineHandle; // Use new EngineHandle
+use naviscope_core::engine::{handle::EngineHandle, LanguageService};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -23,7 +23,6 @@ pub struct LspServer {
     pub engine: Arc<RwLock<Option<EngineHandle>>>, // Updated type
     pub engine_builder: Arc<dyn Fn(PathBuf) -> EngineHandle + Send + Sync>,
     pub documents: DashMap<Url, Arc<Document>>,
-    pub resolver: Arc<naviscope_core::resolver::engine::IndexResolver>,
     session_path: Arc<RwLock<Option<PathBuf>>>,
     cancel_token: CancellationToken,
 }
@@ -38,7 +37,6 @@ impl LspServer {
             engine: Arc::new(RwLock::new(None)),
             engine_builder,
             documents: DashMap::new(),
-            resolver: Arc::new(naviscope_core::resolver::engine::IndexResolver::new()),
             session_path: Arc::new(RwLock::new(None)),
             cancel_token: CancellationToken::new(),
         }
@@ -52,10 +50,19 @@ impl LspServer {
         naviscope_core::project::source::Language,
     )> {
         let path = uri.to_file_path().ok()?;
-        let ext = path.extension()?.to_str()?;
-        let lang = self.resolver.get_language_by_extension(ext)?;
-        let parser = self.resolver.get_lsp_parser(lang)?;
-        Some((parser, lang))
+        let engine_lock = self.engine.blocking_read();
+        let engine = engine_lock.as_ref()?;
+        engine.get_parser_and_lang_for_path(&path)
+    }
+
+    /// Get semantic resolver for a language from the engine
+    pub fn get_semantic_resolver(
+        &self,
+        language: naviscope_core::project::source::Language,
+    ) -> Option<Arc<dyn naviscope_core::resolver::SemanticResolver>> {
+        let engine_lock = self.engine.blocking_read();
+        let engine = engine_lock.as_ref()?;
+        engine.get_semantic_resolver(language)
     }
 
     fn point_at(&self, text: &str, offset: usize) -> tree_sitter::Point {

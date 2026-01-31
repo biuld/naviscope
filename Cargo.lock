@@ -1276,6 +1276,7 @@ dependencies = [
  "once_cell",
  "petgraph",
  "serde",
+ "serde_json",
  "thiserror 2.0.17",
  "tree-sitter",
 ]
@@ -1289,6 +1290,7 @@ dependencies = [
  "naviscope-core",
  "petgraph",
  "serde",
+ "serde_json",
  "thiserror 2.0.17",
  "tree-sitter",
 ]

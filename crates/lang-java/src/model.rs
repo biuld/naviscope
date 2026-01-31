@@ -1,8 +1,9 @@
-use crate::model::graph::Range;
-use crate::model::signature::TypeRef;
+use naviscope_core::model::graph::Range;
+use naviscope_core::model::signature::TypeRef;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum JavaElement {
     Class(JavaClass),
     Interface(JavaInterface),
@@ -38,26 +39,26 @@ impl JavaElement {
         }
     }
 
-    pub fn range(&self) -> Option<&Range> {
+    pub fn range(&self) -> Option<Range> {
         match self {
-            JavaElement::Class(e) => e.range.as_ref(),
-            JavaElement::Interface(e) => e.range.as_ref(),
-            JavaElement::Enum(e) => e.range.as_ref(),
-            JavaElement::Annotation(e) => e.range.as_ref(),
-            JavaElement::Method(e) => e.range.as_ref(),
-            JavaElement::Field(e) => e.range.as_ref(),
+            JavaElement::Class(e) => e.range,
+            JavaElement::Interface(e) => e.range,
+            JavaElement::Enum(e) => e.range,
+            JavaElement::Annotation(e) => e.range,
+            JavaElement::Method(e) => e.range,
+            JavaElement::Field(e) => e.range,
             JavaElement::Package(_) => None,
         }
     }
 
-    pub fn name_range(&self) -> Option<&Range> {
+    pub fn name_range(&self) -> Option<Range> {
         match self {
-            JavaElement::Class(e) => e.name_range.as_ref(),
-            JavaElement::Interface(e) => e.name_range.as_ref(),
-            JavaElement::Enum(e) => e.name_range.as_ref(),
-            JavaElement::Annotation(e) => e.name_range.as_ref(),
-            JavaElement::Method(e) => e.name_range.as_ref(),
-            JavaElement::Field(e) => e.name_range.as_ref(),
+            JavaElement::Class(e) => e.name_range,
+            JavaElement::Interface(e) => e.name_range,
+            JavaElement::Enum(e) => e.name_range,
+            JavaElement::Annotation(e) => e.name_range,
+            JavaElement::Method(e) => e.name_range,
+            JavaElement::Field(e) => e.name_range,
             JavaElement::Package(_) => None,
         }
     }

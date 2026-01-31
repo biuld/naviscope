@@ -1,6 +1,6 @@
+use crate::model::{GradleElement, GradleModule};
 use naviscope_core::error::Result;
-use naviscope_core::model::graph::{EdgeType, GraphEdge, GraphNode, ResolvedUnit};
-use naviscope_core::model::lang::gradle::{GradleElement, GradleModule};
+use naviscope_core::model::graph::{EdgeType, GraphEdge, GraphNode, NodeKind, ResolvedUnit};
 use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
 use naviscope_core::resolver::{BuildResolver, ProjectContext};
 use std::collections::HashMap;
@@ -38,20 +38,24 @@ impl BuildResolver for GradleResolver {
                 });
 
             match &file.content {
-                ParsedContent::Gradle(content) => {
-                    data.build_file = Some((file, content.clone()));
-                }
-                ParsedContent::GradleSettings(content) => {
-                    data.settings_file = Some((file, content.clone()));
+                ParsedContent::MetaData(value) => {
+                    // Try to deserialize as GradleParseResult first
+                    if let Ok(gradle_result) =
+                        serde_json::from_value::<crate::model::GradleParseResult>(value.clone())
+                    {
+                        data.build_file = Some((file, gradle_result));
+                    } else if let Ok(settings) =
+                        serde_json::from_value::<crate::model::GradleSettings>(value.clone())
+                    {
+                        data.settings_file = Some((file, settings));
+                    }
                 }
                 ParsedContent::Unparsed(content_str) => {
                     let path = &file.file.path.clone();
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         if name == "build.gradle" || name == "build.gradle.kts" {
                             if let Ok(deps) = crate::parser::parse_dependencies(content_str) {
-                                let res = naviscope_core::model::lang::gradle::GradleParseResult {
-                                    dependencies: deps,
-                                };
+                                let res = crate::model::GradleParseResult { dependencies: deps };
                                 data.build_file = Some((file, res));
                             }
                         } else if name == "settings.gradle" || name == "settings.gradle.kts" {
@@ -112,11 +116,26 @@ impl BuildResolver for GradleResolver {
         // Add Project node
         unit.add_node(
             project_id.clone(),
-            GraphNode::project(
-                project_id.clone(),
-                root_path.clone(),
-                naviscope_core::model::graph::BuildSystem::Gradle,
-            ),
+            GraphNode {
+                id: project_id.clone(),
+                name: project_name.clone(),
+                kind: NodeKind::Project,
+                lang: "buildfile".to_string(),
+                location: Some(naviscope_core::model::graph::NodeLocation {
+                    path: root_path.clone(),
+                    range: naviscope_core::model::graph::Range {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                    selection_range: None,
+                }),
+                metadata: serde_json::json!({
+                    "build_system": "gradle",
+                    "root_path": root_path.to_string_lossy()
+                }),
+            },
         );
 
         // --- Step 4: Assign Module IDs ---
@@ -158,20 +177,36 @@ impl BuildResolver for GradleResolver {
 
             unit.add_node(
                 root_module_id.clone(),
-                GraphNode::gradle(
-                    GradleElement::Module(GradleModule {
-                        name: display_name.to_string(),
-                        id: root_module_id.clone(),
-                    }),
-                    data.build_file
+                GraphNode {
+                    id: root_module_id.clone(),
+                    name: display_name.to_string(),
+                    kind: NodeKind::Module,
+                    lang: "buildfile".to_string(),
+                    location: data
+                        .build_file
                         .as_ref()
                         .map(|(f, _)| f.file.path.clone())
                         .or_else(|| {
                             data.settings_file
                                 .as_ref()
                                 .map(|(f, _)| f.file.path.clone())
+                        })
+                        .map(|path| naviscope_core::model::graph::NodeLocation {
+                            path,
+                            range: naviscope_core::model::graph::Range {
+                                start_line: 0,
+                                start_col: 0,
+                                end_line: 0,
+                                end_col: 0,
+                            },
+                            selection_range: None,
                         }),
-                ),
+                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {
+                        name: display_name.to_string(),
+                        id: root_module_id.clone(),
+                    }))
+                    .unwrap_or(serde_json::Value::Null),
+                },
             );
 
             unit.add_edge(
@@ -197,20 +232,36 @@ impl BuildResolver for GradleResolver {
 
             unit.add_node(
                 id.clone(),
-                GraphNode::gradle(
-                    GradleElement::Module(GradleModule {
-                        name: display_name.to_string(),
-                        id: id.clone(),
-                    }),
-                    data.build_file
+                GraphNode {
+                    id: id.clone(),
+                    name: display_name.to_string(),
+                    kind: NodeKind::Module,
+                    lang: "buildfile".to_string(),
+                    location: data
+                        .build_file
                         .as_ref()
                         .map(|(f, _)| f.file.path.clone())
                         .or_else(|| {
                             data.settings_file
                                 .as_ref()
                                 .map(|(f, _)| f.file.path.clone())
+                        })
+                        .map(|path| naviscope_core::model::graph::NodeLocation {
+                            path,
+                            range: naviscope_core::model::graph::Range {
+                                start_line: 0,
+                                start_col: 0,
+                                end_line: 0,
+                                end_col: 0,
+                            },
+                            selection_range: None,
                         }),
-                ),
+                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {
+                        name: display_name.to_string(),
+                        id: id.clone(),
+                    }))
+                    .unwrap_or(serde_json::Value::Null),
+                },
             );
 
             context.path_to_module.insert(path.clone(), id.clone());
@@ -269,10 +320,24 @@ impl BuildResolver for GradleResolver {
                         dep_node.id = target_id.clone();
                         unit.add_node(
                             target_id.clone(),
-                            GraphNode::gradle(
-                                GradleElement::Dependency(dep_node),
-                                Some(data.build_file.as_ref().unwrap().0.file.path.clone()),
-                            ),
+                            GraphNode {
+                                id: target_id.clone(),
+                                name: dep_node.name.clone(),
+                                kind: NodeKind::Dependency,
+                                lang: "buildfile".to_string(),
+                                location: Some(naviscope_core::model::graph::NodeLocation {
+                                    path: data.build_file.as_ref().unwrap().0.file.path.clone(),
+                                    range: naviscope_core::model::graph::Range {
+                                        start_line: 0,
+                                        start_col: 0,
+                                        end_line: 0,
+                                        end_col: 0,
+                                    },
+                                    selection_range: None,
+                                }),
+                                metadata: serde_json::to_value(GradleElement::Dependency(dep_node))
+                                    .unwrap_or(serde_json::Value::Null),
+                            },
                         );
                     }
 
@@ -290,21 +355,14 @@ impl BuildResolver for GradleResolver {
 }
 
 struct ModuleData<'a> {
-    build_file: Option<(
-        &'a ParsedFile,
-        naviscope_core::model::lang::gradle::GradleParseResult,
-    )>,
-    settings_file: Option<(
-        &'a ParsedFile,
-        naviscope_core::model::lang::gradle::GradleSettings,
-    )>,
+    build_file: Option<(&'a ParsedFile, crate::model::GradleParseResult)>,
+    settings_file: Option<(&'a ParsedFile, crate::model::GradleSettings)>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use naviscope_core::model::graph::GraphOp;
-    use naviscope_core::model::lang::gradle::{GradleParseResult, GradleSettings};
     use naviscope_core::project::source::SourceFile;
 
     fn create_mock_file(path: &str, content: ParsedContent) -> ParsedFile {
@@ -324,22 +382,31 @@ mod tests {
 
         let root_settings = create_mock_file(
             "/repo/settings.gradle",
-            ParsedContent::GradleSettings(GradleSettings {
-                root_project_name: Some("spring-boot-build".to_string()),
-                included_projects: vec![],
-            }),
+            ParsedContent::MetaData(
+                serde_json::to_value(crate::model::GradleSettings {
+                    root_project_name: Some("spring-boot-build".to_string()),
+                    included_projects: vec![],
+                })
+                .unwrap(),
+            ),
         );
         let sub_project_build = create_mock_file(
             "/repo/spring-boot-project/build.gradle",
-            ParsedContent::Gradle(GradleParseResult {
-                dependencies: vec![],
-            }),
+            ParsedContent::MetaData(
+                serde_json::to_value(crate::model::GradleParseResult {
+                    dependencies: vec![],
+                })
+                .unwrap(),
+            ),
         );
         let core_build = create_mock_file(
             "/repo/spring-boot-project/spring-boot/build.gradle",
-            ParsedContent::Gradle(GradleParseResult {
-                dependencies: vec![],
-            }),
+            ParsedContent::MetaData(
+                serde_json::to_value(crate::model::GradleParseResult {
+                    dependencies: vec![],
+                })
+                .unwrap(),
+            ),
         );
 
         let files = vec![&root_settings, &sub_project_build, &core_build];

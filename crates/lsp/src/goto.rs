@@ -1,5 +1,6 @@
 use crate::util::get_word_from_content;
 use crate::LspServer;
+use naviscope_core::engine::LanguageService;
 use naviscope_core::parser::SymbolResolution;
 use naviscope_core::query::CodeGraphLike;
 use tower_lsp::jsonrpc::Result;
@@ -30,7 +31,7 @@ pub async fn definition(
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -68,7 +69,7 @@ pub async fn definition(
     }
 
     let matches = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -124,7 +125,7 @@ pub async fn type_definition(
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -145,7 +146,7 @@ pub async fn type_definition(
         }
     };
 
-    let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+    let resolver = match engine.get_semantic_resolver(doc.language) {
         Some(r) => r,
         None => return Ok(None),
     };
@@ -201,7 +202,7 @@ pub async fn references(
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -260,7 +261,7 @@ pub async fn references(
             }
         }
         _ => {
-            let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+            let resolver = match engine.get_semantic_resolver(doc.language) {
                 Some(r) => r,
                 None => return Ok(None),
             };
@@ -338,7 +339,7 @@ pub async fn implementation(
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -359,7 +360,7 @@ pub async fn implementation(
         }
     };
 
-    let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+    let resolver = match engine.get_semantic_resolver(doc.language) {
         Some(r) => r,
         None => return Ok(None),
     };

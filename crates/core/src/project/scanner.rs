@@ -1,6 +1,5 @@
 use super::is_relevant_path;
 use super::source::{BuildTool, Language, SourceFile};
-use crate::model::lang::gradle::{GradleParseResult, GradleSettings};
 use crate::parser::GlobalParseResult;
 use ignore::WalkBuilder;
 use rayon::prelude::*;
@@ -13,9 +12,8 @@ use xxhash_rust::xxh3::Xxh3;
 
 #[derive(Clone)]
 pub enum ParsedContent {
-    Java(GlobalParseResult),
-    Gradle(GradleParseResult),
-    GradleSettings(GradleSettings),
+    Language(GlobalParseResult),
+    MetaData(serde_json::Value),
     Unparsed(String),
 }
 
@@ -28,7 +26,6 @@ pub struct ParsedFile {
 impl ParsedFile {
     pub fn is_build(&self) -> bool {
         match self.content {
-            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..) => true,
             ParsedContent::Unparsed(..) => {
                 let name = self
                     .path()
@@ -46,9 +43,6 @@ impl ParsedFile {
 
     pub fn build_tool(&self) -> Option<BuildTool> {
         match self.content {
-            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..) => {
-                Some(BuildTool::Gradle)
-            }
             ParsedContent::Unparsed(..) => {
                 if self.is_build() {
                     Some(BuildTool::Gradle)
@@ -62,10 +56,8 @@ impl ParsedFile {
 
     pub fn language(&self) -> Option<Language> {
         match self.content {
-            ParsedContent::Java(..) => Some(Language::Java),
-            ParsedContent::Gradle(..) | ParsedContent::GradleSettings(..) => {
-                Some(Language::BuildFile)
-            }
+            ParsedContent::Language(..) => Some(Language::Java), // Still assuming Java for now if it's Language
+            ParsedContent::MetaData(..) => None,
             ParsedContent::Unparsed(..) => {
                 if self.is_build() {
                     Some(Language::BuildFile)

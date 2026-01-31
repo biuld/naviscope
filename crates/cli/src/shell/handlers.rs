@@ -74,7 +74,7 @@ impl CommandHandler for CatHandler {
             let query = GraphQuery::Cat { fqn };
             let result = context.execute_query(&query)?;
 
-            cmd.render(result)
+            cmd.render(result, context)
         } else {
             Ok(String::new())
         }
@@ -145,7 +145,7 @@ impl CommandHandler for GenericQueryHandler {
             return Ok("NO RECORDS FOUND".to_string());
         }
 
-        resolved_cmd.render(result)
+        resolved_cmd.render(result, context)
     }
 }
 

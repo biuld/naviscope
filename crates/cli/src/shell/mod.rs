@@ -38,7 +38,7 @@ impl ReplServer {
         let engine = crate::create_configured_engine(project_path.clone());
         let current_node = Arc::new(RwLock::new(None));
 
-        // Pass runtime handle to context for blocking async calls
+        // ShellContext will get resolver from engine
         let context = ShellContext::new(engine, rt.handle().clone(), current_node);
 
         Self {

@@ -26,7 +26,7 @@ pub fn setup_java_test_graph(
         let source_file = SourceFile::new(path.clone(), 0, 0);
         let parsed_file = ParsedFile {
             file: source_file,
-            content: ParsedContent::Java(res),
+            content: ParsedContent::Language(res),
         };
         all_parsed_files.push((parsed_file, content.to_string()));
     }

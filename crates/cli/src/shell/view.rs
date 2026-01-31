@@ -1,8 +1,6 @@
-use naviscope_core::model::graph::{BuildElement, CodeElement, GraphNode, NodeKind};
-use naviscope_core::model::lang::gradle::GradleElement;
-use naviscope_core::model::lang::java::{JavaElement, JavaParameter};
-use naviscope_core::model::signature::TypeRef;
-use std::path::PathBuf;
+use naviscope_core::model::graph::{GraphNode, NodeKind};
+use naviscope_core::plugin::LanguageFeatureProvider;
+use std::sync::Arc;
 use tabled::Tabled;
 
 /// A terminal-optimized view of a GraphNode (Detailed)
@@ -24,21 +22,22 @@ pub struct ShellNodeViewShort {
 }
 
 impl ShellNodeView {
-    pub fn from_node(node: &GraphNode, relation: Option<String>) -> Self {
+    pub fn from_node(
+        node: &GraphNode,
+        relation: Option<String>,
+        feature_provider: &Arc<dyn LanguageFeatureProvider>,
+    ) -> Self {
         let location = node
-            .file_path()
-            .map(|path: &PathBuf| {
-                let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("-");
-
-                if let Some(range) = node.range() {
-                    return format!("{}:{}", filename, range.start_line + 1);
-                }
-                filename.to_string()
+            .location
+            .as_ref()
+            .map(|loc| {
+                let filename = loc.path.file_name().and_then(|n| n.to_str()).unwrap_or("-");
+                format!("{}:{}", filename, loc.range.start_line + 1)
             })
             .unwrap_or_else(|| "-".to_string());
 
         let is_container = matches!(
-            node.kind(),
+            node.kind,
             NodeKind::Project
                 | NodeKind::Module
                 | NodeKind::Package
@@ -49,52 +48,36 @@ impl ShellNodeView {
         );
 
         let name = if is_container {
-            format!("{}/", node.name())
+            format!("{}/", node.name)
         } else {
-            node.name().to_string()
+            node.name.clone()
         };
 
-        let signature = match node {
-            GraphNode::Project(p) => {
-                format!("{:?} project at {}", p.build_system, p.root_path.display())
+        // Use feature provider to get signature
+        let signature = feature_provider.signature(node).unwrap_or_else(|| {
+            // Fallback for nodes without specific signature (like Project)
+            match node.kind {
+                NodeKind::Project => {
+                    let build_system = node
+                        .metadata
+                        .get("build_system")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let root_path = node
+                        .metadata
+                        .get("root_path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
+                    format!("{} project at {}", build_system, root_path)
+                }
+                _ => "-".to_string(),
             }
-            GraphNode::Code(code_el) => match code_el {
-                CodeElement::Java { element, .. } => match element {
-                    JavaElement::Method(m) => {
-                        if m.is_constructor {
-                            let params_str = m
-                                .parameters
-                                .iter()
-                                .map(|p| format!("{}", fmt_type(&p.type_ref)))
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            format!("{}({})", m.name, params_str)
-                        } else {
-                            fmt_shell_signature(&m.parameters, &m.return_type)
-                        }
-                    }
-                    JavaElement::Field(f) => {
-                        format!("{} {}", fmt_type(&f.type_ref), f.name)
-                    }
-                    _ => "-".to_string(),
-                },
-            },
-            GraphNode::Build(build_el) => match build_el {
-                BuildElement::Gradle { element, .. } => match element {
-                    GradleElement::Dependency(d) => {
-                        let group = d.group.as_deref().unwrap_or("?");
-                        let version = d.version.as_deref().unwrap_or("?");
-                        format!("{}:{}:{}", group, d.name, version)
-                    }
-                    _ => "-".to_string(),
-                },
-            },
-        };
+        });
 
         Self {
-            fqn: shorten_fqn(node.fqn()),
+            fqn: shorten_fqn(&node.id),
             name,
-            kind: node.kind().to_string(),
+            kind: node.kind.to_string(),
             relation: relation.unwrap_or_else(|| "-".to_string()),
             signature,
             location,
@@ -123,40 +106,6 @@ pub fn shorten_fqn(fqn: &str) -> String {
         }
     }
     result
-}
-
-fn fmt_type(t: &TypeRef) -> String {
-    match t {
-        TypeRef::Raw(s) => s.clone(),
-        TypeRef::Id(s) => s.split('.').last().unwrap_or(s).to_string(),
-        TypeRef::Generic { base, args } => {
-            let args_str = args.iter().map(fmt_type).collect::<Vec<_>>().join(", ");
-            format!("{}<{}>", fmt_type(base), args_str)
-        }
-        TypeRef::Array {
-            element,
-            dimensions,
-        } => {
-            format!("{}{}", fmt_type(element), "[]".repeat(*dimensions))
-        }
-        _ => "?".to_string(),
-    }
-}
-
-fn fmt_shell_signature(params: &[JavaParameter], return_type: &TypeRef) -> String {
-    let return_type_str = fmt_type(return_type);
-    let params_str = params
-        .iter()
-        .map(|p| fmt_type(&p.type_ref))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let total_len = params_str.len() + return_type_str.len();
-    if total_len <= 50 {
-        format!("({}) -> {}", params_str, return_type_str)
-    } else {
-        format!("(...)\n  -> {}", return_type_str)
-    }
 }
 
 pub fn get_kind_weight(kind: &str) -> i32 {

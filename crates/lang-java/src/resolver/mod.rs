@@ -1,10 +1,10 @@
+use crate::model::{JavaElement, JavaPackage};
 use crate::parser::JavaParser;
 use naviscope_core::engine::CodeGraph;
 use naviscope_core::error::Result;
 use naviscope_core::model::graph::{
     EdgeType, GraphEdge, GraphNode, GraphOp, NodeKind, ResolvedUnit,
 };
-use naviscope_core::model::lang::java::{JavaElement, JavaPackage};
 use naviscope_core::model::signature::TypeRef;
 use naviscope_core::parser::SymbolIntent;
 use naviscope_core::parser::{SymbolResolution, matches_intent};
@@ -210,46 +210,26 @@ impl SemanticResolver for JavaResolver {
             SymbolResolution::Precise(fqn, intent) => {
                 if let Some(&idx) = index.fqn_map().get(fqn) {
                     let node = &index.topology()[idx];
-                    if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                        element,
-                        ..
-                    }) = node
+                    if let Ok(element) =
+                        serde_json::from_value::<JavaElement>(node.metadata.clone())
                     {
                         match element {
-                            naviscope_core::model::lang::java::JavaElement::Field(f) => {
-                                match &f.type_ref {
-                                    naviscope_core::model::signature::TypeRef::Raw(s) => {
-                                        type_resolutions.push(SymbolResolution::Precise(
-                                            s.clone(),
-                                            SymbolIntent::Type,
-                                        ))
-                                    }
-                                    naviscope_core::model::signature::TypeRef::Id(id) => {
-                                        type_resolutions.push(SymbolResolution::Precise(
-                                            id.clone(),
-                                            SymbolIntent::Type,
-                                        ))
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            naviscope_core::model::lang::java::JavaElement::Method(m) => {
-                                match &m.return_type {
-                                    naviscope_core::model::signature::TypeRef::Raw(s) => {
-                                        type_resolutions.push(SymbolResolution::Precise(
-                                            s.clone(),
-                                            SymbolIntent::Type,
-                                        ))
-                                    }
-                                    naviscope_core::model::signature::TypeRef::Id(id) => {
-                                        type_resolutions.push(SymbolResolution::Precise(
-                                            id.clone(),
-                                            SymbolIntent::Type,
-                                        ))
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            JavaElement::Field(f) => match &f.type_ref {
+                                TypeRef::Raw(s) => type_resolutions
+                                    .push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type)),
+                                TypeRef::Id(id) => type_resolutions.push(
+                                    SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
+                                ),
+                                _ => {}
+                            },
+                            JavaElement::Method(m) => match &m.return_type {
+                                TypeRef::Raw(s) => type_resolutions
+                                    .push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type)),
+                                TypeRef::Id(id) => type_resolutions.push(
+                                    SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
+                                ),
+                                _ => {}
+                            },
                             _ => {
                                 if matches_intent(&node.kind(), SymbolIntent::Type) {
                                     type_resolutions.push(resolution.clone());
@@ -285,12 +265,8 @@ impl SemanticResolver for JavaResolver {
             let node = &index.topology()[node_idx];
 
             // Check if it's a method
-            if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                element,
-                ..
-            }) = node
-            {
-                if let naviscope_core::model::lang::java::JavaElement::Method(m) = element {
+            if let Ok(element) = serde_json::from_value::<JavaElement>(node.metadata.clone()) {
+                if let JavaElement::Method(m) = element {
                     // 1. Find the enclosing class/interface
                     let mut parent_incoming = index
                         .topology()
@@ -319,18 +295,15 @@ impl SemanticResolver for JavaResolver {
                                 {
                                     if index.topology()[c_edge_idx].edge_type == EdgeType::Contains
                                     {
-                                        if let GraphNode::Code(
-                                            naviscope_core::model::graph::CodeElement::Java {
-                                                element:
-                                                    naviscope_core::model::lang::java::JavaElement::Method(
-                                                        child_m,
-                                                    ),
-                                                ..
-                                            },
-                                        ) = &index.topology()[child_idx]
+                                        if let Ok(child_element) =
+                                            serde_json::from_value::<JavaElement>(
+                                                index.topology()[child_idx].metadata.clone(),
+                                            )
                                         {
-                                            if child_m.name == m.name {
-                                                results.push(child_idx);
+                                            if let JavaElement::Method(child_m) = child_element {
+                                                if child_m.name == m.name {
+                                                    results.push(child_idx);
+                                                }
                                             }
                                         }
                                     }
@@ -366,7 +339,7 @@ impl LangResolver for JavaResolver {
 
         let parse_result_owned;
         let parse_result = match &file.content {
-            ParsedContent::Java(res) => res,
+            ParsedContent::Language(res) => res,
             ParsedContent::Unparsed(src) => {
                 if file.path().extension().map_or(false, |e| e == "java") {
                     use naviscope_core::parser::IndexParser;
@@ -398,19 +371,21 @@ impl LangResolver for JavaResolver {
                     format!("{}::{}", module_id, pkg_name)
                 };
 
-                // Create package node
-                unit.add_node(
-                    package_id.clone(),
-                    GraphNode::java(
-                        JavaElement::Package(JavaPackage {
-                            name: pkg_name.clone(),
-                            id: package_id.clone(),
-                        }),
-                        None,
-                    ),
-                );
+                let package_node = GraphNode {
+                    id: package_id.clone(),
+                    name: pkg_name.clone(),
+                    kind: NodeKind::Package,
+                    lang: "java".to_string(),
+                    location: None,
+                    metadata: serde_json::to_value(JavaElement::Package(JavaPackage {
+                        name: pkg_name.clone(),
+                        id: package_id.clone(),
+                    }))
+                    .unwrap_or(serde_json::Value::Null),
+                };
 
-                // Link package to module
+                unit.add_node(package_id.clone(), package_node);
+
                 unit.add_edge(
                     module_id.clone(),
                     package_id.clone(),
@@ -422,15 +397,13 @@ impl LangResolver for JavaResolver {
                 module_id
             };
 
-            let mut known_types = std::collections::HashSet::new();
-            let mut other_fqns = std::collections::HashSet::new();
-            let mut local_type_map = std::collections::HashMap::new();
+            let mut known_types = std::collections::HashSet::<String>::new();
+            let mut local_type_map = std::collections::HashMap::<String, String>::new();
+            let _dummy_index = CodeGraph::empty();
 
             for node in &parse_result.nodes {
                 if self.is_top_level_node(node) {
                     known_types.insert(node.fqn().to_string());
-                } else {
-                    other_fqns.insert(node.fqn().to_string());
                 }
             }
 
@@ -438,14 +411,11 @@ impl LangResolver for JavaResolver {
                 let fqn = node.fqn();
                 let mut node = node.clone();
 
-                // Enhance node with resolved types
-                if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                    element,
-                    ..
-                }) = &mut node
+                if let Ok(mut element) =
+                    serde_json::from_value::<JavaElement>(node.metadata.clone())
                 {
-                    match element {
-                        naviscope_core::model::lang::java::JavaElement::Method(m) => {
+                    match &mut element {
+                        JavaElement::Method(m) => {
                             m.return_type = self.resolve_type_ref(
                                 &m.return_type,
                                 parse_result.package_name.as_deref(),
@@ -464,7 +434,7 @@ impl LangResolver for JavaResolver {
                                 }
                             }
                         }
-                        naviscope_core::model::lang::java::JavaElement::Field(f) => {
+                        JavaElement::Field(f) => {
                             f.type_ref = self.resolve_type_ref(
                                 &f.type_ref,
                                 parse_result.package_name.as_deref(),
@@ -477,6 +447,8 @@ impl LangResolver for JavaResolver {
                         }
                         _ => {}
                     }
+                    node.metadata =
+                        serde_json::to_value(element).unwrap_or(serde_json::Value::Null);
                 }
 
                 unit.add_node(fqn.to_string(), node.clone());
@@ -492,7 +464,6 @@ impl LangResolver for JavaResolver {
             for (source_fqn, target_fqn, edge_type, range) in &parse_result.relations {
                 let mut resolved_target = target_fqn.clone();
 
-                // If we have a tree and source, we can use the Scope system!
                 if let (Some(tree), Some(source)) = (&parse_result.tree, &parse_result.source) {
                     if let Some(r) = range {
                         let point = tree_sitter::Point::new(r.start_line, r.start_col);
@@ -500,8 +471,6 @@ impl LangResolver for JavaResolver {
                             .root_node()
                             .named_descendant_for_point_range(point, point)
                         {
-                            // Now we have a Node! We can build a ResolutionContext and run Scopes.
-                            // We provide the current unit so that MemberScope can see nodes we just added.
                             let context = ResolutionContext::new_with_unit(
                                 node,
                                 target_fqn.clone(),
@@ -512,13 +481,11 @@ impl LangResolver for JavaResolver {
                                 &self.parser,
                             );
 
-                            // Run the same scope chain as resolve_at
                             if let Some(SymbolResolution::Precise(fqn, _)) =
                                 self.resolve_symbol_internal(&context)
                             {
                                 resolved_target = fqn;
                             } else {
-                                // Fallback A: Try resolving via local_type_map (handles obj.method)
                                 if target_fqn.contains('.') {
                                     let parts: Vec<&str> = target_fqn.split('.').collect();
                                     if parts.len() >= 2 {
@@ -534,7 +501,6 @@ impl LangResolver for JavaResolver {
                                     }
                                 }
 
-                                // Fallback B: Basic type-to-fqn resolution
                                 if !resolved_target.contains('.') {
                                     if let Some(res) = self.parser.resolve_type_name_to_fqn_data(
                                         &resolved_target,

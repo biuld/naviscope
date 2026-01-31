@@ -4,6 +4,9 @@ use crate::resolver::SemanticResolver;
 use std::path::Path;
 use std::sync::Arc;
 
+pub mod feature;
+pub use feature::LanguageFeatureProvider;
+
 /// Unified interface for language-specific support.
 pub trait LanguagePlugin: Send + Sync {
     /// Plugin name, e.g., "java"
@@ -23,6 +26,9 @@ pub trait LanguagePlugin: Send + Sync {
 
     /// Get the LSP parser for this language
     fn lsp_parser(&self) -> Arc<dyn crate::parser::LspParser>;
+
+    /// Get the feature provider for language-specific UI/LSP features
+    fn feature_provider(&self) -> Arc<dyn LanguageFeatureProvider>;
 }
 
 /// Unified interface for build tool support.

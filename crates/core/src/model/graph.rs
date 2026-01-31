@@ -1,6 +1,3 @@
-use super::lang::gradle::GradleElement;
-use super::lang::java::JavaElement;
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +30,8 @@ impl Range {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeKind {
+    Package,
+    Module,
     Class,
     Interface,
     Enum,
@@ -40,20 +39,21 @@ pub enum NodeKind {
     Method,
     Constructor,
     Field,
-    Package,
-    // Build specific
+    Variable,
+    // Build Specific
     Project,
-    Module,
     Dependency,
     Task,
     Plugin,
-    // Fallback
-    Other,
+    // Extension
+    Custom(String),
 }
 
 impl From<&str> for NodeKind {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
+            "package" => NodeKind::Package,
+            "module" => NodeKind::Module,
             "class" => NodeKind::Class,
             "interface" => NodeKind::Interface,
             "enum" => NodeKind::Enum,
@@ -61,13 +61,12 @@ impl From<&str> for NodeKind {
             "method" => NodeKind::Method,
             "constructor" => NodeKind::Constructor,
             "field" => NodeKind::Field,
-            "package" => NodeKind::Package,
+            "variable" => NodeKind::Variable,
             "project" => NodeKind::Project,
-            "module" => NodeKind::Module,
             "dependency" => NodeKind::Dependency,
             "task" => NodeKind::Task,
             "plugin" => NodeKind::Plugin,
-            _ => NodeKind::Other,
+            _ => NodeKind::Custom(s.to_string()),
         }
     }
 }
@@ -75,6 +74,8 @@ impl From<&str> for NodeKind {
 impl ToString for NodeKind {
     fn to_string(&self) -> String {
         match self {
+            NodeKind::Package => "package".to_string(),
+            NodeKind::Module => "module".to_string(),
             NodeKind::Class => "class".to_string(),
             NodeKind::Interface => "interface".to_string(),
             NodeKind::Enum => "enum".to_string(),
@@ -82,142 +83,75 @@ impl ToString for NodeKind {
             NodeKind::Method => "method".to_string(),
             NodeKind::Constructor => "constructor".to_string(),
             NodeKind::Field => "field".to_string(),
-            NodeKind::Package => "package".to_string(),
+            NodeKind::Variable => "variable".to_string(),
             NodeKind::Project => "project".to_string(),
-            NodeKind::Module => "module".to_string(),
             NodeKind::Dependency => "dependency".to_string(),
             NodeKind::Task => "task".to_string(),
             NodeKind::Plugin => "plugin".to_string(),
-            NodeKind::Other => "other".to_string(),
+            NodeKind::Custom(s) => s.clone(),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum GraphNode {
-    Project(ProjectElement),
-    Code(CodeElement),
-    Build(BuildElement),
+pub struct GraphNode {
+    // --- Identity ---
+    pub id: String,     // Unique Identifier (FQN)
+    pub name: String,   // Short display name
+    pub kind: NodeKind, // Abstract categorization
+    pub lang: String,   // Language identifier ("java", "rust", "buildfile")
+
+    // --- Physical Location ---
+    pub location: Option<NodeLocation>,
+
+    // --- Extension Point ---
+    #[serde(default = "empty_metadata")]
+    pub metadata: serde_json::Value,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ProjectElement {
-    pub name: String,
-    pub root_path: PathBuf,
-    pub build_system: BuildSystem,
+fn empty_metadata() -> serde_json::Value {
+    serde_json::Value::Null
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum BuildSystem {
-    Gradle,
-    Maven,
-    Cargo,
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum CodeElement {
-    Java {
-        element: JavaElement,
-        file_path: Option<PathBuf>,
-    },
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum BuildElement {
-    Gradle {
-        element: GradleElement,
-        file_path: Option<PathBuf>,
-    },
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+pub struct NodeLocation {
+    pub path: PathBuf,
+    pub range: Range,
+    pub selection_range: Option<Range>, // Range of the identifier
 }
 
 impl GraphNode {
     pub fn language(&self) -> Language {
-        match self {
-            GraphNode::Project(_) => Language::BuildFile,
-            GraphNode::Code(CodeElement::Java { .. }) => Language::Java,
-            GraphNode::Build(BuildElement::Gradle { .. }) => Language::BuildFile,
+        match self.lang.as_str() {
+            "java" => Language::Java,
+            _ => Language::BuildFile,
         }
     }
 
     pub fn fqn(&self) -> &str {
-        match self {
-            GraphNode::Project(p) => &p.name,
-            GraphNode::Code(CodeElement::Java { element, .. }) => element.id(),
-            GraphNode::Build(BuildElement::Gradle { element, .. }) => element.id(),
-        }
+        &self.id
     }
 
     pub fn name(&self) -> &str {
-        match self {
-            GraphNode::Project(p) => &p.name,
-            GraphNode::Code(CodeElement::Java { element, .. }) => element.name(),
-            GraphNode::Build(BuildElement::Gradle { element, .. }) => element.name(),
-        }
+        &self.name
     }
 
     pub fn kind(&self) -> NodeKind {
-        match self {
-            GraphNode::Project(_) => NodeKind::Project,
-            GraphNode::Code(CodeElement::Java { element, .. }) => match element {
-                JavaElement::Class(_) => NodeKind::Class,
-                JavaElement::Interface(_) => NodeKind::Interface,
-                JavaElement::Enum(_) => NodeKind::Enum,
-                JavaElement::Annotation(_) => NodeKind::Annotation,
-                JavaElement::Method(m) => {
-                    if m.is_constructor {
-                        NodeKind::Constructor
-                    } else {
-                        NodeKind::Method
-                    }
-                }
-                JavaElement::Field(_) => NodeKind::Field,
-                JavaElement::Package(_) => NodeKind::Package,
-            },
-            GraphNode::Build(BuildElement::Gradle { element, .. }) => {
-                NodeKind::from(element.kind())
-            }
-        }
+        self.kind.clone()
     }
 
     pub fn file_path(&self) -> Option<&PathBuf> {
-        match self {
-            GraphNode::Project(p) => Some(&p.root_path),
-            GraphNode::Code(CodeElement::Java { file_path, .. }) => file_path.as_ref(),
-            GraphNode::Build(BuildElement::Gradle { file_path, .. }) => file_path.as_ref(),
-        }
+        self.location.as_ref().map(|l| &l.path)
     }
 
     pub fn range(&self) -> Option<&Range> {
-        match self {
-            GraphNode::Project(_) => None,
-            GraphNode::Code(CodeElement::Java { element, .. }) => element.range(),
-            GraphNode::Build(_) => None,
-        }
+        self.location.as_ref().map(|l| &l.range)
     }
 
     pub fn name_range(&self) -> Option<&Range> {
-        match self {
-            GraphNode::Project(_) => None,
-            GraphNode::Code(CodeElement::Java { element, .. }) => element.name_range(),
-            GraphNode::Build(_) => None,
-        }
-    }
-
-    pub fn java(element: JavaElement, file_path: Option<PathBuf>) -> Self {
-        GraphNode::Code(CodeElement::Java { element, file_path })
-    }
-
-    pub fn gradle(element: GradleElement, file_path: Option<PathBuf>) -> Self {
-        GraphNode::Build(BuildElement::Gradle { element, file_path })
-    }
-
-    pub fn project(name: String, root_path: PathBuf, build_system: BuildSystem) -> Self {
-        GraphNode::Project(ProjectElement {
-            name,
-            root_path,
-            build_system,
-        })
+        self.location
+            .as_ref()
+            .and_then(|l| l.selection_range.as_ref())
     }
 }
 
@@ -287,8 +221,6 @@ pub enum EdgeType {
     InheritsFrom,
     Implements,
     // Usage/Reference
-    Calls,
-    Instantiates,
     TypedAs,
     DecoratedBy,
     // Build system relationships

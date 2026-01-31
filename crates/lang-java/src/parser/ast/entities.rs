@@ -1,10 +1,8 @@
 use super::super::JavaParser;
 use super::super::constants::*;
 use super::{JavaEntity, JavaRelation};
+use crate::model::*;
 use naviscope_core::model::graph::{EdgeType, Range};
-use naviscope_core::model::lang::java::{
-    JavaAnnotation, JavaClass, JavaElement, JavaEnum, JavaField, JavaInterface, JavaMethod,
-};
 use naviscope_core::model::signature::TypeRef;
 use naviscope_core::parser::utils::range_from_ts;
 use std::collections::HashMap;

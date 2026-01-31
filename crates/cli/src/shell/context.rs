@@ -1,6 +1,7 @@
-use naviscope_core::engine::handle::EngineHandle;
-use naviscope_core::engine::CodeGraph;
+use naviscope_core::engine::{CodeGraph, EngineHandle, LanguageService};
 use naviscope_core::model::graph::GraphNode;
+use naviscope_core::plugin::LanguageFeatureProvider;
+use naviscope_core::project::source::Language;
 use naviscope_core::query::GraphQuery;
 use std::sync::{Arc, RwLock};
 
@@ -28,6 +29,10 @@ impl ShellContext {
             rt_handle,
             current_node,
         }
+    }
+
+    pub fn get_feature_provider(&self, lang: Language) -> Option<Arc<dyn LanguageFeatureProvider>> {
+        self.engine.get_feature_provider(lang)
     }
 
     pub fn current_fqn(&self) -> Option<String> {

@@ -1,62 +1,9 @@
 use crate::LspServer;
-use naviscope_core::model::graph::{BuildElement, CodeElement, GraphNode};
-use naviscope_core::model::signature::TypeRef;
+use naviscope_core::engine::LanguageService;
 use naviscope_core::parser::SymbolResolution;
 use naviscope_core::query::CodeGraphLike;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-
-fn fmt_type(t: &TypeRef) -> String {
-    match t {
-        TypeRef::Raw(s) => s.clone(),
-        TypeRef::Id(s) => s.split('.').last().unwrap_or(s).to_string(),
-        TypeRef::Generic { base, args } => {
-            let args_str = args.iter().map(fmt_type).collect::<Vec<_>>().join(", ");
-            format!("{}<{}>", fmt_type(base), args_str)
-        }
-        TypeRef::Array {
-            element,
-            dimensions,
-        } => {
-            format!("{}{}", fmt_type(element), "[]".repeat(*dimensions))
-        }
-        _ => "?".to_string(),
-    }
-}
-
-fn get_node_signature(node: &GraphNode) -> Option<String> {
-    match node {
-        GraphNode::Project(p) => Some(format!("Project: {} ({:?})", p.name, p.build_system)),
-        GraphNode::Code(code_el) => match code_el {
-            CodeElement::Java { element, .. } => match element {
-                naviscope_core::model::lang::java::JavaElement::Method(m) => {
-                    let params_str = m
-                        .parameters
-                        .iter()
-                        .map(|p| format!("{}", fmt_type(&p.type_ref)))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let return_type_str = fmt_type(&m.return_type);
-                    Some(format!("({}) -> {}", params_str, return_type_str))
-                }
-                naviscope_core::model::lang::java::JavaElement::Field(f) => {
-                    Some(format!("{} {}", fmt_type(&f.type_ref), f.name))
-                }
-                _ => None,
-            },
-        },
-        GraphNode::Build(build_el) => match build_el {
-            BuildElement::Gradle { element, .. } => match element {
-                naviscope_core::model::lang::gradle::GradleElement::Dependency(d) => {
-                    let group = d.group.as_deref().unwrap_or("?");
-                    let version = d.version.as_deref().unwrap_or("?");
-                    Some(format!("{}:{}:{}", group, d.name, version))
-                }
-                _ => None,
-            },
-        },
-    }
-}
 
 pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hover>> {
     let uri = params.text_document_position_params.text_document.uri;
@@ -79,7 +26,7 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -109,12 +56,15 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
 
     let mut hover_text = String::new();
     let matches = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
         resolver.find_matches(index, &resolution)
     };
+
+    // Get feature provider for rendering node information
+    let feature_provider = engine.get_feature_provider(doc.language);
 
     let topology = index.topology();
 
@@ -131,13 +81,15 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
             node.kind().to_string()
         ));
 
-        // Signature in code block
-        if let Some(sig) = get_node_signature(node) {
-            hover_text.push_str(&format!("```java\n{}\n```\n", sig));
+        // Signature in code block (use feature provider if available)
+        if let Some(provider) = &feature_provider {
+            if let Some(sig) = provider.signature(node) {
+                hover_text.push_str(&format!("```java\n{}\n```\n", sig));
+            }
         }
 
         // Metadata: FQN only
-        hover_text.push_str(&format!("\n*`{}`*", node.fqn()));
+        hover_text.push_str(&format!("\n*`{}`*", node.id));
     }
 
     if hover_text.is_empty() {

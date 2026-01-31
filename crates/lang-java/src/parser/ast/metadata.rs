@@ -1,7 +1,7 @@
 use super::super::JavaParser;
 use super::{JavaEntity, JavaRelation};
+use crate::model::{JavaElement, JavaParameter};
 use naviscope_core::model::graph::EdgeType;
-use naviscope_core::model::lang::java::{JavaElement, JavaParameter};
 use naviscope_core::parser::utils::range_from_ts;
 use std::collections::HashMap;
 use tree_sitter::QueryCapture;

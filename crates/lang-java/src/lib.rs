@@ -1,10 +1,12 @@
+pub mod feature;
+pub mod model;
 pub mod parser;
 pub mod queries;
 pub mod resolver;
 
 use naviscope_core::error::Result;
 use naviscope_core::parser::{GlobalParseResult, LspParser};
-use naviscope_core::plugin::LanguagePlugin;
+use naviscope_core::plugin::{LanguageFeatureProvider, LanguagePlugin};
 use naviscope_core::resolver::SemanticResolver;
 use std::path::Path;
 use std::sync::Arc;
@@ -12,6 +14,7 @@ use std::sync::Arc;
 pub struct JavaPlugin {
     parser: Arc<parser::JavaParser>,
     resolver: Arc<resolver::JavaResolver>,
+    feature_provider: Arc<feature::JavaFeatureProvider>,
 }
 
 impl JavaPlugin {
@@ -20,7 +23,12 @@ impl JavaPlugin {
         let resolver = Arc::new(resolver::JavaResolver {
             parser: (*parser).clone(),
         });
-        Ok(Self { parser, resolver })
+        let feature_provider = Arc::new(feature::JavaFeatureProvider::new());
+        Ok(Self {
+            parser,
+            resolver,
+            feature_provider,
+        })
     }
 }
 
@@ -48,5 +56,9 @@ impl LanguagePlugin for JavaPlugin {
 
     fn lsp_parser(&self) -> Arc<dyn LspParser> {
         self.parser.clone()
+    }
+
+    fn feature_provider(&self) -> Arc<dyn LanguageFeatureProvider> {
+        self.feature_provider.clone()
     }
 }

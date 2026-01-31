@@ -7,6 +7,7 @@ edition = "2024"
 naviscope-core = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 petgraph = { workspace = true }
 once_cell = { workspace = true }

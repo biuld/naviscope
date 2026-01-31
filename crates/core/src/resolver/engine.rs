@@ -83,6 +83,20 @@ impl IndexResolver {
         None
     }
 
+    pub fn get_feature_provider(
+        &self,
+        language: Language,
+    ) -> Option<Arc<dyn crate::plugin::LanguageFeatureProvider>> {
+        let name = match language {
+            Language::Java => "java",
+            _ => return None,
+        };
+        self.lang_plugins
+            .iter()
+            .find(|p| p.name() == name)
+            .map(|p| p.feature_provider())
+    }
+
     /// Resolve all parsed files into graph operations using a two-phase process
     pub fn resolve(&self, files: Vec<ParsedFile>) -> Result<Vec<GraphOp>> {
         let mut all_ops = Vec::new();

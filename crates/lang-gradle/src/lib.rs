@@ -1,3 +1,5 @@
+pub mod feature;
+pub mod model;
 pub mod parser;
 pub mod queries;
 pub mod resolver;
@@ -40,20 +42,22 @@ impl BuildToolPlugin for GradlePlugin {
         // We might want to move that logic into the plugin.
         // For now, let's just return a dummy or implement basic dispatch.
         if source.contains("include") && (source.contains("'") || source.contains("\"")) {
-            let settings = parser::parse_settings(source).unwrap_or_else(|_| {
-                naviscope_core::model::lang::gradle::GradleSettings {
+            let settings =
+                parser::parse_settings(source).unwrap_or_else(|_| model::GradleSettings {
                     root_project_name: None,
                     included_projects: Vec::new(),
-                }
-            });
+                });
             Ok(BuildParseResult {
-                content: naviscope_core::project::scanner::ParsedContent::GradleSettings(settings),
+                content: naviscope_core::project::scanner::ParsedContent::MetaData(
+                    serde_json::to_value(settings).unwrap_or(serde_json::Value::Null),
+                ),
             })
         } else {
             let deps = parser::parse_dependencies(source).unwrap_or_default();
             Ok(BuildParseResult {
-                content: naviscope_core::project::scanner::ParsedContent::Gradle(
-                    naviscope_core::model::lang::gradle::GradleParseResult { dependencies: deps },
+                content: naviscope_core::project::scanner::ParsedContent::MetaData(
+                    serde_json::to_value(model::GradleParseResult { dependencies: deps })
+                        .unwrap_or(serde_json::Value::Null),
                 ),
             })
         }

@@ -3,6 +3,7 @@ use clap::{Parser, ValueEnum};
 use naviscope_core::model::graph::{EdgeType, NodeKind};
 use naviscope_core::query::{GraphQuery, QueryResult};
 use shlex;
+use std::sync::Arc;
 use tabled::{settings::Style, Table};
 
 /// Default limit for search results
@@ -43,7 +44,7 @@ impl From<CliNodeKind> for NodeKind {
             CliNodeKind::Dependency => NodeKind::Dependency,
             CliNodeKind::Task => NodeKind::Task,
             CliNodeKind::Plugin => NodeKind::Plugin,
-            CliNodeKind::Other => NodeKind::Other,
+            CliNodeKind::Other => NodeKind::Custom("other".to_string()),
         }
     }
 }
@@ -53,8 +54,6 @@ pub enum CliEdgeType {
     Contains,
     InheritsFrom,
     Implements,
-    Calls,
-    Instantiates,
     TypedAs,
     DecoratedBy,
     UsesDependency,
@@ -66,8 +65,6 @@ impl From<CliEdgeType> for EdgeType {
             CliEdgeType::Contains => EdgeType::Contains,
             CliEdgeType::InheritsFrom => EdgeType::InheritsFrom,
             CliEdgeType::Implements => EdgeType::Implements,
-            CliEdgeType::Calls => EdgeType::Calls,
-            CliEdgeType::Instantiates => EdgeType::Instantiates,
             CliEdgeType::TypedAs => EdgeType::TypedAs,
             CliEdgeType::DecoratedBy => EdgeType::DecoratedBy,
             CliEdgeType::UsesDependency => EdgeType::UsesDependency,
@@ -125,7 +122,7 @@ pub enum ShellCommand {
         /// If set, find incoming dependencies (who depends on me)
         #[arg(long)]
         rev: bool,
-        /// Filter by edge types (e.g. Calls, Extends)
+        /// Filter by edge types (e.g. TypedAs, InheritsFrom)
         #[arg(long, value_delimiter = ',')]
         edge_types: Vec<CliEdgeType>,
     },
@@ -217,7 +214,11 @@ impl ShellCommand {
         }
     }
 
-    pub fn render(&self, result: QueryResult) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn render(
+        &self,
+        result: QueryResult,
+        context: &super::context::ShellContext,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         if result.is_empty() {
             return Ok("NO RECORDS FOUND".to_string());
         }
@@ -228,11 +229,11 @@ impl ShellCommand {
                     .nodes
                     .iter()
                     .map(|node| ShellNodeViewShort {
-                        kind: node.kind().to_string(),
-                        name: if is_container(node.kind()) {
-                            format!("{}/", node.name())
+                        kind: node.kind.to_string(),
+                        name: if is_container(node.kind.clone()) {
+                            format!("{}/", node.name)
                         } else {
-                            node.name().to_string()
+                            node.name.clone()
                         },
                     })
                     .collect();
@@ -261,10 +262,46 @@ impl ShellCommand {
                         let relation = result
                             .edges
                             .iter()
-                            .filter(|e| e.to == node.fqn() || e.from == node.fqn())
+                            .filter(|e| e.to == node.id || e.from == node.id)
                             .map(|e| format!("{:?}", e.data.edge_type))
                             .collect::<Vec<_>>()
                             .join(", ");
+
+                        // Get feature provider based on node's language
+                        use naviscope_core::project::source::Language;
+                        let lang = match node.lang.as_str() {
+                            "java" => Language::Java,
+                            _ => Language::BuildFile, // Default fallback
+                        };
+
+                        let feature_provider =
+                            context.get_feature_provider(lang).unwrap_or_else(|| {
+                                // Create a dummy feature provider that returns None for everything
+                                use naviscope_core::plugin::LanguageFeatureProvider;
+                                struct DummyProvider;
+                                impl LanguageFeatureProvider for DummyProvider {
+                                    fn detail_view(
+                                        &self,
+                                        _node: &naviscope_core::model::graph::GraphNode,
+                                    ) -> Option<String> {
+                                        None
+                                    }
+                                    fn signature(
+                                        &self,
+                                        _node: &naviscope_core::model::graph::GraphNode,
+                                    ) -> Option<String> {
+                                        None
+                                    }
+                                    fn modifiers(
+                                        &self,
+                                        _node: &naviscope_core::model::graph::GraphNode,
+                                    ) -> Vec<String> {
+                                        vec![]
+                                    }
+                                }
+                                Arc::new(DummyProvider)
+                            });
+
                         ShellNodeView::from_node(
                             node,
                             if relation.is_empty() {
@@ -272,6 +309,7 @@ impl ShellCommand {
                             } else {
                                 Some(relation)
                             },
+                            &feature_provider,
                         )
                     })
                     .collect();

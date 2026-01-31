@@ -41,37 +41,34 @@ impl LspParser for JavaParser {
             .into_iter()
             .map(|e| {
                 let kind = match e.element {
-                    naviscope_core::model::lang::java::JavaElement::Class(_) => NodeKind::Class,
-                    naviscope_core::model::lang::java::JavaElement::Interface(_) => {
-                        NodeKind::Interface
-                    }
-                    naviscope_core::model::lang::java::JavaElement::Enum(_) => NodeKind::Enum,
-                    naviscope_core::model::lang::java::JavaElement::Annotation(_) => {
-                        NodeKind::Annotation
-                    }
-                    naviscope_core::model::lang::java::JavaElement::Method(ref m) => {
+                    crate::model::JavaElement::Class(_) => NodeKind::Class,
+                    crate::model::JavaElement::Interface(_) => NodeKind::Interface,
+                    crate::model::JavaElement::Enum(_) => NodeKind::Enum,
+                    crate::model::JavaElement::Annotation(_) => NodeKind::Annotation,
+                    crate::model::JavaElement::Method(ref m) => {
                         if m.is_constructor {
                             NodeKind::Constructor
                         } else {
                             NodeKind::Method
                         }
                     }
-                    naviscope_core::model::lang::java::JavaElement::Field(_) => NodeKind::Field,
-                    naviscope_core::model::lang::java::JavaElement::Package(_) => NodeKind::Package,
+                    crate::model::JavaElement::Field(_) => NodeKind::Field,
+                    crate::model::JavaElement::Package(_) => NodeKind::Package,
                 };
 
                 RawSymbol {
                     name: e.element.name().to_string(),
                     kind,
-                    range: e.element.range().cloned().unwrap_or(
-                        naviscope_core::model::graph::Range {
+                    range: e
+                        .element
+                        .range()
+                        .unwrap_or(naviscope_core::model::graph::Range {
                             start_line: 0,
                             start_col: 0,
                             end_line: 0,
                             end_col: 0,
-                        },
-                    ),
-                    selection_range: e.element.name_range().cloned().unwrap_or(
+                        }),
+                    selection_range: e.element.name_range().unwrap_or(
                         naviscope_core::model::graph::Range {
                             start_line: 0,
                             start_col: 0,

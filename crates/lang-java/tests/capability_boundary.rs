@@ -87,8 +87,8 @@ fn cap_cross_file_typing() {
     );
 }
 
-/// Capability 4: Direct Instantiation (Instantiates)
-/// The graph MUST track where classes are instantiated
+/// Capability 4: Direct Instantiation Tracking
+/// The graph uses reference_index to discover instantiation references
 #[test]
 fn cap_instantiation_tracking() {
     let files = vec![
@@ -97,20 +97,9 @@ fn cap_instantiation_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let b_m_idx = index.fqn_map()["B.m"];
     let a_idx = index.fqn_map()["A"];
 
-    // 1. Check Meso-graph (Structural only - should NOT have the edge now)
-    let has_instantiates_edge = index
-        .topology()
-        .edges_connecting(b_m_idx, a_idx)
-        .any(|e| e.weight().edge_type == EdgeType::Instantiates);
-    assert!(
-        !has_instantiates_edge,
-        "Meso-graph should NOT have direct Instantiates edge after pruning"
-    );
-
-    // 2. Check DiscoveryEngine "Scouting" (uses Reference Index)
+    // Check DiscoveryEngine "Scouting" (uses Reference Index)
     let discovery = DiscoveryEngine::new(&index);
     let candidate_files = discovery.scout_references(&[a_idx]);
     assert!(
@@ -119,8 +108,8 @@ fn cap_instantiation_tracking() {
     );
 }
 
-/// Capability 5: Method Call Tracking (Calls)
-/// The graph SHOULD track method calls (This is the most complex part of indexing)
+/// Capability 5: Method Call Tracking
+/// The graph uses reference_index to discover method call references
 #[test]
 fn cap_method_call_tracking() {
     let files = vec![
@@ -129,20 +118,9 @@ fn cap_method_call_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let b_m_idx = index.fqn_map()["B.m"];
     let a_target_idx = index.fqn_map()["A.target"];
 
-    // 1. Check Meso-graph (Structural only - should NOT have the edge now)
-    let has_calls_edge = index
-        .topology()
-        .edges_connecting(b_m_idx, a_target_idx)
-        .any(|e| e.weight().edge_type == EdgeType::Calls);
-    assert!(
-        !has_calls_edge,
-        "Meso-graph should NOT have direct Calls edge after pruning"
-    );
-
-    // 2. Check DiscoveryEngine "Scouting" (uses Reference Index)
+    // Check DiscoveryEngine "Scouting" (uses Reference Index)
     let discovery = DiscoveryEngine::new(&index);
     let candidate_files = discovery.scout_references(&[a_target_idx]);
     assert!(

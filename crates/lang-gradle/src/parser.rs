@@ -1,5 +1,5 @@
+use crate::model::{GradleDependency, GradleSettings};
 use naviscope_core::error::{NaviscopeError, Result};
-use naviscope_core::model::lang::gradle::{GradleDependency, GradleSettings};
 use once_cell::sync::Lazy;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 

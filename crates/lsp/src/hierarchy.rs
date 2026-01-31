@@ -1,4 +1,5 @@
 use crate::LspServer;
+use naviscope_core::engine::LanguageService;
 use naviscope_core::model::graph::NodeKind;
 use naviscope_core::query::CodeGraphLike;
 use tower_lsp::jsonrpc::Result;
@@ -28,7 +29,7 @@ pub async fn prepare_call_hierarchy(
 
     // 1. Precise resolution using Semantic Resolver
     let resolution = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -51,7 +52,7 @@ pub async fn prepare_call_hierarchy(
 
     let mut items = Vec::new();
     let matches = {
-        let resolver = match server.resolver.get_semantic_resolver(doc.language) {
+        let resolver = match engine.get_semantic_resolver(doc.language) {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -233,14 +234,14 @@ pub async fn outgoing_calls(
     let uri = Url::from_file_path(path).unwrap();
 
     let doc_data = if let Some(d) = server.documents.get(&uri) {
-        let resolver = server.resolver.get_semantic_resolver(d.language);
+        let resolver = engine.get_semantic_resolver(d.language);
         Some((d.content.clone(), d.tree.clone(), resolver))
     } else {
         let content = std::fs::read_to_string(path).ok();
         if let Some(content) = content {
             if let Some((parser, lang)) = server.get_parser_and_lang_for_uri(&uri) {
                 let tree = parser.parse(&content, None);
-                let resolver = server.resolver.get_semantic_resolver(lang);
+                let resolver = engine.get_semantic_resolver(lang);
                 tree.map(|t| (content, t, resolver))
             } else {
                 None

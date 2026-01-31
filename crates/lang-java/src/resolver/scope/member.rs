@@ -1,8 +1,7 @@
+use crate::model::JavaElement;
 use crate::parser::JavaParser;
 use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
-use naviscope_core::model::graph::GraphNode;
-use naviscope_core::model::lang::java::JavaElement;
 use naviscope_core::model::signature::TypeRef;
 use naviscope_core::parser::SymbolResolution;
 
@@ -124,10 +123,8 @@ impl MemberScope<'_> {
                     // Check index
                     if let Some(&idx) = context.index.fqn_map().get(&candidate) {
                         let node = &context.index.topology()[idx];
-                        if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                            element: JavaElement::Field(f),
-                            ..
-                        }) = node
+                        if let Ok(JavaElement::Field(f)) =
+                            serde_json::from_value::<JavaElement>(node.metadata.clone())
                         {
                             return Some(f.type_ref.clone());
                         }
@@ -137,12 +134,8 @@ impl MemberScope<'_> {
                     // Check current unit (indexing phase)
                     if let Some(unit) = context.unit {
                         if let Some(node) = unit.nodes.get(&candidate) {
-                            if let GraphNode::Code(
-                                naviscope_core::model::graph::CodeElement::Java {
-                                    element: JavaElement::Field(f),
-                                    ..
-                                },
-                            ) = node
+                            if let Ok(JavaElement::Field(f)) =
+                                serde_json::from_value::<JavaElement>(node.metadata.clone())
                             {
                                 return Some(f.type_ref.clone());
                             }
@@ -179,11 +172,9 @@ impl MemberScope<'_> {
 
                 // Check index
                 if let Some(&idx) = context.index.fqn_map().get(&field_fqn) {
-                    if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                        element: JavaElement::Field(f),
-                        ..
-                    }) = &context.index.topology()[idx]
-                    {
+                    if let Ok(JavaElement::Field(f)) = serde_json::from_value::<JavaElement>(
+                        context.index.topology()[idx].metadata.clone(),
+                    ) {
                         return Some(f.type_ref.clone());
                     }
                 }
@@ -191,10 +182,8 @@ impl MemberScope<'_> {
                 // Check unit
                 if let Some(unit) = context.unit {
                     if let Some(node) = unit.nodes.get(&field_fqn) {
-                        if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                            element: JavaElement::Field(f),
-                            ..
-                        }) = node
+                        if let Ok(JavaElement::Field(f)) =
+                            serde_json::from_value::<JavaElement>(node.metadata.clone())
                         {
                             return Some(f.type_ref.clone());
                         }
@@ -216,11 +205,9 @@ impl MemberScope<'_> {
 
                 // Check index
                 if let Some(&idx) = context.index.fqn_map().get(&method_fqn) {
-                    if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                        element: JavaElement::Method(m),
-                        ..
-                    }) = &context.index.topology()[idx]
-                    {
+                    if let Ok(JavaElement::Method(m)) = serde_json::from_value::<JavaElement>(
+                        context.index.topology()[idx].metadata.clone(),
+                    ) {
                         return Some(m.return_type.clone());
                     }
                 }
@@ -228,10 +215,8 @@ impl MemberScope<'_> {
                 // Check unit
                 if let Some(unit) = context.unit {
                     if let Some(node) = unit.nodes.get(&method_fqn) {
-                        if let GraphNode::Code(naviscope_core::model::graph::CodeElement::Java {
-                            element: JavaElement::Method(m),
-                            ..
-                        }) = node
+                        if let Ok(JavaElement::Method(m)) =
+                            serde_json::from_value::<JavaElement>(node.metadata.clone())
                         {
                             return Some(m.return_type.clone());
                         }
@@ -368,8 +353,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
 mod tests {
     use super::*;
     use naviscope_core::engine::CodeGraphBuilder;
-    use naviscope_core::model::graph::{BuildSystem, GraphNode};
-    use std::path::PathBuf;
+    use naviscope_core::model::graph::GraphNode;
     use tree_sitter::Parser;
 
     #[test]
@@ -394,12 +378,23 @@ mod tests {
 
         // Build graph with Test.field
         let mut builder = CodeGraphBuilder::new();
-        let dummy_node = GraphNode::project(
-            "Test.field".to_string(),
-            PathBuf::from("."),
-            BuildSystem::Unknown,
-        );
-        builder.add_node("Test.field".to_string(), dummy_node);
+        let node = GraphNode {
+            id: "Test.field".to_string(),
+            name: "field".to_string(),
+            kind: naviscope_core::model::graph::NodeKind::Field,
+            lang: "java".to_string(),
+            location: None,
+            metadata: serde_json::to_value(JavaElement::Field(crate::model::JavaField {
+                name: "field".to_string(),
+                id: "Test.field".to_string(),
+                type_ref: naviscope_core::model::signature::TypeRef::Raw("int".to_string()),
+                modifiers: vec![],
+                range: None,
+                name_range: None,
+            }))
+            .unwrap(),
+        };
+        builder.add_node("Test.field".to_string(), node);
         let index = builder.build();
 
         let context = ResolutionContext::new(
