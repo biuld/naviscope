@@ -222,7 +222,6 @@ impl ReferenceAnalyzer for EngineHandle {
                                 end_line: loc.range.end.line as usize,
                                 end_col: loc.range.end.character as usize,
                             },
-                            fqn: Arc::from(""),
                             selection_range: None,
                         }
                     })

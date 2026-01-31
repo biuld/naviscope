@@ -1,4 +1,4 @@
-use crate::model::{GradleDependency, GradleSettings};
+use crate::model::{GradleSettings, RawGradleDependency};
 use naviscope_core::error::{NaviscopeError, Result};
 use once_cell::sync::Lazy;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
@@ -24,7 +24,7 @@ fn get_gradle_query() -> &'static Query {
     &GRADLE_QUERY
 }
 
-pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
+pub fn parse_dependencies(source_code: &str) -> Result<Vec<RawGradleDependency>> {
     let mut parser = Parser::new();
     let language = unsafe { tree_sitter_groovy() };
     parser
@@ -53,7 +53,7 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
                     let dependency_str = &source_code[range.start + 1..range.end - 1];
                     let parts: Vec<&str> = dependency_str.split(':').collect();
                     if parts.len() == 3 {
-                        dependencies.push(GradleDependency {
+                        dependencies.push(RawGradleDependency {
                             group: Some(parts[0].to_string()),
                             name: parts[1].to_string(),
                             version: Some(parts[2].to_string()),
@@ -79,7 +79,7 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<GradleDependency>> {
                 let range = path_cap.node.byte_range();
                 if range.end - range.start >= 2 {
                     let project_path = &source_code[range.start + 1..range.end - 1];
-                    dependencies.push(GradleDependency {
+                    dependencies.push(RawGradleDependency {
                         group: None,
                         name: project_path.to_string(),
                         version: None,

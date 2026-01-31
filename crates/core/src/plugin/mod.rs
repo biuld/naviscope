@@ -7,8 +7,31 @@ use std::sync::Arc;
 pub mod feature;
 pub use feature::LanguageFeatureProvider;
 
+/// Interface for custom metadata encoding/decoding during storage.
+pub trait MetadataPlugin: Send + Sync {
+    /// Intern rich metadata into an optimized version for storage.
+    /// Default implementation returns the value as-is.
+    fn intern(
+        &self,
+        value: serde_json::Value,
+        _ctx: &mut dyn crate::engine::storage::model::StorageContext,
+    ) -> serde_json::Value {
+        value
+    }
+
+    /// Resolve optimized storage value back into rich metadata.
+    /// Default implementation returns the value as-is.
+    fn resolve(
+        &self,
+        value: serde_json::Value,
+        _ctx: &dyn crate::engine::storage::model::StorageContext,
+    ) -> serde_json::Value {
+        value
+    }
+}
+
 /// Unified interface for language-specific support.
-pub trait LanguagePlugin: Send + Sync {
+pub trait LanguagePlugin: MetadataPlugin + Send + Sync {
     /// Plugin name, e.g., "java"
     fn name(&self) -> &str;
 
@@ -32,7 +55,7 @@ pub trait LanguagePlugin: Send + Sync {
 }
 
 /// Unified interface for build tool support.
-pub trait BuildToolPlugin: Send + Sync {
+pub trait BuildToolPlugin: MetadataPlugin + Send + Sync {
     /// Plugin name, e.g., "gradle"
     fn name(&self) -> &str;
 

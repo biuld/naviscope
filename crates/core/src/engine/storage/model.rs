@@ -1,11 +1,24 @@
 use crate::model::{GraphEdge, NodeKind, Range};
 use serde::{Deserialize, Serialize};
 
+/// Context for interning and resolving symbols during storage conversion.
+pub trait StorageContext {
+    fn intern_str(&mut self, s: &str) -> u32;
+    fn intern_path(&mut self, p: &std::path::Path) -> u32;
+    fn resolve_str(&self, sid: u32) -> &str;
+    fn resolve_path(&self, pid: u32) -> &std::path::Path;
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct StoragePools {
+    pub strings: Vec<String>,
+    pub paths: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct StorageGraph {
     pub version: u32,
-    pub string_pool: Vec<String>,
-    pub path_pool: Vec<String>,
+    pub pools: StoragePools,
     pub nodes: Vec<StorageNode>,
     pub edges: Vec<StorageEdge>,
     pub fqn_index: Vec<(u32, u32)>,       // (StringID, NodeIdx)

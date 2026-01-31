@@ -267,7 +267,7 @@ impl SemanticResolver for JavaResolver {
 
             // Check if it's a method
             if let Ok(element) = serde_json::from_value::<JavaElement>(node.metadata.clone()) {
-                if let JavaElement::Method(m) = element {
+                if let JavaElement::Method(_m) = element {
                     // 1. Find the enclosing class/interface
                     let mut parent_incoming = index
                         .topology()
@@ -301,8 +301,8 @@ impl SemanticResolver for JavaResolver {
                                                 index.topology()[child_idx].metadata.clone(),
                                             )
                                         {
-                                            if let JavaElement::Method(child_m) = child_element {
-                                                if child_m.name == m.name {
+                                            if let JavaElement::Method(_) = child_element {
+                                                if index.topology()[child_idx].name == node.name {
                                                     results.push(child_idx);
                                                 }
                                             }
@@ -382,11 +382,8 @@ impl LangResolver for JavaResolver {
                     kind: NodeKind::Package,
                     lang: Arc::from("java"),
                     location: None,
-                    metadata: serde_json::to_value(JavaElement::Package(JavaPackage {
-                        name: pkg_name.clone(),
-                        id: package_id.clone(),
-                    }))
-                    .unwrap_or(serde_json::Value::Null),
+                    metadata: serde_json::to_value(JavaElement::Package(JavaPackage {}))
+                        .unwrap_or(serde_json::Value::Null),
                 };
 
                 unit.add_node(Arc::from(package_id.as_str()), package_node);
@@ -435,7 +432,7 @@ impl LangResolver for JavaResolver {
                                     &known_types,
                                 );
                                 if let TypeRef::Id(type_fqn) = &param.type_ref {
-                                    local_type_map.insert(param.name.clone(), type_fqn.clone());
+                                    local_type_map.insert(node.name.to_string(), type_fqn.clone());
                                 }
                             }
                         }
@@ -447,7 +444,7 @@ impl LangResolver for JavaResolver {
                                 &known_types,
                             );
                             if let TypeRef::Id(type_fqn) = &f.type_ref {
-                                local_type_map.insert(f.name.clone(), type_fqn.clone());
+                                local_type_map.insert(node.name.to_string(), type_fqn.clone());
                             }
                         }
                         _ => {}

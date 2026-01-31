@@ -69,6 +69,8 @@ impl JavaParser {
                         entities.push(JavaEntity {
                             element,
                             node: anchor_node,
+                            fqn: fqn.clone(),
+                            name: name.clone(),
                         });
                         entities_map.insert(fqn.clone(), new_idx);
 
@@ -101,43 +103,27 @@ impl JavaParser {
     fn create_java_element<'a>(
         &self,
         kind: &str,
-        fqn: &str,
-        name: &str,
-        range: Range,
-        name_range: Range,
+        _fqn: &str,
+        _name: &str,
+        _range: Range,
+        _name_range: Range,
         captures: &[QueryCapture<'a>],
         source: &'a str,
         relations: &mut Vec<JavaRelation>,
     ) -> JavaElement {
         match kind {
             KIND_LABEL_CLASS => JavaElement::Class(JavaClass {
-                id: fqn.to_string(),
-                name: name.to_string(),
                 modifiers: vec![],
-                range: Some(range),
-                name_range: Some(name_range),
             }),
             KIND_LABEL_INTERFACE => JavaElement::Interface(JavaInterface {
-                id: fqn.to_string(),
-                name: name.to_string(),
                 modifiers: vec![],
-                range: Some(range),
-                name_range: Some(name_range),
             }),
             KIND_LABEL_ENUM => JavaElement::Enum(JavaEnum {
-                id: fqn.to_string(),
-                name: name.to_string(),
                 modifiers: vec![],
                 constants: vec![],
-                range: Some(range),
-                name_range: Some(name_range),
             }),
             KIND_LABEL_ANNOTATION => JavaElement::Annotation(JavaAnnotation {
-                id: fqn.to_string(),
-                name: name.to_string(),
                 modifiers: vec![],
-                range: Some(range),
-                name_range: Some(name_range),
             }),
             KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => {
                 let mut return_type = TypeRef::raw("void");
@@ -147,17 +133,13 @@ impl JavaParser {
                     .map(|c| c.node)
                 {
                     return_type = self.parse_type_node(ret_node, source);
-                    self.generate_typed_as_edges(ret_node, source, fqn, relations);
+                    self.generate_typed_as_edges(ret_node, source, _fqn, relations);
                 }
                 JavaElement::Method(JavaMethod {
-                    id: fqn.to_string(),
-                    name: name.to_string(),
                     return_type,
                     parameters: vec![],
                     modifiers: vec![],
                     is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
-                    range: Some(range),
-                    name_range: Some(name_range),
                 })
             }
             KIND_LABEL_FIELD => {
@@ -178,19 +160,15 @@ impl JavaParser {
                     });
 
                 let type_ref = if let Some(t) = type_node {
-                    self.generate_typed_as_edges(t, source, fqn, relations);
+                    self.generate_typed_as_edges(t, source, _fqn, relations);
                     self.parse_type_node(t, source)
                 } else {
                     TypeRef::Unknown
                 };
 
                 JavaElement::Field(JavaField {
-                    id: fqn.to_string(),
-                    name: name.to_string(),
                     type_ref,
                     modifiers: vec![],
-                    range: Some(range),
-                    name_range: Some(name_range),
                 })
             }
             _ => unreachable!(),

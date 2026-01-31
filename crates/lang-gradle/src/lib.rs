@@ -5,7 +5,7 @@ pub mod queries;
 pub mod resolver;
 
 use naviscope_core::error::Result;
-use naviscope_core::plugin::{BuildParseResult, BuildToolPlugin};
+use naviscope_core::plugin::{BuildParseResult, BuildToolPlugin, MetadataPlugin};
 use naviscope_core::resolver::BuildResolver;
 use std::sync::Arc;
 
@@ -17,6 +17,35 @@ impl GradlePlugin {
     pub fn new() -> Self {
         Self {
             resolver: Arc::new(resolver::GradleResolver::new()),
+        }
+    }
+}
+
+impl MetadataPlugin for GradlePlugin {
+    fn intern(
+        &self,
+        value: serde_json::Value,
+        ctx: &mut dyn naviscope_core::engine::storage::model::StorageContext,
+    ) -> serde_json::Value {
+        if let Ok(element) = serde_json::from_value::<crate::model::GradleElement>(value) {
+            let storage_element = element.intern(ctx);
+            serde_json::to_value(&storage_element).unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        }
+    }
+
+    fn resolve(
+        &self,
+        value: serde_json::Value,
+        ctx: &dyn naviscope_core::engine::storage::model::StorageContext,
+    ) -> serde_json::Value {
+        if let Ok(storage_element) = serde_json::from_value::<crate::model::GradleStorageElement>(value)
+        {
+            let element = storage_element.resolve(ctx);
+            serde_json::to_value(element).unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
         }
     }
 }

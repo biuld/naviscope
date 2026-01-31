@@ -57,22 +57,16 @@ impl LspParser for JavaParser {
                 };
 
                 RawSymbol {
-                    name: e.element.name().to_string(),
+                    name: e.name,
                     kind,
-                    range: e.element.range().unwrap_or(naviscope_core::model::Range {
-                        start_line: 0,
-                        start_col: 0,
-                        end_line: 0,
-                        end_col: 0,
-                    }),
-                    selection_range: e.element.name_range().unwrap_or(
-                        naviscope_core::model::Range {
-                            start_line: 0,
-                            start_col: 0,
-                            end_line: 0,
-                            end_col: 0,
-                        },
-                    ),
+                    range: naviscope_core::parser::utils::range_from_ts(e.node.range()),
+                    selection_range: e
+                        .node
+                        .child_by_field_name("name")
+                        .map(|n| naviscope_core::parser::utils::range_from_ts(n.range()))
+                        .unwrap_or_else(|| {
+                            naviscope_core::parser::utils::range_from_ts(e.node.range())
+                        }),
                     node: e.node,
                 }
             })

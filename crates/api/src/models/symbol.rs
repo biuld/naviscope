@@ -88,9 +88,6 @@ pub struct SymbolLocation {
     #[schemars(with = "String")]
     pub path: Arc<Path>,
     pub range: Range,
-    #[serde(with = "super::util::serde_arc_str")]
-    #[schemars(with = "String")]
-    pub fqn: Arc<str>,
     /// Range of the identifier/name (for precise navigation)
     #[serde(default)]
     pub selection_range: Option<Range>,

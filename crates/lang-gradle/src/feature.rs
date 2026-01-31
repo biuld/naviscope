@@ -19,16 +19,16 @@ impl LanguageFeatureProvider for GradleFeatureProvider {
         let element = serde_json::from_value::<GradleElement>(node.metadata.clone()).ok()?;
 
         match element {
-            GradleElement::Module(m) => Some(format!("**Gradle Module**: {}", m.name)),
+            GradleElement::Module(_) => Some(format!("**Gradle Module**: {}", node.name)),
             GradleElement::Dependency(d) => {
                 let group = d.group.as_deref().unwrap_or("?");
                 let version = d.version.as_deref().unwrap_or("?");
                 if d.is_project {
-                    Some(format!("**Project Dependency**: {}", d.name))
+                    Some(format!("**Project Dependency**: {}", node.name))
                 } else {
                     Some(format!(
                         "**External Dependency**: {}:{}:{}",
-                        group, d.name, version
+                        group, node.name, version
                     ))
                 }
             }
@@ -46,7 +46,7 @@ impl LanguageFeatureProvider for GradleFeatureProvider {
             GradleElement::Dependency(d) => {
                 let group = d.group.as_deref().unwrap_or("?");
                 let version = d.version.as_deref().unwrap_or("?");
-                Some(format!("{}:{}:{}", group, d.name, version))
+                Some(format!("{}:{}:{}", group, node.name, version))
             }
             _ => None,
         }

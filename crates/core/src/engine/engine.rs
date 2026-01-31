@@ -89,11 +89,15 @@ impl NaviscopeEngine {
     /// Load index from disk
     pub async fn load(&self) -> Result<bool> {
         let path = self.index_path.clone();
+        let lang_plugins = self.lang_plugins.clone();
+        let build_plugins = self.build_plugins.clone();
 
         // Load in blocking pool
-        let graph_opt = tokio::task::spawn_blocking(move || Self::load_from_disk(&path))
-            .await
-            .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
+        let graph_opt = tokio::task::spawn_blocking(move || {
+            Self::load_from_disk(&path, lang_plugins, build_plugins)
+        })
+        .await
+        .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
 
         if let Some(graph) = graph_opt {
             // Atomically update current
@@ -109,10 +113,14 @@ impl NaviscopeEngine {
     pub async fn save(&self) -> Result<()> {
         let graph = self.snapshot().await;
         let path = self.index_path.clone();
+        let lang_plugins = self.lang_plugins.clone();
+        let build_plugins = self.build_plugins.clone();
 
-        tokio::task::spawn_blocking(move || Self::save_to_disk(&graph, &path))
-            .await
-            .map_err(|e| NaviscopeError::Internal(e.to_string()))?
+        tokio::task::spawn_blocking(move || {
+            Self::save_to_disk(&graph, &path, lang_plugins, build_plugins)
+        })
+        .await
+        .map_err(|e| NaviscopeError::Internal(e.to_string()))?
     }
 
     /// Rebuild the index from scratch
@@ -304,14 +312,32 @@ impl NaviscopeEngine {
 
     // ---- Helper methods ----
 
-    fn load_from_disk(path: &Path) -> Result<Option<CodeGraph>> {
+    fn load_from_disk(
+        path: &Path,
+        lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
+        build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
+    ) -> Result<Option<CodeGraph>> {
         if !path.exists() {
             return Ok(None);
         }
 
         let bytes = std::fs::read(path)?;
 
-        match CodeGraph::deserialize(&bytes) {
+        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::MetadataPlugin>> {
+            for p in lang_plugins.iter() {
+                if p.name() == lang {
+                    return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
+                }
+            }
+            for p in build_plugins.iter() {
+                if p.name() == lang {
+                    return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
+                }
+            }
+            None
+        };
+
+        match CodeGraph::deserialize(&bytes, get_plugin) {
             Ok(graph) => {
                 tracing::info!("Loaded index from {}", path.display());
                 Ok(Some(graph))
@@ -328,14 +354,33 @@ impl NaviscopeEngine {
         }
     }
 
-    fn save_to_disk(graph: &CodeGraph, path: &Path) -> Result<()> {
+    fn save_to_disk(
+        graph: &CodeGraph,
+        path: &Path,
+        lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
+        build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
+    ) -> Result<()> {
         // Ensure directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
+        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::MetadataPlugin>> {
+            for p in lang_plugins.iter() {
+                if p.name() == lang {
+                    return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
+                }
+            }
+            for p in build_plugins.iter() {
+                if p.name() == lang {
+                    return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
+                }
+            }
+            None
+        };
+
         // Serialize the graph
-        let bytes = graph.serialize()?;
+        let bytes = graph.serialize(get_plugin)?;
 
         // Write to file atomically (write to temp, then rename)
         let temp_path = path.with_extension("tmp");

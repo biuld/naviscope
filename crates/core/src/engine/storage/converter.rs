@@ -1,36 +1,84 @@
 use super::model::*;
+use super::pool::GLOBAL_POOL;
 use crate::engine::graph::{CodeGraphInner, FileEntry};
 use crate::model::{GraphNode, SymbolLocation};
+use crate::plugin::MetadataPlugin;
 use petgraph::stable_graph::NodeIndex;
 use smol_str::SmolStr;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
-    let mut string_pool = Vec::new();
+struct GenericStorageContext<'a> {
+    pools: &'a mut StoragePools,
+    string_map: &'a mut HashMap<String, u32>,
+    path_map: &'a mut HashMap<String, u32>,
+}
+
+impl<'a> StorageContext for GenericStorageContext<'a> {
+    fn intern_str(&mut self, s: &str) -> u32 {
+        *self.string_map.entry(s.to_string()).or_insert_with(|| {
+            let id = self.pools.strings.len() as u32;
+            self.pools.strings.push(s.to_string());
+            id
+        })
+    }
+
+    fn intern_path(&mut self, p: &Path) -> u32 {
+        let s = p.to_string_lossy().to_string();
+        *self.path_map.entry(s.clone()).or_insert_with(|| {
+            let id = self.pools.paths.len() as u32;
+            self.pools.paths.push(s);
+            id
+        })
+    }
+
+    fn resolve_str(&self, sid: u32) -> &str {
+        &self.pools.strings[sid as usize]
+    }
+
+    fn resolve_path(&self, pid: u32) -> &Path {
+        Path::new(&self.pools.paths[pid as usize])
+    }
+}
+
+/// Fallback plugin that uses standard JSON encoding
+struct DefaultMetadataPlugin;
+impl MetadataPlugin for DefaultMetadataPlugin {}
+
+/// Read-only context used during deserialization
+struct ReadOnlyStorageContext<'a>(&'a StoragePools);
+
+impl<'a> StorageContext for ReadOnlyStorageContext<'a> {
+    fn intern_str(&mut self, _s: &str) -> u32 {
+        unreachable!("Read-only context")
+    }
+    fn intern_path(&mut self, _p: &Path) -> u32 {
+        unreachable!("Read-only context")
+    }
+    fn resolve_str(&self, sid: u32) -> &str {
+        &self.0.strings[sid as usize]
+    }
+    fn resolve_path(&self, pid: u32) -> &Path {
+        Path::new(&self.0.paths[pid as usize])
+    }
+}
+
+pub fn to_storage(
+    inner: &CodeGraphInner,
+    get_plugin: impl Fn(&str) -> Option<Arc<dyn MetadataPlugin>>,
+) -> StorageGraph {
+    let mut pools = StoragePools::default();
     let mut string_map = HashMap::new();
-    let mut path_pool = Vec::new();
     let mut path_map = HashMap::new();
 
-    let mut intern_str = |s: &str| -> u32 {
-        *string_map.entry(s.to_string()).or_insert_with(|| {
-            let id = string_pool.len() as u32;
-            string_pool.push(s.to_string());
-            id
-        })
+    let mut ctx = GenericStorageContext {
+        pools: &mut pools,
+        string_map: &mut string_map,
+        path_map: &mut path_map,
     };
 
-    let mut intern_path = |p: &Path| -> u32 {
-        let s = p.to_string_lossy().to_string();
-        *path_map.entry(s.clone()).or_insert_with(|| {
-            let id = path_pool.len() as u32;
-            path_pool.push(s);
-            id
-        })
-    };
-
-    // Map from original NodeIndex to its index in the storage nodes vector
+    let default_plugin = Arc::new(DefaultMetadataPlugin);
     let mut node_id_map = HashMap::new();
     let mut nodes = Vec::new();
 
@@ -39,17 +87,20 @@ pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
         let storage_idx = nodes.len() as u32;
         node_id_map.insert(idx, storage_idx);
 
+        let plugin = get_plugin(&node.lang).unwrap_or_else(|| default_plugin.clone());
+        let metadata = plugin.intern(node.metadata.clone(), &mut ctx);
+
         nodes.push(StorageNode {
-            id_sid: intern_str(&node.id),
-            name_sid: intern_str(node.name.as_str()),
+            id_sid: ctx.intern_str(&node.id),
+            name_sid: ctx.intern_str(node.name.as_str()),
             kind: node.kind.clone(),
-            lang_sid: intern_str(&node.lang),
+            lang_sid: ctx.intern_str(&node.lang),
             location: node.location.as_ref().map(|loc| StorageLocation {
-                path_id: intern_path(&loc.path),
+                path_id: ctx.intern_path(&loc.path),
                 range: loc.range,
                 selection_range: loc.selection_range,
             }),
-            metadata: node.metadata.clone(),
+            metadata,
         });
     }
 
@@ -66,10 +117,11 @@ pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
         })
         .collect();
 
+    // Re-use ctx for index pools
     let mut fqn_index: Vec<(u32, u32)> = inner
         .fqn_index
         .iter()
-        .map(|(fqn, idx)| (intern_str(fqn), *node_id_map.get(idx).unwrap()))
+        .map(|(fqn, idx)| (ctx.intern_str(fqn), *node_id_map.get(idx).unwrap()))
         .collect();
     fqn_index.sort_unstable_by_key(|k| k.0);
 
@@ -78,7 +130,7 @@ pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
         .iter()
         .map(|(name, indices)| {
             (
-                intern_str(name.as_str()),
+                ctx.intern_str(name.as_str()),
                 indices
                     .iter()
                     .map(|i| *node_id_map.get(i).unwrap())
@@ -93,7 +145,7 @@ pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
         .iter()
         .map(|(path, entry)| {
             (
-                intern_path(path),
+                ctx.intern_path(path),
                 StorageFileEntry {
                     metadata: entry.metadata.clone(),
                     nodes: entry
@@ -112,8 +164,8 @@ pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
         .iter()
         .map(|(token, paths)| {
             (
-                intern_str(token.as_str()),
-                paths.iter().map(|p| intern_path(p)).collect(),
+                ctx.intern_str(token.as_str()),
+                paths.iter().map(|p| ctx.intern_path(p)).collect(),
             )
         })
         .collect();
@@ -121,8 +173,7 @@ pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
 
     StorageGraph {
         version: inner.version,
-        string_pool,
-        path_pool,
+        pools,
         nodes,
         edges,
         fqn_index,
@@ -132,23 +183,35 @@ pub fn to_storage(inner: &CodeGraphInner) -> StorageGraph {
     }
 }
 
-pub fn from_storage(storage: StorageGraph) -> CodeGraphInner {
+pub fn from_storage(
+    storage: StorageGraph,
+    get_plugin: impl Fn(&str) -> Option<Arc<dyn MetadataPlugin>>,
+) -> CodeGraphInner {
     let mut topology = petgraph::stable_graph::StableDiGraph::new();
+    let default_plugin = Arc::new(DefaultMetadataPlugin);
+    
+    let pools = &storage.pools;
+    let ctx = ReadOnlyStorageContext(pools);
 
     for snode in &storage.nodes {
-        let fqn: Arc<str> = Arc::from(storage.string_pool[snode.id_sid as usize].as_str());
+        let fqn_str = &pools.strings[snode.id_sid as usize];
+        let fqn: Arc<str> = GLOBAL_POOL.intern_str(fqn_str);
+        let lang = &pools.strings[snode.lang_sid as usize];
+        
+        let plugin = get_plugin(lang).unwrap_or_else(|| default_plugin.clone());
+        let metadata = plugin.resolve(snode.metadata.clone(), &ctx);
+
         let node = GraphNode {
             id: fqn.clone(),
-            name: SmolStr::from(&storage.string_pool[snode.name_sid as usize]),
+            name: SmolStr::from(&pools.strings[snode.name_sid as usize]),
             kind: snode.kind.clone(),
-            lang: Arc::from(storage.string_pool[snode.lang_sid as usize].as_str()),
+            lang: GLOBAL_POOL.intern_str(lang),
             location: snode.location.as_ref().map(|loc| SymbolLocation {
-                path: Arc::from(Path::new(&storage.path_pool[loc.path_id as usize])),
+                path: GLOBAL_POOL.intern_path(Path::new(&pools.paths[loc.path_id as usize])),
                 range: loc.range,
-                fqn: fqn.clone(),
                 selection_range: loc.selection_range,
             }),
-            metadata: snode.metadata.clone(),
+            metadata,
         };
         topology.add_node(node);
     }
@@ -166,7 +229,7 @@ pub fn from_storage(storage: StorageGraph) -> CodeGraphInner {
         .into_iter()
         .map(|(sid, idx)| {
             (
-                Arc::from(storage.string_pool[sid as usize].as_str()),
+                GLOBAL_POOL.intern_str(&pools.strings[sid as usize]),
                 NodeIndex::new(idx as usize),
             )
         })
@@ -177,7 +240,7 @@ pub fn from_storage(storage: StorageGraph) -> CodeGraphInner {
         .into_iter()
         .map(|(sid, indices)| {
             (
-                SmolStr::from(&storage.string_pool[sid as usize]),
+                SmolStr::from(&pools.strings[sid as usize]),
                 indices
                     .into_iter()
                     .map(|i| NodeIndex::new(i as usize))
@@ -191,7 +254,7 @@ pub fn from_storage(storage: StorageGraph) -> CodeGraphInner {
         .into_iter()
         .map(|(pid, entry)| {
             (
-                Arc::from(Path::new(&storage.path_pool[pid as usize])),
+                GLOBAL_POOL.intern_path(Path::new(&pools.paths[pid as usize])),
                 FileEntry {
                     metadata: entry.metadata,
                     nodes: entry
@@ -209,10 +272,10 @@ pub fn from_storage(storage: StorageGraph) -> CodeGraphInner {
         .into_iter()
         .map(|(sid, paths)| {
             (
-                SmolStr::from(&storage.string_pool[sid as usize]),
+                SmolStr::from(&pools.strings[sid as usize]),
                 paths
                     .into_iter()
-                    .map(|pid| Arc::from(Path::new(&storage.path_pool[pid as usize])))
+                    .map(|pid| GLOBAL_POOL.intern_path(Path::new(&pools.paths[pid as usize])))
                     .collect(),
             )
         })

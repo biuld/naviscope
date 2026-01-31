@@ -134,7 +134,6 @@ impl BuildResolver for GradleResolver {
                         end_line: 0,
                         end_col: 0,
                     },
-                    fqn: Arc::from(project_id.as_str()),
                     selection_range: None,
                 }),
                 metadata: serde_json::json!({
@@ -205,14 +204,10 @@ impl BuildResolver for GradleResolver {
                                 end_line: 0,
                                 end_col: 0,
                             },
-                            fqn: Arc::from(root_module_id.as_str()),
                             selection_range: None,
                         }),
-                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {
-                        name: display_name.to_string(),
-                        id: root_module_id.clone(),
-                    }))
-                    .unwrap_or(serde_json::Value::Null),
+                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
+                        .unwrap_or(serde_json::Value::Null),
                 },
             );
 
@@ -261,14 +256,10 @@ impl BuildResolver for GradleResolver {
                                 end_line: 0,
                                 end_col: 0,
                             },
-                            fqn: Arc::from(id.as_str()),
                             selection_range: None,
                         }),
-                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {
-                        name: display_name.to_string(),
-                        id: id.clone(),
-                    }))
-                    .unwrap_or(serde_json::Value::Null),
+                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
+                        .unwrap_or(serde_json::Value::Null),
                 },
             );
 
@@ -324,13 +315,16 @@ impl BuildResolver for GradleResolver {
                     };
 
                     if !dep.is_project {
-                        let mut dep_node = dep.clone();
-                        dep_node.id = target_id.clone();
+                        let dep_node = crate::model::GradleDependency {
+                            group: dep.group.clone(),
+                            version: dep.version.clone(),
+                            is_project: dep.is_project,
+                        };
                         unit.add_node(
                             Arc::from(target_id.as_str()),
                             GraphNode {
                                 id: Arc::from(target_id.as_str()),
-                                name: SmolStr::from(dep_node.name.as_str()),
+                                name: SmolStr::from(dep.name.as_str()),
                                 kind: NodeKind::Dependency,
                                 lang: Arc::from("buildfile"),
                                 location: Some(NodeLocation {
@@ -343,7 +337,6 @@ impl BuildResolver for GradleResolver {
                                         end_line: 0,
                                         end_col: 0,
                                     },
-                                    fqn: Arc::from(target_id.as_str()),
                                     selection_range: None,
                                 }),
                                 metadata: serde_json::to_value(GradleElement::Dependency(dep_node))

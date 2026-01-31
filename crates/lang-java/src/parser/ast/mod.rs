@@ -20,6 +20,8 @@ pub struct JavaFileModel<'a> {
 pub struct JavaEntity<'a> {
     pub element: JavaElement,
     pub node: Node<'a>,
+    pub fqn: String,
+    pub name: String,
 }
 
 pub struct JavaRelation {

@@ -43,14 +43,14 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
 
         match element {
             JavaElement::Class(c) => {
-                let mut detail = format!("**class** {}", c.name);
+                let mut detail = format!("**class** {}", node.name);
                 if !c.modifiers.is_empty() {
                     detail = format!("{} {}", c.modifiers.join(" "), detail);
                 }
                 Some(detail)
             }
             JavaElement::Interface(i) => {
-                let mut detail = format!("**interface** {}", i.name);
+                let mut detail = format!("**interface** {}", node.name);
                 if !i.modifiers.is_empty() {
                     detail = format!("{} {}", i.modifiers.join(" "), detail);
                 }
@@ -64,14 +64,14 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_type_str = self.fmt_type(&m.return_type);
-                let mut detail = format!("**{}**({}) -> {}", m.name, params_str, return_type_str);
+                let mut detail = format!("**{}**({}) -> {}", node.name, params_str, return_type_str);
                 if !m.modifiers.is_empty() {
                     detail = format!("{} {}", m.modifiers.join(" "), detail);
                 }
                 Some(detail)
             }
             JavaElement::Field(f) => {
-                let mut detail = format!("**{}**: {}", f.name, self.fmt_type(&f.type_ref));
+                let mut detail = format!("**{}**: {}", node.name, self.fmt_type(&f.type_ref));
                 if !f.modifiers.is_empty() {
                     detail = format!("{} {}", f.modifiers.join(" "), detail);
                 }
@@ -99,7 +99,7 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
                 let return_type_str = self.fmt_type(&m.return_type);
                 Some(format!("({}) -> {}", params_str, return_type_str))
             }
-            JavaElement::Field(f) => Some(format!("{} {}", self.fmt_type(&f.type_ref), f.name)),
+            JavaElement::Field(f) => Some(format!("{} {}", self.fmt_type(&f.type_ref), node.name)),
             _ => None,
         }
     }

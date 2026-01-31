@@ -156,9 +156,12 @@ impl CodeGraph {
     // ---- Serialization support ----
 
     /// Serialize to bytes for persistence
-    pub fn serialize(&self) -> Result<Vec<u8>, NaviscopeError> {
+    pub fn serialize(
+        &self,
+        get_plugin: impl Fn(&str) -> Option<Arc<dyn crate::plugin::MetadataPlugin>>,
+    ) -> Result<Vec<u8>, NaviscopeError> {
         use super::storage::to_storage;
-        let storage = to_storage(&self.inner);
+        let storage = to_storage(&self.inner, get_plugin);
         let bytes = rmp_serde::to_vec(&storage)
             .map_err(|e| NaviscopeError::Internal(format!("MSGPACK error: {}", e)))?;
 
@@ -169,8 +172,11 @@ impl CodeGraph {
     }
 
     /// Deserialize from bytes
-    pub fn deserialize(bytes: &[u8]) -> Result<Self, NaviscopeError> {
-        use super::storage::{StorageGraph, from_storage};
+    pub fn deserialize(
+        bytes: &[u8],
+        get_plugin: impl Fn(&str) -> Option<Arc<dyn crate::plugin::MetadataPlugin>>,
+    ) -> Result<Self, NaviscopeError> {
+        use super::storage::{from_storage, StorageGraph};
 
         // Decompress
         let decompressed = zstd::decode_all(bytes)
@@ -179,16 +185,20 @@ impl CodeGraph {
         let storage: StorageGraph = rmp_serde::from_slice(&decompressed)
             .map_err(|e| NaviscopeError::Internal(format!("MSGPACK error: {}", e)))?;
 
-        let inner = from_storage(storage);
+        let inner = from_storage(storage, get_plugin);
         Ok(Self::from_inner(inner))
     }
 
     /// Save graph to JSON file (for debugging)
-    pub fn save_to_json<P: AsRef<std::path::Path>>(&self, path: P) -> crate::error::Result<()> {
+    pub fn save_to_json<P: AsRef<std::path::Path>>(
+        &self,
+        path: P,
+        get_plugin: impl Fn(&str) -> Option<Arc<dyn crate::plugin::MetadataPlugin>>,
+    ) -> crate::error::Result<()> {
         use super::storage::to_storage;
         let file = std::fs::File::create(path)?;
         let writer = std::io::BufWriter::new(file);
-        let storage = to_storage(&self.inner);
+        let storage = to_storage(&self.inner, get_plugin);
         serde_json::to_writer_pretty(writer, &storage)
             .map_err(|e| crate::error::NaviscopeError::Parsing(e.to_string()))?;
         Ok(())
@@ -244,8 +254,9 @@ mod tests {
         builder.add_node(Arc::from("test.node"), node);
         let graph = builder.build();
 
-        let serialized = graph.serialize().expect("Serialization failed");
-        let deserialized = CodeGraph::deserialize(&serialized).expect("Deserialization failed");
+        let serialized = graph.serialize(|_| None).expect("Serialization failed");
+        let deserialized =
+            CodeGraph::deserialize(&serialized, |_| None).expect("Deserialization failed");
 
         assert_eq!(deserialized.node_count(), 1);
         let idx = deserialized.find_node("test.node").unwrap();

@@ -1,7 +1,7 @@
 use super::JavaParser;
 use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::{NaviscopeError, Result};
-use naviscope_core::model::{GraphNode, NodeLocation, Range};
+use naviscope_core::model::{GraphNode, NodeLocation};
 use naviscope_core::parser::{GlobalParseResult, IndexParser};
 use smol_str::SmolStr;
 use std::sync::Arc;
@@ -51,22 +51,15 @@ impl IndexParser for JavaParser {
                     }
                 };
 
-                let fqn: Arc<str> = Arc::from(e.element.id());
                 let location = file_path.map(|p| NodeLocation {
                     path: GLOBAL_POOL.intern_path(p),
-                    range: e.element.range().unwrap_or(Range {
-                        start_line: 0,
-                        start_col: 0,
-                        end_line: 0,
-                        end_col: 0,
-                    }),
-                    fqn: fqn.clone(),
-                    selection_range: e.element.name_range(),
+                    range: naviscope_core::parser::utils::range_from_ts(e.node.range()),
+                    selection_range: e.node.child_by_field_name("name").map(|n| naviscope_core::parser::utils::range_from_ts(n.range())),
                 });
 
                 GraphNode {
-                    id: fqn,
-                    name: SmolStr::from(e.element.name()),
+                    id: Arc::from(e.fqn.as_str()),
+                    name: SmolStr::from(e.name.as_str()),
                     kind,
                     lang: Arc::from("java"),
                     location,

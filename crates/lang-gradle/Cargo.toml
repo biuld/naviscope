@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 naviscope-core = { workspace = true }
+naviscope-api = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -12,7 +13,6 @@ thiserror = { workspace = true }
 petgraph = { workspace = true }
 once_cell = { workspace = true }
 smol_str = { workspace = true }
-naviscope-api.workspace = true
 
 [build-dependencies]
 cc = { workspace = true }

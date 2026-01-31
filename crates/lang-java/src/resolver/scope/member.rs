@@ -389,12 +389,8 @@ mod tests {
             lang: Arc::from("java"),
             location: None,
             metadata: serde_json::to_value(JavaElement::Field(crate::model::JavaField {
-                name: "field".to_string(),
-                id: "Test.field".to_string(),
                 type_ref: naviscope_api::models::TypeRef::Raw("int".to_string()),
                 modifiers: vec![],
-                range: None,
-                name_range: None,
             }))
             .unwrap(),
         };

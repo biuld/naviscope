@@ -6,7 +6,7 @@ pub mod resolver;
 
 use naviscope_core::error::Result;
 use naviscope_core::parser::{GlobalParseResult, LspParser};
-use naviscope_core::plugin::{LanguageFeatureProvider, LanguagePlugin};
+use naviscope_core::plugin::{LanguageFeatureProvider, LanguagePlugin, MetadataPlugin};
 use naviscope_core::resolver::SemanticResolver;
 use std::path::Path;
 use std::sync::Arc;
@@ -29,6 +29,35 @@ impl JavaPlugin {
             resolver,
             feature_provider,
         })
+    }
+}
+
+impl MetadataPlugin for JavaPlugin {
+    fn intern(
+        &self,
+        value: serde_json::Value,
+        ctx: &mut dyn naviscope_core::engine::storage::model::StorageContext,
+    ) -> serde_json::Value {
+        if let Ok(element) = serde_json::from_value::<crate::model::JavaElement>(value) {
+            let storage_element = element.to_storage(ctx);
+            serde_json::to_value(&storage_element).unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        }
+    }
+
+    fn resolve(
+        &self,
+        value: serde_json::Value,
+        ctx: &dyn naviscope_core::engine::storage::model::StorageContext,
+    ) -> serde_json::Value {
+        if let Ok(storage_element) = serde_json::from_value::<crate::model::JavaStorageElement>(value)
+        {
+            let element = storage_element.from_storage(ctx);
+            serde_json::to_value(element).unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        }
     }
 }
 
