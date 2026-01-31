@@ -578,7 +578,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1247,6 +1247,7 @@ dependencies = [
  "cc",
  "ignore",
  "log",
+ "lsp-types",
  "notify",
  "once_cell",
  "petgraph",
@@ -1258,7 +1259,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
- "tower-lsp",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -1277,7 +1277,6 @@ dependencies = [
  "petgraph",
  "serde",
  "thiserror 2.0.17",
- "tokio",
  "tree-sitter",
 ]
 
@@ -1286,12 +1285,11 @@ name = "naviscope-java"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "lsp-types",
  "naviscope-core",
  "petgraph",
  "serde",
  "thiserror 2.0.17",
- "tokio",
- "tower-lsp",
  "tree-sitter",
 ]
 
@@ -1801,7 +1799,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2237,9 +2235,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
- "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -2672,7 +2668,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

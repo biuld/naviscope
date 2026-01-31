@@ -40,7 +40,7 @@ pub trait LspParser: Send + Sync {
     ) -> Option<tree_sitter::Tree>;
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DocumentSymbol>;
     /// Maps a language-specific symbol kind string to an LSP SymbolKind
-    fn symbol_kind(&self, kind: &NodeKind) -> tower_lsp::lsp_types::SymbolKind;
+    fn symbol_kind(&self, kind: &NodeKind) -> lsp_types::SymbolKind;
 
     /// Find occurrences of a symbol within a single file's AST.
     /// This is the "Micro" part of the Discovery Engine.

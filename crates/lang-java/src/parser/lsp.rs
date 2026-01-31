@@ -87,8 +87,8 @@ impl LspParser for JavaParser {
         build_symbol_hierarchy(raw_symbols)
     }
 
-    fn symbol_kind(&self, kind: &NodeKind) -> tower_lsp::lsp_types::SymbolKind {
-        use tower_lsp::lsp_types::SymbolKind;
+    fn symbol_kind(&self, kind: &NodeKind) -> lsp_types::SymbolKind {
+        use lsp_types::SymbolKind;
         match kind {
             NodeKind::Class => SymbolKind::CLASS,
             NodeKind::Interface => SymbolKind::INTERFACE,

@@ -8,3 +8,47 @@ members = [
     "crates/lsp",
     "crates/mcp",
 ]
+
+[workspace.dependencies]
+naviscope-core = { path = "crates/core" }
+naviscope-java = { path = "crates/lang-java" }
+naviscope-gradle = { path = "crates/lang-gradle" }
+naviscope-lsp = { path = "crates/lsp" }
+naviscope-mcp = { path = "crates/mcp" }
+
+petgraph = { version = "0.8", features = ["serde-1"] }
+tree-sitter = "0.26"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+walkdir = "2.5"
+log = "0.4"
+ignore = "0.4.25"
+rayon = "1.11.0"
+notify = "8.2.0"
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+regex = "1.11.1"
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net"] }
+schemars = "1.2.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-appender = "0.2.4"
+rmp-serde = "1.3.1"
+once_cell = "1.20"
+tower-lsp = "0.20"
+lsp-types = "0.94"
+cc = "1.2"
+dashmap = "6.1.0"
+tokio-util = "0.7.18"
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+reedline = "0.45.0"
+dirs = "6.0.0"
+nu-ansi-term = "0.50.3"
+shlex = "1.3.0"
+tabled = "0.20.0"
+indexmap = { version = "2.1.0", features = ["serde"] }
+axum = { version = "0.7.5", features = ["ws"] }
+futures = "0.3.31"
+tokio-tungstenite = "0.28.0"
+rmcp = { version = "0.13.0", features = ["macros", "server", "transport-io"] }

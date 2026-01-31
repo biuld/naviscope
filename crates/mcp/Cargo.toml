@@ -4,17 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-naviscope-core = { path = "../core" }
-rmcp = { version = "0.13.0", features = ["macros", "server", "transport-io"] }
-tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tracing = "0.1.44"
-anyhow = "1.0" # Assuming rmcp might use it
-tower-lsp = "0.20"
-axum = { version = "0.7.5", features = ["ws"] }
-futures = "0.3.31"
-tokio-tungstenite = "0.28.0"
-tokio-util = "0.7.18"
-xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
-schemars = "1.2.0"
+naviscope-core = { workspace = true }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+tower-lsp = { workspace = true }
+axum = { workspace = true }
+futures = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+xxhash-rust = { workspace = true }
+schemars = { workspace = true }

@@ -4,13 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-naviscope-core = { path = "../core" }
-tree-sitter = "0.26"
-serde = { version = "1.0", features = ["derive"] }
-thiserror = "2.0"
-tokio = { version = "1.49.0", features = ["full"] }
-tower-lsp = "0.20"
-petgraph = "0.8"
+naviscope-core = { workspace = true }
+tree-sitter = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+petgraph = { workspace = true }
+lsp-types = { workspace = true }
 
 [build-dependencies]
-cc = "1.2"
+cc = { workspace = true }

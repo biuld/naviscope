@@ -1,10 +1,10 @@
 use crate::model::graph::EdgeType;
 use crate::parser::{LspParser, SymbolResolution};
 use crate::query::CodeGraphLike;
+use lsp_types::{Location, Url};
 use petgraph::Direction;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use tower_lsp::lsp_types::{Location, Url};
 
 /// DiscoveryEngine bridges Meso-level graph knowledge with Micro-level file scanning.
 pub struct DiscoveryEngine<'a> {
@@ -70,15 +70,9 @@ impl<'a> DiscoveryEngine<'a> {
                 .into_iter()
                 .map(|r| Location {
                     uri: uri.clone(),
-                    range: tower_lsp::lsp_types::Range {
-                        start: tower_lsp::lsp_types::Position::new(
-                            r.start_line as u32,
-                            r.start_col as u32,
-                        ),
-                        end: tower_lsp::lsp_types::Position::new(
-                            r.end_line as u32,
-                            r.end_col as u32,
-                        ),
+                    range: lsp_types::Range {
+                        start: lsp_types::Position::new(r.start_line as u32, r.start_col as u32),
+                        end: lsp_types::Position::new(r.end_line as u32, r.end_col as u32),
                     },
                 })
                 .collect()

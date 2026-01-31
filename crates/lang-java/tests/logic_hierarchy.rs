@@ -46,7 +46,7 @@ fn test_call_hierarchy_incoming() {
 
     let mut callers = Vec::new();
     let abs_path = std::env::current_dir().unwrap().join("Test.java");
-    let uri = tower_lsp::lsp_types::Url::from_file_path(&abs_path).unwrap();
+    let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
 
     for path in candidate_files {
         let locations = discovery.scan_file(&resolver.parser, content, &res, &uri);
@@ -173,7 +173,7 @@ fn test_call_hierarchy_recursion() {
     let discovery = DiscoveryEngine::new(&index);
     let mut callers = Vec::new();
     let abs_path = std::env::current_dir().unwrap().join("Test.java");
-    let uri = tower_lsp::lsp_types::Url::from_file_path(&abs_path).unwrap();
+    let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
 
     let locations = discovery.scan_file(&resolver.parser, content, &res, &uri);
     for loc in locations {
