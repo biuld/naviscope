@@ -82,7 +82,15 @@ impl Scanner {
         root: &Path,
         existing_files: &HashMap<PathBuf, SourceFile>,
     ) -> Vec<ParsedFile> {
-        Self::collect_paths(root)
+        let paths = Self::collect_paths(root);
+        Self::scan_files(paths, existing_files)
+    }
+
+    pub fn scan_files(
+        paths: Vec<PathBuf>,
+        existing_files: &HashMap<PathBuf, SourceFile>,
+    ) -> Vec<ParsedFile> {
+        paths
             .par_iter()
             .filter_map(|path| {
                 // 1. Check metadata (mtime) first

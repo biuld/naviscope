@@ -6,7 +6,7 @@ use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
 
 // Trait to abstract over different CodeGraph implementations
-pub trait CodeGraphLike {
+pub trait CodeGraphLike: Send + Sync {
     fn topology(
         &self,
     ) -> &petgraph::stable_graph::StableDiGraph<

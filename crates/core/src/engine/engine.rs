@@ -2,6 +2,7 @@
 
 use super::{CodeGraph, CodeGraphBuilder};
 use crate::error::{NaviscopeError, Result};
+use crate::model::graph::GraphOp;
 use crate::project::scanner::Scanner;
 use crate::resolver::engine::IndexResolver;
 use std::path::{Path, PathBuf};
@@ -139,17 +140,74 @@ impl NaviscopeEngine {
     }
 
     /// Update specific files incrementally
-    pub async fn update_files(&self, _files: Vec<PathBuf>) -> Result<()> {
-        // For now, just rebuild everything
-        // TODO: implement true incremental updates
-        self.rebuild().await
+    pub async fn update_files(&self, files: Vec<PathBuf>) -> Result<()> {
+        let graph = self.snapshot().await;
+        let build_plugins = self.build_plugins.clone();
+        let lang_plugins = self.lang_plugins.clone();
+
+        // Prepare existing file metadata for change detection
+        let mut existing_metadata = std::collections::HashMap::new();
+        for (path, entry) in graph.file_index() {
+            existing_metadata.insert(path.clone(), entry.metadata.clone());
+        }
+
+        // Processing in blocking pool
+        let new_graph = tokio::task::spawn_blocking(move || -> Result<Option<CodeGraph>> {
+            let mut manual_ops = Vec::new();
+            let mut to_scan = Vec::new();
+
+            for path in files {
+                if path.exists() {
+                    to_scan.push(path);
+                } else {
+                    // File was deleted
+                    manual_ops.push(GraphOp::RemovePath { path });
+                }
+            }
+
+            let parse_results = Scanner::scan_files(to_scan, &existing_metadata);
+
+            // If nothing changed and no deletions, return early
+            if parse_results.is_empty() && manual_ops.is_empty() {
+                return Ok(None);
+            }
+
+            let resolver =
+                IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
+            let mut ops = resolver.resolve(parse_results)?;
+
+            // Add manual deletion ops
+            ops.extend(manual_ops);
+
+            let mut builder = graph.to_builder();
+            builder.apply_ops(ops)?;
+            Ok(Some(builder.build()))
+        })
+        .await
+        .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
+
+        if let Some(updated_graph) = new_graph {
+            // Atomically update current
+            let mut lock = self.current.write().await;
+            *lock = Arc::new(updated_graph);
+
+            // Save to disk
+            self.save().await?;
+        }
+
+        Ok(())
     }
 
     /// Refresh index (detect changes and update)
     pub async fn refresh(&self) -> Result<()> {
-        // For now, just rebuild
-        // TODO: implement change detection
-        self.rebuild().await
+        let project_root = self.project_root.clone();
+
+        // Scan for all current files and update incrementally
+        let paths = tokio::task::spawn_blocking(move || Scanner::collect_paths(&project_root))
+            .await
+            .map_err(|e| NaviscopeError::Internal(e.to_string()))?;
+
+        self.update_files(paths).await
     }
 
     /// Clear the index for the current project

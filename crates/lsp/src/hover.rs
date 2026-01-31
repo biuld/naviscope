@@ -20,22 +20,24 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         None => return Ok(None),
     };
 
-    // EngineHandle::graph is async and returns CodeGraph
     let graph = engine.graph().await;
-    let index: &dyn CodeGraphLike = &graph;
+    let resolver = match engine.get_semantic_resolver(doc.language) {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+    let feature_provider = engine.get_feature_provider(doc.language);
 
-    // 1. Precise resolution using Semantic Resolver
-    let resolution = {
-        let resolver = match engine.get_semantic_resolver(doc.language) {
-            Some(r) => r,
-            None => return Ok(None),
-        };
+    tokio::task::spawn_blocking(move || {
+        let index: &dyn CodeGraphLike = &graph;
+        let topology = index.topology();
+
+        // 1. Precise resolution using Semantic Resolver
         let byte_col = crate::util::utf16_col_to_byte_col(
             &doc.content,
             position.line as usize,
             position.character as usize,
         );
-        match resolver.resolve_at(
+        let resolution = match resolver.resolve_at(
             &doc.tree,
             &doc.content,
             position.line as usize,
@@ -44,66 +46,59 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         ) {
             Some(r) => r,
             None => return Ok(None),
-        }
-    };
-
-    if let SymbolResolution::Local(_, _) = resolution {
-        return Ok(Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String("**Local variable**".to_string())),
-            range: None,
-        }));
-    }
-
-    let mut hover_text = String::new();
-    let matches = {
-        let resolver = match engine.get_semantic_resolver(doc.language) {
-            Some(r) => r,
-            None => return Ok(None),
         };
-        resolver.find_matches(index, &resolution)
-    };
 
-    // Get feature provider for rendering node information
-    let feature_provider = engine.get_feature_provider(doc.language);
-
-    let topology = index.topology();
-
-    for &idx in &matches {
-        let node = &topology[idx];
-        if !hover_text.is_empty() {
-            hover_text.push_str("\n\n---\n\n");
+        if let SymbolResolution::Local(_, _) = resolution {
+            return Ok(Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(
+                    "**Local variable**".to_string(),
+                )),
+                range: None,
+            }));
         }
 
-        // Method/Field name as title
-        hover_text.push_str(&format!(
-            "**{}** *{}*\n\n",
-            node.name(),
-            node.kind().to_string()
-        ));
+        let mut hover_text = String::new();
+        let matches = resolver.find_matches(index, &resolution);
 
-        // Signature in code block (use feature provider if available)
-        if let Some(provider) = &feature_provider {
-            if let Some(sig) = provider.signature(node) {
-                hover_text.push_str(&format!("```java\n{}\n```\n", sig));
+        for &idx in &matches {
+            let node = &topology[idx];
+            if !hover_text.is_empty() {
+                hover_text.push_str("\n\n---\n\n");
+            }
+
+            // Method/Field name as title
+            hover_text.push_str(&format!(
+                "**{}** *{}*\n\n",
+                node.name(),
+                node.kind().to_string()
+            ));
+
+            // Signature in code block (use feature provider if available)
+            if let Some(provider) = &feature_provider {
+                if let Some(sig) = provider.signature(node) {
+                    hover_text.push_str(&format!("```java\n{}\n```\n", sig));
+                }
+            }
+
+            // Metadata: FQN only
+            hover_text.push_str(&format!("\n*`{}`*", node.id));
+        }
+
+        if hover_text.is_empty() {
+            if let SymbolResolution::Precise(fqn, _) = resolution {
+                hover_text.push_str(&format!("**External Reference**\n\n*`{}`*", fqn));
             }
         }
 
-        // Metadata: FQN only
-        hover_text.push_str(&format!("\n*`{}`*", node.id));
-    }
-
-    if hover_text.is_empty() {
-        if let SymbolResolution::Precise(fqn, _) = resolution {
-            hover_text.push_str(&format!("**External Reference**\n\n*`{}`*", fqn));
+        if !hover_text.is_empty() {
+            return Ok(Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(hover_text)),
+                range: None,
+            }));
         }
-    }
 
-    if !hover_text.is_empty() {
-        return Ok(Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-            range: None,
-        }));
-    }
-
-    Ok(None)
+        Ok(None)
+    })
+    .await
+    .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())?
 }

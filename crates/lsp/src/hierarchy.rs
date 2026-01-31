@@ -132,7 +132,7 @@ pub async fn incoming_calls(
         } else {
             let content = std::fs::read_to_string(&path).ok();
             if let Some(content) = content {
-                if let Some((parser, _)) = server.get_parser_and_lang_for_uri(&uri) {
+                if let Some((parser, _)) = server.get_parser_and_lang_for_uri(&uri).await {
                     Some((content, parser))
                 } else {
                     None
@@ -239,7 +239,7 @@ pub async fn outgoing_calls(
     } else {
         let content = std::fs::read_to_string(path).ok();
         if let Some(content) = content {
-            if let Some((parser, lang)) = server.get_parser_and_lang_for_uri(&uri) {
+            if let Some((parser, lang)) = server.get_parser_and_lang_for_uri(&uri).await {
                 let tree = parser.parse(&content, None);
                 let resolver = engine.get_semantic_resolver(lang);
                 tree.map(|t| (content, t, resolver))

@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-cli"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "dirs",
@@ -1269,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-gradle"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "cc",
  "naviscope-core",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-java"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "cc",
  "lsp-types",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-lsp"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "dashmap 6.1.0",
  "naviscope-core",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-mcp"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "axum",

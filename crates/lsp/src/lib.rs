@@ -42,7 +42,7 @@ impl LspServer {
         }
     }
 
-    pub fn get_parser_and_lang_for_uri(
+    pub async fn get_parser_and_lang_for_uri(
         &self,
         uri: &Url,
     ) -> Option<(
@@ -50,17 +50,17 @@ impl LspServer {
         naviscope_core::project::source::Language,
     )> {
         let path = uri.to_file_path().ok()?;
-        let engine_lock = self.engine.blocking_read();
+        let engine_lock = self.engine.read().await;
         let engine = engine_lock.as_ref()?;
         engine.get_parser_and_lang_for_path(&path)
     }
 
     /// Get semantic resolver for a language from the engine
-    pub fn get_semantic_resolver(
+    pub async fn get_semantic_resolver(
         &self,
         language: naviscope_core::project::source::Language,
     ) -> Option<Arc<dyn naviscope_core::resolver::SemanticResolver>> {
-        let engine_lock = self.engine.blocking_read();
+        let engine_lock = self.engine.read().await;
         let engine = engine_lock.as_ref()?;
         engine.get_semantic_resolver(language)
     }
@@ -169,7 +169,7 @@ impl LanguageServer for LspServer {
             .await;
         let content = params.text_document.text;
 
-        if let Some((parser, lang)) = self.get_parser_and_lang_for_uri(&uri) {
+        if let Some((parser, lang)) = self.get_parser_and_lang_for_uri(&uri).await {
             if let Some(tree) = parser.parse(&content, None) {
                 self.documents
                     .insert(uri, Arc::new(Document::new(content, tree, parser, lang)));

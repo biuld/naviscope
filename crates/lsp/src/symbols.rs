@@ -26,7 +26,7 @@ pub async fn document_symbol(
         // Coerce &CodeGraph to &dyn CodeGraphLike
         let symbols = get_symbols_from_graph(&graph, &path);
         if !symbols.is_empty() {
-            if let Some((parser, _)) = server.get_parser_and_lang_for_uri(&uri) {
+            if let Some((parser, _)) = server.get_parser_and_lang_for_uri(&uri).await {
                 let lsp_symbols = convert_symbols(symbols, parser.as_ref());
                 return Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)));
             }
@@ -225,7 +225,9 @@ pub async fn workspace_symbol(
             if let (Some(path), Some(range)) = (node.file_path(), node.range()) {
                 let kind = engine
                     .get_lsp_parser(node.language())
-                    .map(|parser: Arc<dyn naviscope_core::parser::LspParser>| parser.symbol_kind(&node.kind()))
+                    .map(|parser: Arc<dyn naviscope_core::parser::LspParser>| {
+                        parser.symbol_kind(&node.kind())
+                    })
                     .unwrap_or(SymbolKind::VARIABLE);
 
                 #[allow(deprecated)]
