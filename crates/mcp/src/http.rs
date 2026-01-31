@@ -1,25 +1,25 @@
 use crate::McpServer;
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::State,
-    routing::get,
     Router,
+    extract::State,
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    routing::get,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use naviscope_core::engine::handle::EngineHandle;
+use naviscope_api::graph::GraphService;
 use rmcp::ServiceExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::MessageType;
 use tracing::info;
 
 pub fn spawn_http_server(
     client: Client,
-    engine: Arc<RwLock<Option<EngineHandle>>>,
+    engine: Arc<RwLock<Option<Arc<dyn GraphService>>>>,
     root_path: PathBuf,
     session_path_lock: Arc<RwLock<Option<PathBuf>>>,
     client_name: Option<String>,
@@ -84,7 +84,7 @@ fn write_cursor_config(root_path: &Path) {
 }
 
 pub async fn run_http_server(
-    engine: Arc<RwLock<Option<EngineHandle>>>,
+    engine: Arc<RwLock<Option<Arc<dyn GraphService>>>>,
     _root_path: Option<PathBuf>, // Kept for API compatibility, but not used in McpServer
     port: u16,
     cancel_token: CancellationToken,

@@ -22,6 +22,13 @@ impl<'a> DiscoveryEngine<'a> {
     ///
     /// Note: This relies on reference_index which contains all identifier tokens found during parsing.
     /// The actual reference verification is done at micro-level using tree-sitter parsing.
+    /// Meso-level: Scout for candidate files that likely contain references to the given nodes.
+    /// Returns a set of unique file paths.
+    ///
+    /// Strategy:
+    /// 1. Extract "primary" (name) and "context" (parent) tokens.
+    /// 2. If context exists, use INTERSECTION of file sets to reduce candidates.
+    /// 3. Fallback to primary token union if context is missing or not found.
     pub fn scout_references(
         &self,
         matches: &[petgraph::prelude::NodeIndex],
@@ -33,74 +40,105 @@ impl<'a> DiscoveryEngine<'a> {
         for &node_idx in matches {
             let node = &topology[node_idx];
 
-            // 1. Reference Index "Scouting" - Extract all identifier tokens from FQN
-            // For a node like "com.example.UserService.login", we want to search for:
-            // - "login" (method name)
-            // - "UserService" (class name)
-            // - "example" (package name segment, optional)
-            let tokens_to_search = Self::extract_identifier_tokens(node);
+            let (primary, context) = Self::extract_smart_tokens(node);
 
-            for token in tokens_to_search {
-                if let Some(paths) = ref_index.get(token.as_str()) {
-                    for p in paths {
-                        unique_paths.insert(p.to_path_buf());
+            if let Some(primary_paths) = ref_index.get(primary.as_str()) {
+                if let Some(ctx_str) = context {
+                    // Optimization: INTERSECTION
+                    // Only candidate files that contain BOTH the context (e.g. Class) and name (e.g. Method).
+                    if let Some(ctx_paths) = ref_index.get(ctx_str.as_str()) {
+                        let ctx_set: HashSet<_> = ctx_paths.iter().collect();
+                        for p in primary_paths {
+                            if ctx_set.contains(p) {
+                                unique_paths.insert(p.to_path_buf());
+                            }
+                        }
+                        continue; // Optimization applied, skip fallback
                     }
+                }
+
+                // Fallback: Add all files containing the primary token
+                for p in primary_paths {
+                    unique_paths.insert(p.to_path_buf());
                 }
             }
         }
         unique_paths
     }
 
-    /// Extract all possible identifier tokens from a node's FQN and name.
-    /// This helps maximize the effectiveness of reference_index lookup.
-    fn extract_identifier_tokens(node: &crate::model::graph::GraphNode) -> Vec<String> {
-        let mut tokens = Vec::new();
-
-        // Always include the node's simple name (e.g., "login" for a method)
-        tokens.push(node.name().to_string());
-
-        // Extract tokens from FQN (e.g., "com.example.UserService.login")
+    /// Smartly extract tokens for "bag of words" intersection.
+    /// Returns (Primary Token, Optional Context Token)
+    fn extract_smart_tokens(node: &crate::model::graph::GraphNode) -> (String, Option<String>) {
+        let name = node.name().to_string();
         let fqn = node.fqn();
 
-        // Split by common separators: '.', '::', '#'
-        // For Java: "com.example.UserService.login" -> ["com", "example", "UserService", "login"]
-        // For modules: "module::root" -> ["module", "root"]
         let parts: Vec<&str> = fqn
             .split(|c| c == '.' || c == '#' || c == ':')
             .filter(|s| !s.is_empty())
             .collect();
 
-        // Add all parts as potential tokens (but skip duplicates)
-        for part in parts {
-            let part_str = part.to_string();
-            if !tokens.contains(&part_str) {
-                tokens.push(part_str);
+        // Context is usually the immediate parent of the name in the FQN.
+        // e.g. "com.example.UserService.login" -> context is "UserService"
+        let context = if parts.len() >= 2 {
+            // Check if last part is indeed the name
+            if parts.last() == Some(&name.as_str()) {
+                Some(parts[parts.len() - 2].to_string())
+            } else {
+                // Should not happen for valid FQNs usually, but fallback
+                None
             }
-        }
+        } else {
+            None
+        };
 
-        tokens
+        (name, context)
     }
 
     /// Micro-level: Scan a specific file for precise symbol occurrences.
+    /// Now performs SEMANTIC VERIFICATION using the Resolver.
     pub fn scan_file(
         &self,
         parser: &dyn LspParser,
+        resolver: &dyn crate::resolver::SemanticResolver,
         source: &str,
-        resolution: &SymbolResolution,
+        target_resolution: &SymbolResolution,
         uri: &Url,
     ) -> Vec<Location> {
         if let Some(tree) = parser.parse(source, None) {
-            let ranges = parser.find_occurrences(source, &tree, resolution);
-            ranges
-                .into_iter()
-                .map(|r| Location {
-                    uri: uri.clone(),
-                    range: lsp_types::Range {
-                        start: lsp_types::Position::new(r.start_line as u32, r.start_col as u32),
-                        end: lsp_types::Position::new(r.end_line as u32, r.end_col as u32),
-                    },
-                })
-                .collect()
+            // 1. Syntactic Scan (Fast)
+            let candidates = parser.find_occurrences(source, &tree, target_resolution);
+
+            // 2. Semantic Verification (Precise)
+            let mut valid_locations = Vec::new();
+
+            for range in candidates {
+                // Resolve what is truly at this location
+                if let Some(resolved_at_loc) = resolver.resolve_at(
+                    &tree,
+                    source,
+                    range.start_line,
+                    range.start_col,
+                    self.index,
+                ) {
+                    // 3. Identity Check
+                    if &resolved_at_loc == target_resolution {
+                        valid_locations.push(Location {
+                            uri: uri.clone(),
+                            range: lsp_types::Range {
+                                start: lsp_types::Position::new(
+                                    range.start_line as u32,
+                                    range.start_col as u32,
+                                ),
+                                end: lsp_types::Position::new(
+                                    range.end_line as u32,
+                                    range.end_col as u32,
+                                ),
+                            },
+                        });
+                    }
+                }
+            }
+            valid_locations
         } else {
             Vec::new()
         }

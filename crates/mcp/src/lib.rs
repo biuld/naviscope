@@ -1,10 +1,10 @@
-use naviscope_core::engine::handle::EngineHandle; // Updated import
-use naviscope_core::model::graph::{EdgeType, NodeKind};
-use naviscope_core::query::GraphQuery;
+use naviscope_api::graph::GraphService;
+use naviscope_api::models::{EdgeType, GraphQuery, NodeKind};
 use rmcp::{
+    ErrorData as McpError,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, Content, Implementation, InitializeResult, ServerCapabilities},
-    tool, tool_handler, tool_router, ErrorData as McpError,
+    tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -39,7 +39,7 @@ pub fn get_session_path(root_path: &Path) -> PathBuf {
 #[derive(Clone)]
 pub struct McpServer {
     pub(crate) tool_router: Arc<ToolRouter<Self>>,
-    pub(crate) engine: Arc<RwLock<Option<EngineHandle>>>,
+    pub(crate) engine: Arc<RwLock<Option<Arc<dyn GraphService>>>>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -85,14 +85,14 @@ pub struct GetGuideArgs {}
 
 #[tool_router]
 impl McpServer {
-    pub fn new(engine: Arc<RwLock<Option<EngineHandle>>>) -> Self {
+    pub fn new(engine: Arc<RwLock<Option<Arc<dyn GraphService>>>>) -> Self {
         Self {
             tool_router: Arc::new(Self::tool_router()),
             engine,
         }
     }
 
-    pub(crate) async fn get_or_build_index(&self) -> Result<EngineHandle, McpError> {
+    pub(crate) async fn get_or_build_index(&self) -> Result<Arc<dyn GraphService>, McpError> {
         let lock = self.engine.read().await;
 
         match &*lock {

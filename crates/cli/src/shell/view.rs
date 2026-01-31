@@ -1,5 +1,5 @@
-use naviscope_core::model::graph::{GraphNode, NodeKind};
-use naviscope_core::plugin::LanguageFeatureProvider;
+use naviscope_api::models::{GraphNode, NodeKind};
+use naviscope_api::plugin::LanguageFeatureProvider;
 use std::sync::Arc;
 use tabled::Tabled;
 

@@ -7,14 +7,14 @@ mod prompt;
 mod view;
 
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, DefaultHinter, Emacs, FileBackedHistory, KeyCode,
-    KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Signal,
+    ColumnarMenu, DefaultHinter, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder,
+    Reedline, ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tracing::{error, info};
 
-use self::command::{parse_shell_command, ShellCommand};
+use self::command::{ShellCommand, parse_shell_command};
 use self::completer::NaviscopeCompleter;
 use self::context::ShellContext;
 use self::highlighter::NaviscopeHighlighter;
@@ -35,7 +35,7 @@ impl ReplServer {
     pub fn new(project_path: PathBuf) -> Self {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
-        let engine = crate::create_configured_engine(project_path.clone());
+        let engine = naviscope_runtime::build_default_engine(project_path.clone());
         let current_node = Arc::new(RwLock::new(None));
 
         // ShellContext will get resolver from engine
@@ -73,12 +73,12 @@ impl ReplServer {
         // Load index (blocking on async)
         match self.rt.block_on(engine.load()) {
             Ok(true) => {
-                let index = self.context.graph();
+                let stats = self.context.get_stats().unwrap_or_default();
                 println!(
                     "Index loaded from disk in {:?}. Nodes: {}, Edges: {}",
                     start.elapsed(),
-                    index.topology().node_count(),
-                    index.topology().edge_count()
+                    stats.node_count,
+                    stats.edge_count
                 );
             }
             Ok(false) => {
@@ -98,28 +98,26 @@ impl ReplServer {
             error!("Synchronization failed: {}", e);
             println!("Warning: Index synchronization failed: {}", e);
         } else {
-            let index = self.context.graph();
+            let stats = self.context.get_stats().unwrap_or_default();
             println!(
                 "Index synchronized in {:?}. Total nodes: {}",
                 sync_start.elapsed(),
-                index.topology().node_count()
+                stats.node_count
             );
 
             // Auto-set context to Project node if it exists
-            use naviscope_core::model::graph::NodeKind;
 
-            let project_nodes: Vec<_> = index
-                .topology()
-                .node_indices()
-                .filter(|&idx| {
-                    let node = &index.topology()[idx];
-                    node.kind() == NodeKind::Project
-                })
-                .collect();
+            let query = naviscope_api::models::GraphQuery::Ls {
+                fqn: None,
+                kind: vec![naviscope_api::models::NodeKind::Project],
+                modifiers: vec![],
+            };
 
-            if project_nodes.len() == 1 {
-                let fqn = index.topology()[project_nodes[0]].fqn().to_string();
-                self.context.set_current_fqn(Some(fqn));
+            if let Ok(res) = self.context.execute_query(&query) {
+                if res.nodes.len() == 1 {
+                    let fqn = res.nodes[0].id.clone();
+                    self.context.set_current_fqn(Some(fqn));
+                }
             }
         }
         Ok(())

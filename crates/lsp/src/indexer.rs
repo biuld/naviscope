@@ -1,14 +1,14 @@
-use naviscope_core::engine::handle::EngineHandle;
+use naviscope_api::NaviscopeEngine;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::MessageType;
 
 pub fn spawn_indexer(
     path: PathBuf,
     client: Client,
-    engine_lock: Arc<RwLock<Option<EngineHandle>>>,
+    engine_lock: Arc<RwLock<Option<Arc<dyn NaviscopeEngine>>>>,
 ) {
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -19,8 +19,8 @@ pub fn spawn_indexer(
             )
             .await;
 
-        // Retrieve existing handle (created by engine_builder in initialize)
-        let handle = {
+        // Retrieve existing handle
+        let engine = {
             let lock = engine_lock.read().await;
             match lock.as_ref() {
                 Some(h) => h.clone(),
@@ -34,9 +34,7 @@ pub fn spawn_indexer(
         };
 
         // 1. Initial full index rebuild
-        // The handle handles the threading implicitly via spawn_blocking internally if needed,
-        // but rebuild() is async so we just await it.
-        if let Err(e) = handle.rebuild().await {
+        if let Err(e) = engine.rebuild().await {
             client
                 .log_message(
                     MessageType::ERROR,
@@ -47,19 +45,20 @@ pub fn spawn_indexer(
         }
 
         let duration = start.elapsed();
-        let stats = {
-            let graph = handle.graph().await;
-            format!(
+        let stats_msg = match engine.get_stats().await {
+            Ok(stats) => format!(
                 "Initial indexing complete in {:?}: {} nodes, {} edges",
-                duration,
-                graph.node_count(),
-                graph.edge_count()
-            )
+                duration, stats.node_count, stats.edge_count
+            ),
+            Err(e) => format!(
+                "Initial indexing complete in {:?}, but failed to get stats: {}",
+                duration, e
+            ),
         };
-        client.log_message(MessageType::INFO, stats).await;
+        client.log_message(MessageType::INFO, stats_msg).await;
 
         // 2. Setup file watcher
-        if let Err(e) = handle.watch().await {
+        if let Err(e) = engine.watch().await {
             client
                 .log_message(
                     MessageType::ERROR,

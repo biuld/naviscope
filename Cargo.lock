@@ -1244,17 +1244,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "naviscope-api"
+version = "0.2.1"
+dependencies = [
+ "async-trait",
+ "schemars",
+ "serde",
+ "serde_json",
+ "smol_str",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "naviscope-cli"
 version = "0.2.1"
 dependencies = [
  "clap",
  "dirs",
  "indexmap",
- "naviscope-core",
- "naviscope-gradle",
- "naviscope-java",
+ "naviscope-api",
  "naviscope-lsp",
  "naviscope-mcp",
+ "naviscope-runtime",
  "nu-ansi-term",
  "petgraph",
  "reedline",
@@ -1271,10 +1282,12 @@ dependencies = [
 name = "naviscope-core"
 version = "0.2.1"
 dependencies = [
+ "async-trait",
  "cc",
  "ignore",
  "log",
  "lsp-types",
+ "naviscope-api",
  "notify",
  "once_cell",
  "petgraph",
@@ -1291,6 +1304,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tree-sitter",
+ "url",
  "walkdir",
  "xxhash-rust",
  "zstd",
@@ -1301,6 +1315,7 @@ name = "naviscope-gradle"
 version = "0.2.1"
 dependencies = [
  "cc",
+ "naviscope-api",
  "naviscope-core",
  "once_cell",
  "petgraph",
@@ -1317,6 +1332,7 @@ version = "0.2.1"
 dependencies = [
  "cc",
  "lsp-types",
+ "naviscope-api",
  "naviscope-core",
  "petgraph",
  "serde",
@@ -1331,7 +1347,7 @@ name = "naviscope-lsp"
 version = "0.2.1"
 dependencies = [
  "dashmap 6.1.0",
- "naviscope-core",
+ "naviscope-api",
  "naviscope-mcp",
  "petgraph",
  "serde",
@@ -1350,7 +1366,7 @@ dependencies = [
  "anyhow",
  "axum",
  "futures",
- "naviscope-core",
+ "naviscope-api",
  "rmcp",
  "schemars",
  "serde",
@@ -1361,6 +1377,17 @@ dependencies = [
  "tower-lsp",
  "tracing",
  "xxhash-rust",
+]
+
+[[package]]
+name = "naviscope-runtime"
+version = "0.2.1"
+dependencies = [
+ "naviscope-api",
+ "naviscope-core",
+ "naviscope-gradle",
+ "naviscope-java",
+ "tracing",
 ]
 
 [[package]]
@@ -2285,6 +2312,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

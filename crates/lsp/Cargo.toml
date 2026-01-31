@@ -4,7 +4,6 @@ version = "0.2.1"
 edition = "2024"
 
 [dependencies]
-naviscope-core = { workspace = true }
 naviscope-mcp = { workspace = true }
 tower-lsp = { workspace = true }
 tokio = { workspace = true }
@@ -15,3 +14,4 @@ tracing = { workspace = true }
 tokio-util = { workspace = true }
 tree-sitter = { workspace = true }
 petgraph = { workspace = true }
+naviscope-api = { workspace = true }

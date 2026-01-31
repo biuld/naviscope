@@ -1,5 +1,5 @@
 use super::context::ShellContext;
-use naviscope_core::query::GraphQuery;
+use naviscope_api::models::GraphQuery;
 use reedline::{Completer, Suggestion};
 
 pub struct NaviscopeCompleter<'a> {
@@ -58,27 +58,20 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
 
                 // Get current context
                 let parent_fqn = self.context.current_fqn();
-
-                let graph = self.context.graph();
                 let mut suggestions = Vec::new();
 
-                // Case A: Global FQN completion
-                // We only do this if:
-                // 1. The word already contains navigation markers ('.' or '::')
-                // 2. OR we are at root and the word is NOT empty (to avoid listing all FQNs on empty tab)
                 if last_word.contains('.')
                     || last_word.contains("::")
                     || (parent_fqn.is_none() && !last_word.is_empty())
                 {
-                    // Find potential FQNs starting with last_word from the global map
-                    // Limit results to avoid performance issues
-                    let matches: Vec<String> = graph
-                        .fqn_map()
-                        .keys()
-                        .filter(|fqn| fqn.starts_with(last_word))
-                        .take(20) // Reduced from 50 to 20 for global search
-                        .map(|s| s.to_string())
-                        .collect();
+                    // Find potential FQNs starting with last_word from the API NavigationService
+                    use naviscope_api::navigation::NavigationService;
+                    let nav_service: &dyn NavigationService = self.context.engine.as_ref();
+
+                    let matches = self
+                        .context
+                        .rt_handle
+                        .block_on(nav_service.get_completion_candidates(last_word));
 
                     for fqn in matches {
                         suggestions.push(Suggestion {
@@ -105,16 +98,16 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
 
                 if let Ok(result) = self.context.execute_query(&query) {
                     for node in result.nodes {
-                        let name = node.name();
+                        let name = &node.name;
                         if name.starts_with(last_word) {
                             // De-duplicate if already added by Case A
-                            if suggestions.iter().any(|s| s.value == name) {
+                            if suggestions.iter().any(|s| s.value == *name) {
                                 continue;
                             }
 
                             suggestions.push(Suggestion {
                                 value: name.to_string(),
-                                description: Some(node.kind().to_string()),
+                                description: Some(node.kind.to_string()),
                                 style: None,
                                 extra: None,
                                 span: reedline::Span {

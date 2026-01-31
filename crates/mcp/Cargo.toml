@@ -4,7 +4,7 @@ version = "0.2.1"
 edition = "2024"
 
 [dependencies]
-naviscope-core = { workspace = true }
+naviscope-api = { workspace = true }
 rmcp = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

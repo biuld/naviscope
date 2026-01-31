@@ -3,34 +3,8 @@ use crate::model::graph::{GraphNode, NodeKind, Range};
 use std::path::Path;
 use tree_sitter::Tree;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymbolIntent {
-    Type,
-    Method,
-    Field,
-    Variable,
-    Unknown,
-}
-
-pub fn matches_intent(node_kind: &NodeKind, intent: SymbolIntent) -> bool {
-    match intent {
-        SymbolIntent::Type => matches!(
-            node_kind,
-            NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
-        ),
-        SymbolIntent::Method => matches!(node_kind, NodeKind::Method | NodeKind::Constructor),
-        SymbolIntent::Field => matches!(node_kind, NodeKind::Field),
-        SymbolIntent::Variable => false, // Graph nodes are rarely variables, usually only Definitions
-        SymbolIntent::Unknown => true,
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum SymbolResolution {
-    Local(Range, Option<String>), // Range of declaration, and optional type name
-    Precise(String, SymbolIntent),
-    Global(String),
-}
+// Re-export from API
+pub use naviscope_api::models::{DocumentSymbol, SymbolIntent, SymbolResolution, matches_intent};
 
 pub trait LspParser: Send + Sync {
     fn parse(
@@ -62,15 +36,6 @@ pub struct GlobalParseResult {
 /// Trait for parsers that provide data for the global code knowledge graph.
 pub trait IndexParser: Send + Sync {
     fn parse_file(&self, source_code: &str, file_path: Option<&Path>) -> Result<GlobalParseResult>;
-}
-
-#[derive(Debug, Clone)]
-pub struct DocumentSymbol {
-    pub name: String,
-    pub kind: NodeKind,
-    pub range: Range,
-    pub selection_range: Range,
-    pub children: Vec<DocumentSymbol>,
 }
 
 pub mod utils;

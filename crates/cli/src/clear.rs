@@ -1,4 +1,3 @@
-use naviscope_core::engine::NaviscopeEngine;
 use std::path::PathBuf;
 use tracing::info;
 
@@ -8,16 +7,14 @@ pub fn run(path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     if let Some(path) = path {
-        let engine = NaviscopeEngine::new(path.clone());
+        let engine = naviscope_runtime::build_default_engine(path.clone());
         info!("Clearing index for project at: {}...", path.display());
-        rt.block_on(engine.clear_project_index())?;
+        rt.block_on(engine.clear_index())?;
         info!("Project index cleared.");
     } else {
-        info!(
-            "Clearing all indices at: {}...",
-            NaviscopeEngine::get_base_index_dir().display()
-        );
-        NaviscopeEngine::clear_all_indices()?;
+        // For clearing ALL indices, we use the runtime utility.
+        info!("Clearing all indices...");
+        naviscope_runtime::clear_all_indices()?;
         info!("All indices cleared.");
     }
     Ok(())

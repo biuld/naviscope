@@ -1,6 +1,6 @@
 use super::command::ShellCommand;
 use super::context::{ResolveResult, ShellContext};
-use naviscope_core::query::GraphQuery;
+use naviscope_api::models::GraphQuery;
 
 pub trait CommandHandler {
     fn handle(
@@ -131,15 +131,19 @@ impl CommandHandler for GenericQueryHandler {
         let query = resolved_cmd.to_graph_query(&current_node)?;
         let result = context.execute_query(&query)?;
 
-        if result.is_empty() {
+        if result.nodes.is_empty() {
             if let Some(target) = resolved_target_fqn {
                 // Check if node itself exists in the graph
-                let graph = context.graph();
-                if graph.fqn_map().contains_key(target.as_str()) {
-                    return Ok(format!(
-                        "Node '{}' exists but has no children/relationships matching your criteria.",
-                        target
-                    ));
+                let check_query = naviscope_api::models::GraphQuery::Cat {
+                    fqn: target.clone(),
+                };
+                if let Ok(res) = context.execute_query(&check_query) {
+                    if !res.nodes.is_empty() {
+                        return Ok(format!(
+                            "Node '{}' exists but has no children/relationships matching your criteria.",
+                            target
+                        ));
+                    }
                 }
             }
             return Ok("NO RECORDS FOUND".to_string());

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use tracing::info;
 
-pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let engine = crate::create_configured_engine(path.clone());
+pub fn run(path: PathBuf, _debug: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let engine = naviscope_runtime::build_default_engine(path.clone());
 
     info!("Indexing project at: {}...", path.display());
 
@@ -12,27 +12,26 @@ pub fn run(path: PathBuf, debug: bool) -> Result<(), Box<dyn std::error::Error>>
         .build()?
         .block_on(engine.rebuild())?;
 
-    let index = tokio::runtime::Builder::new_current_thread()
+    let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?
-        .block_on(engine.graph());
+        .build()?;
 
-    if debug {
-        let json_path = PathBuf::from("naviscope_debug.json");
-        info!(
-            "Debug mode: saving JSON index to: {}...",
-            json_path.display()
-        );
-        index.save_to_json(json_path)?;
-    }
+    let stats = rt.block_on(engine.get_stats())?;
 
     info!("Indexing complete!");
-    info!("Nodes: {}", index.node_count());
-    info!("Edges: {}", index.edge_count());
+    info!("Nodes: {}", stats.node_count);
+    info!("Edges: {}", stats.edge_count);
 
-    info!("Top 10 nodes:");
-    for (fqn, _) in index.fqn_map().iter().take(10) {
-        info!(" - {}", fqn);
+    info!("Sample nodes:");
+    let query = naviscope_api::models::GraphQuery::Ls {
+        fqn: None,
+        kind: vec![],
+        modifiers: vec![],
+    };
+    if let Ok(res) = rt.block_on(engine.query(&query)) {
+        for node in res.nodes.iter().take(10) {
+            info!(" - {}", node.id);
+        }
     }
 
     Ok(())

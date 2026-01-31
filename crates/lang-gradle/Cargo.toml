@@ -12,6 +12,7 @@ thiserror = { workspace = true }
 petgraph = { workspace = true }
 once_cell = { workspace = true }
 smol_str = { workspace = true }
+naviscope-api.workspace = true
 
 [build-dependencies]
 cc = { workspace = true }

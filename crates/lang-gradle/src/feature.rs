@@ -1,5 +1,5 @@
 use crate::model::GradleElement;
-use naviscope_core::model::graph::GraphNode;
+use naviscope_api::models::GraphNode;
 use naviscope_core::plugin::LanguageFeatureProvider;
 
 pub struct GradleFeatureProvider;
@@ -12,7 +12,7 @@ impl GradleFeatureProvider {
 
 impl LanguageFeatureProvider for GradleFeatureProvider {
     fn detail_view(&self, node: &GraphNode) -> Option<String> {
-        if node.lang.as_ref() != "buildfile" {
+        if node.lang.as_str() != "buildfile" {
             return None;
         }
 
@@ -36,7 +36,7 @@ impl LanguageFeatureProvider for GradleFeatureProvider {
     }
 
     fn signature(&self, node: &GraphNode) -> Option<String> {
-        if node.lang.as_ref() != "buildfile" {
+        if node.lang.as_str() != "buildfile" {
             return None;
         }
 

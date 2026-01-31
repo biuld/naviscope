@@ -216,6 +216,59 @@ impl NaviscopeEngine {
         self.update_files(paths).await
     }
 
+    /// Watch for filesystem changes and update incrementally
+    pub async fn watch(&self) -> Result<()> {
+        use crate::project::watcher::Watcher;
+        use std::thread;
+        use std::time::Duration;
+
+        let engine = Arc::new(self.clone_for_watch()); // We need an Arc to share with the watcher thread
+        let root = self.project_root.clone();
+
+        thread::spawn(move || {
+            let mut watcher = match Watcher::new(&root) {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!("Failed to start watcher: {}", e);
+                    return;
+                }
+            };
+
+            let rt = tokio::runtime::Handle::current();
+
+            loop {
+                if let Some(event) = watcher.next_event() {
+                    // Debounce
+                    thread::sleep(Duration::from_millis(500));
+                    while watcher.try_next_event().is_some() {}
+
+                    let paths = event.paths.clone();
+                    let e = engine.clone();
+                    rt.spawn(async move {
+                        if let Err(err) = e.update_files(paths).await {
+                            tracing::error!("Failed to update files after change: {}", err);
+                        }
+                    });
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Helper for watch to get a shared handle
+    fn clone_for_watch(&self) -> NaviscopeEngine {
+        // We need a way to clone the engine's internal state.
+        // Since it's all Arcs, we can just return a new instance with same Arcs.
+        NaviscopeEngine {
+            current: self.current.clone(),
+            project_root: self.project_root.clone(),
+            index_path: self.index_path.clone(),
+            build_plugins: self.build_plugins.clone(),
+            lang_plugins: self.lang_plugins.clone(),
+        }
+    }
+
     /// Clear the index for the current project
     pub async fn clear_project_index(&self) -> Result<()> {
         let path = self.index_path.clone();

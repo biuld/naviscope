@@ -8,11 +8,9 @@ name = "naviscope"
 path = "src/main.rs"
 
 [dependencies]
-naviscope-core = { workspace = true }
-naviscope-java = { workspace = true }
-naviscope-gradle = { workspace = true }
 naviscope-lsp = { workspace = true }
 naviscope-mcp = { workspace = true }
+naviscope-runtime = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -26,3 +24,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 indexmap = { workspace = true }
 petgraph = { workspace = true }
+naviscope-api = { workspace = true }

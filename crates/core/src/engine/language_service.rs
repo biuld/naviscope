@@ -32,13 +32,10 @@ pub trait LanguageService: Send + Sync {
     ///
     /// This extracts the file extension from the path and returns
     /// both the parser and language if available.
-    fn get_parser_and_lang_for_path(
-        &self,
-        path: &Path,
-    ) -> Option<(Arc<dyn LspParser>, Language)> {
+    fn get_parser_and_lang_for_path(&self, path: &Path) -> Option<(Arc<dyn LspParser>, Language)> {
         let ext = path.extension()?.to_str()?;
         let lang = self.get_language_by_extension(ext)?;
-        let parser = self.get_lsp_parser(lang)?;
+        let parser = self.get_lsp_parser(lang.clone())?;
         Some((parser, lang))
     }
 }

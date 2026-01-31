@@ -89,7 +89,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Mcp { .. } => "mcp",
         _ => "cli",
     };
-    let _guard = naviscope_core::logging::init_logging(component);
+    let _guard = naviscope_runtime::init_logging(component);
+
+    let rt = tokio::runtime::Runtime::new()?;
 
     match cli.command {
         Commands::Index { path, debug } => index::run(path, debug),
@@ -97,7 +99,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Watch { path, debug } => watch::run(path, debug),
         Commands::Clear { path } => clear::run(path),
         Commands::Mcp { path } => {
-            let rt = tokio::runtime::Runtime::new()?;
             let project_path = path
                 .clone()
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -107,22 +108,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Commands::Lsp => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async { naviscope_lsp::run_server(create_configured_engine).await })?;
+            rt.block_on(async {
+                naviscope_lsp::run_server(naviscope_runtime::build_default_engine).await
+            })?;
             Ok(())
         }
     }
-}
-
-pub(crate) fn create_configured_engine(
-    path: PathBuf,
-) -> naviscope_core::engine::handle::EngineHandle {
-    use std::sync::Arc;
-    let mut engine = naviscope_core::engine::NaviscopeEngine::new(path);
-    engine.register_build_tool(Arc::new(naviscope_gradle::GradlePlugin::new()));
-    engine.register_language(Arc::new(
-        naviscope_java::JavaPlugin::new().expect("Failed to load Java plugin"),
-    ));
-
-    naviscope_core::engine::handle::EngineHandle::from_engine(Arc::new(engine))
 }

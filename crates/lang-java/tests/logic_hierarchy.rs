@@ -49,7 +49,7 @@ fn test_call_hierarchy_incoming() {
     let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
 
     for path in candidate_files {
-        let locations = discovery.scan_file(&resolver.parser, content, &res, &uri);
+        let locations = discovery.scan_file(&resolver.parser, &resolver, content, &res, &uri);
         for loc in locations {
             if let Some(container_idx) = index.find_container_node_at(
                 &path,
@@ -175,7 +175,7 @@ fn test_call_hierarchy_recursion() {
     let abs_path = std::env::current_dir().unwrap().join("Test.java");
     let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
 
-    let locations = discovery.scan_file(&resolver.parser, content, &res, &uri);
+    let locations = discovery.scan_file(&resolver.parser, &resolver, content, &res, &uri);
     for loc in locations {
         if let Some(c_idx) = index.find_container_node_at(
             &std::path::PathBuf::from("Test.java"),

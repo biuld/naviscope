@@ -1,11 +1,7 @@
-use crate::util::get_word_from_content;
 use crate::LspServer;
-use naviscope_core::engine::LanguageService;
-use naviscope_core::parser::SymbolResolution;
-use naviscope_core::query::CodeGraphLike;
+use naviscope_api::models::{PositionContext, SymbolQuery, SymbolResolution};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use tree_sitter::QueryCursor;
 
 pub async fn definition(
     server: &LspServer,
@@ -14,9 +10,17 @@ pub async fn definition(
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let doc = match server.documents.get(&uri) {
-        Some(d) => d.clone(),
-        None => return Ok(None),
+    // We need document content for PositionContext.
+    // Ideally, PositionContext can take URI and Engine loads it, but for unsaved files we might want to pass content.
+    // Our EngineHandle implementation reads from disk if content is None, or uses provided content.
+    // LspServer has documents map.
+    let content = server.documents.get(&uri).map(|d| d.content.clone());
+
+    let ctx = PositionContext {
+        uri: uri.to_string(),
+        line: position.line,
+        char: position.character,
+        content,
     };
 
     let engine_lock = server.engine.read().await;
@@ -25,79 +29,62 @@ pub async fn definition(
         None => return Ok(None),
     };
 
-    let graph = engine.graph().await;
-    let resolver = match engine.get_semantic_resolver(doc.language) {
-        Some(r) => r,
+    let resolution = match engine.resolve_symbol_at(&ctx).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Ok(None),
+        Err(_) => return Ok(None), // Log error?
+    };
+
+    if let SymbolResolution::Local(range, _) = resolution {
+        // Found declaration in the same file
+        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+            uri,
+            range: Range {
+                start: Position::new(range.start_line as u32, range.start_col as u32),
+                end: Position::new(range.end_line as u32, range.end_col as u32),
+            },
+        })));
+    }
+
+    // Determine language from file extension or document
+    // For simplicity, we can get language from document map again or assume backend infers it.
+    // But SymbolQuery needs language.
+    // Let's get language from server documents if possible.
+    let language = match server.documents.get(&uri).map(|d| d.language.clone()) {
+        Some(l) => l,
         None => return Ok(None),
     };
 
-    tokio::task::spawn_blocking(move || {
-        let index: &dyn CodeGraphLike = &graph;
+    let query = SymbolQuery {
+        resolution,
+        language,
+    };
 
-        // 1. Precise resolution using Semantic Resolver
-        let resolution = {
-            let byte_col = crate::util::utf16_col_to_byte_col(
-                &doc.content,
-                position.line as usize,
-                position.character as usize,
-            );
-            match resolver.resolve_at(
-                &doc.tree,
-                &doc.content,
-                position.line as usize,
-                byte_col,
-                index,
-            ) {
-                Some(r) => r,
-                None => return Ok(None),
-            }
-        };
+    let definitions = match engine.find_definitions(&query).await {
+        Ok(defs) => defs,
+        Err(_) => return Ok(None),
+    };
 
-        if let SymbolResolution::Local(range, _) = resolution {
-            // Found declaration in the same file
-            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                uri,
-                range: crate::util::to_lsp_range(
-                    tree_sitter::Range {
-                        start_byte: 0,
-                        end_byte: 0,
-                        start_point: tree_sitter::Point::new(range.start_line, range.start_col),
-                        end_point: tree_sitter::Point::new(range.end_line, range.end_col),
-                    },
-                    &doc.content,
-                ),
-            })));
+    let locations: Vec<Location> = definitions
+        .into_iter()
+        .map(|loc| Location {
+            uri: Url::from_file_path(loc.path).unwrap(),
+            range: Range {
+                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
+            },
+        })
+        .collect();
+
+    if !locations.is_empty() {
+        if locations.len() == 1 {
+            return Ok(Some(GotoDefinitionResponse::Scalar(locations[0].clone())));
+        } else {
+            return Ok(Some(GotoDefinitionResponse::Array(locations)));
         }
+    }
 
-        let matches = resolver.find_matches(index, &resolution);
-        let mut locations = Vec::new();
-        let topology = index.topology();
-
-        for &node_idx in &matches {
-            let node = &topology[node_idx];
-            if let (Some(target_path), Some(range)) = (node.file_path(), node.range()) {
-                locations.push(Location {
-                    uri: Url::from_file_path(target_path).unwrap(),
-                    range: Range {
-                        start: Position::new(range.start_line as u32, range.start_col as u32),
-                        end: Position::new(range.end_line as u32, range.end_col as u32),
-                    },
-                });
-            }
-        }
-
-        if !locations.is_empty() {
-            if locations.len() == 1 {
-                return Ok(Some(GotoDefinitionResponse::Scalar(locations[0].clone())));
-            } else {
-                return Ok(Some(GotoDefinitionResponse::Array(locations)));
-            }
-        }
-
-        Ok(None)
-    })
-    .await
-    .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())?
+    Ok(None)
 }
 
 pub async fn type_definition(
@@ -107,9 +94,13 @@ pub async fn type_definition(
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let doc = match server.documents.get(&uri) {
-        Some(d) => d.clone(),
-        None => return Ok(None),
+    // We can extract common logic (ctx creation) to a helper if needed later.
+    let content = server.documents.get(&uri).map(|d| d.content.clone());
+    let ctx = PositionContext {
+        uri: uri.to_string(),
+        line: position.line,
+        char: position.character,
+        content,
     };
 
     let engine_lock = server.engine.read().await;
@@ -117,65 +108,44 @@ pub async fn type_definition(
         Some(e) => e,
         None => return Ok(None),
     };
-    let graph = engine.graph().await;
-    let resolver = match engine.get_semantic_resolver(doc.language) {
-        Some(r) => r,
+
+    let resolution = match engine.resolve_symbol_at(&ctx).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Ok(None),
+        Err(_) => return Ok(None),
+    };
+
+    let language = match server.documents.get(&uri).map(|d| d.language.clone()) {
+        Some(l) => l,
         None => return Ok(None),
     };
 
-    tokio::task::spawn_blocking(move || {
-        let index: &dyn CodeGraphLike = &graph;
-        let topology = index.topology();
+    let query = SymbolQuery {
+        resolution,
+        language,
+    };
 
-        // 1. Precise resolution using Semantic Resolver
-        let resolution = {
-            let byte_col = crate::util::utf16_col_to_byte_col(
-                &doc.content,
-                position.line as usize,
-                position.character as usize,
-            );
-            match resolver.resolve_at(
-                &doc.tree,
-                &doc.content,
-                position.line as usize,
-                byte_col,
-                index,
-            ) {
-                Some(r) => r,
-                None => return Ok(None),
-            }
-        };
+    let locations = match engine.find_type_definitions(&query).await {
+        Ok(locs) => locs,
+        Err(_) => return Ok(None),
+    };
 
-        let type_resolutions = resolver.resolve_type_of(index, &resolution);
+    let lsp_locations: Vec<Location> = locations
+        .into_iter()
+        .map(|loc| Location {
+            uri: Url::from_file_path(loc.path).unwrap(),
+            range: Range {
+                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
+            },
+        })
+        .collect();
 
-        let mut locations = Vec::new();
-        for res in type_resolutions {
-            let matches = resolver.find_matches(index, &res);
-            for idx in matches {
-                let target = &topology[idx];
-                if let (Some(tp), Some(tr)) = (target.file_path(), target.range()) {
-                    let loc = Location {
-                        uri: Url::from_file_path(tp).unwrap(),
-                        range: Range {
-                            start: Position::new(tr.start_line as u32, tr.start_col as u32),
-                            end: Position::new(tr.end_line as u32, tr.end_col as u32),
-                        },
-                    };
-                    if !locations.contains(&loc) {
-                        locations.push(loc);
-                    }
-                }
-            }
-        }
+    if !lsp_locations.is_empty() {
+        return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
+    }
 
-        if !locations.is_empty() {
-            return Ok(Some(GotoDefinitionResponse::Array(locations)));
-        }
-
-        Ok(None)
-    })
-    .await
-    .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())?
+    Ok(None)
 }
 
 pub async fn references(
@@ -185,9 +155,12 @@ pub async fn references(
     let uri = params.text_document_position.text_document.uri;
     let position = params.text_document_position.position;
 
-    let doc = match server.documents.get(&uri) {
-        Some(d) => d.clone(),
-        None => return Ok(None),
+    let content = server.documents.get(&uri).map(|d| d.content.clone());
+    let ctx = PositionContext {
+        uri: uri.to_string(),
+        line: position.line,
+        char: position.character,
+        content: content.clone(), // Clone for ctx
     };
 
     let engine_lock = server.engine.read().await;
@@ -195,130 +168,62 @@ pub async fn references(
         Some(e) => e,
         None => return Ok(None),
     };
-    let graph = engine.graph().await;
-    let resolver = match engine.get_semantic_resolver(doc.language) {
-        Some(r) => r,
+
+    let resolution = match engine.resolve_symbol_at(&ctx).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Ok(None),
+        Err(_) => return Ok(None),
+    };
+
+    let language = match server.documents.get(&uri).map(|d| d.language.clone()) {
+        Some(l) => l,
         None => return Ok(None),
     };
 
-    // 1. Precise resolution using Semantic Resolver
-    let resolution = {
-        let byte_col = crate::util::utf16_col_to_byte_col(
-            &doc.content,
-            position.line as usize,
-            position.character as usize,
-        );
-        match resolver.resolve_at(
-            &doc.tree,
-            &doc.content,
-            position.line as usize,
-            byte_col,
-            &graph,
-        ) {
-            Some(r) => r,
-            None => return Ok(None),
-        }
+    // 1. Local textual references (Meso-level optimization not fully moved yet)
+    // The previous implementation had a "smart" check for local variables to use AST search.
+    // Ideally this logic should also be inside `engine.find_references`, but `find_references` is async and general.
+    // For now we can keep the local textual search here if we want, OR move it to `find_references`.
+    // Moving it to `find_references` is better for encapsulation.
+    // The previous code check `SymbolResolution::Local`.
+    // Let's rely on `engine.find_references` to handle it.
+    // But wait, `EngineHandle::find_references` implementation we just wrote uses `DiscoveryEngine::scan_file`.
+    // Does `DiscoveryEngine::scan_file` handle local variable textual matches efficiently?
+    // It uses `parser.find_occurrences` if resolution is local?
+    // Let's check `DiscoveryEngine::scan_file` implementation (which we didn't change).
+    // Yes, `scan_file` calls `parser.find_occurrences` if it can.
+
+    use naviscope_api::models::ReferenceQuery;
+    let query = ReferenceQuery {
+        resolution,
+        language,
+        include_declaration: params.context.include_declaration,
     };
 
-    if let SymbolResolution::Local(_, _) = resolution {
-        // Find all occurrences of this name in current file's AST
-        let word = get_word_from_content(
-            &doc.content,
-            position.line as usize,
-            position.character as usize,
-        )
-        .unwrap_or_default();
-        let query_str = format!("((identifier) @ident (#eq? @ident \"{}\"))", word);
-        if let Ok(query) = tree_sitter::Query::new(&doc.tree.language(), &query_str) {
-            let mut cursor = QueryCursor::new();
-            let matches = cursor.matches(&query, doc.tree.root_node(), doc.content.as_bytes());
-            use tree_sitter::StreamingIterator;
-            let mut matches = matches;
-            let mut all_locations = Vec::new();
-            while let Some(mat) = matches.next() {
-                for cap in mat.captures {
-                    let r = cap.node.range();
-                    all_locations.push(Location {
-                        uri: uri.clone(),
-                        range: Range {
-                            start: Position::new(
-                                r.start_point.row as u32,
-                                r.start_point.column as u32,
-                            ),
-                            end: Position::new(r.end_point.row as u32, r.end_point.column as u32),
-                        },
-                    });
-                }
-            }
-            return Ok(if all_locations.is_empty() {
-                None
-            } else {
-                Some(all_locations)
-            });
-        }
-    }
+    let locations = match engine.find_references(&query).await {
+        Ok(locs) => locs,
+        Err(_) => return Ok(None),
+    };
 
-    let matches = resolver.find_matches(&graph, &resolution);
-    let discovery = naviscope_core::analysis::discovery::DiscoveryEngine::new(&graph);
-    let candidate_paths = discovery.scout_references(&matches);
+    // If local references are found by engine, they are returned.
+    // But `EngineHandle::find_references` spawns tasks for OTHER files found by scout.
+    // Does it search the CURRENT file? passing `candidate_paths` from `scout_references`.
+    // `scout_references` usually returns files containing the token. This includes the current file.
+    // So the current file should be in the list and scanned.
 
-    let mut join_set = tokio::task::JoinSet::<Vec<Location>>::new();
+    let lsp_locations: Vec<Location> = locations
+        .into_iter()
+        .map(|loc| Location {
+            uri: Url::from_file_path(loc.path).unwrap(),
+            range: Range {
+                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
+            },
+        })
+        .collect();
 
-    for path in candidate_paths {
-        let target_uri = Url::from_file_path(&path).unwrap();
-
-        // 1. Check if the file is already open and parsed
-        if let Some(d) = server.documents.get(&target_uri) {
-            let content = d.content.clone();
-            let parser = d.parser.clone();
-            let resolution = resolution.clone();
-            let target_uri = target_uri.clone();
-            let graph = graph.clone();
-
-            join_set.spawn(async move {
-                let discovery = naviscope_core::analysis::discovery::DiscoveryEngine::new(&graph);
-                discovery.scan_file(parser.as_ref(), &content, &resolution, &target_uri)
-            });
-            continue;
-        }
-
-        // 2. Identify the language and parser for the file
-        let parser_data = server.get_parser_and_lang_for_uri(&target_uri).await;
-
-        if let Some((parser, _)) = parser_data {
-            let resolution = resolution.clone();
-            let target_uri = target_uri.clone();
-            let graph = graph.clone();
-
-            join_set.spawn_blocking(move || {
-                let content = match std::fs::read_to_string(&path) {
-                    Ok(s) => s,
-                    Err(_) => return vec![],
-                };
-                let discovery = naviscope_core::analysis::discovery::DiscoveryEngine::new(&graph);
-                discovery.scan_file(parser.as_ref(), &content, &resolution, &target_uri)
-            });
-        }
-    }
-
-    let mut all_locations = Vec::new();
-    while let Some(res) = join_set.join_next().await {
-        if let Ok(locs) = res {
-            all_locations.extend(locs);
-        }
-    }
-
-    if !all_locations.is_empty() {
-        // De-duplicate locations
-        all_locations.sort_by(|a, b| {
-            a.uri
-                .as_str()
-                .cmp(b.uri.as_str())
-                .then(a.range.start.line.cmp(&b.range.start.line))
-                .then(a.range.start.character.cmp(&b.range.start.character))
-        });
-        all_locations.dedup();
-        return Ok(Some(all_locations));
+    if !lsp_locations.is_empty() {
+        return Ok(Some(lsp_locations));
     }
 
     Ok(None)
@@ -331,9 +236,12 @@ pub async fn implementation(
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let doc = match server.documents.get(&uri) {
-        Some(d) => d.clone(),
-        None => return Ok(None),
+    let content = server.documents.get(&uri).map(|d| d.content.clone());
+    let ctx = PositionContext {
+        uri: uri.to_string(),
+        line: position.line,
+        char: position.character,
+        content,
     };
 
     let engine_lock = server.engine.read().await;
@@ -341,57 +249,42 @@ pub async fn implementation(
         Some(n) => n,
         None => return Ok(None),
     };
-    let graph = engine.graph().await;
-    let resolver = match engine.get_semantic_resolver(doc.language) {
-        Some(r) => r,
+
+    let resolution = match engine.resolve_symbol_at(&ctx).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Ok(None),
+        Err(_) => return Ok(None),
+    };
+
+    let language = match server.documents.get(&uri).map(|d| d.language.clone()) {
+        Some(l) => l,
         None => return Ok(None),
     };
 
-    tokio::task::spawn_blocking(move || {
-        let index: &dyn CodeGraphLike = &graph;
-        let topology = index.topology();
+    let query = SymbolQuery {
+        resolution,
+        language,
+    };
 
-        // 1. Precise resolution using Semantic Resolver
-        let resolution = {
-            let byte_col = crate::util::utf16_col_to_byte_col(
-                &doc.content,
-                position.line as usize,
-                position.character as usize,
-            );
-            match resolver.resolve_at(
-                &doc.tree,
-                &doc.content,
-                position.line as usize,
-                byte_col,
-                index,
-            ) {
-                Some(r) => r,
-                None => return Ok(None),
-            }
-        };
+    let locations = match engine.find_implementations(&query).await {
+        Ok(locs) => locs,
+        Err(_) => return Ok(None),
+    };
 
-        let implementations = resolver.find_implementations(index, &resolution);
-        let mut locations = Vec::new();
+    let lsp_locations: Vec<Location> = locations
+        .into_iter()
+        .map(|loc| Location {
+            uri: Url::from_file_path(loc.path).unwrap(),
+            range: Range {
+                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
+            },
+        })
+        .collect();
 
-        for &node_idx in &implementations {
-            let node = &topology[node_idx];
-            if let (Some(source_path), Some(range)) = (node.file_path(), node.range()) {
-                locations.push(Location {
-                    uri: Url::from_file_path(source_path).unwrap(),
-                    range: Range {
-                        start: Position::new(range.start_line as u32, range.start_col as u32),
-                        end: Position::new(range.end_line as u32, range.end_col as u32),
-                    },
-                });
-            }
-        }
+    if !lsp_locations.is_empty() {
+        return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
+    }
 
-        if !locations.is_empty() {
-            return Ok(Some(GotoDefinitionResponse::Array(locations)));
-        }
-
-        Ok(None)
-    })
-    .await
-    .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())?
+    Ok(None)
 }

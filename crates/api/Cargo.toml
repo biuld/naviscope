@@ -1,0 +1,12 @@
+[package]
+name = "naviscope-api"
+version = "0.2.1"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+schemars = { workspace = true }
+smol_str = { workspace = true }
+thiserror = { workspace = true }
+serde_json = { workspace = true }

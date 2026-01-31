@@ -6,98 +6,8 @@ use smol_str::SmolStr;
 use std::path::Path;
 use std::sync::Arc;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
-pub struct Range {
-    pub start_line: usize,
-    pub start_col: usize,
-    pub end_line: usize,
-    pub end_col: usize,
-}
-
-impl Range {
-    pub fn contains(&self, line: usize, col: usize) -> bool {
-        if line < self.start_line || line > self.end_line {
-            return false;
-        }
-        if line == self.start_line && col < self.start_col {
-            return false;
-        }
-        if line == self.end_line && col > self.end_col {
-            return false;
-        }
-        true
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum NodeKind {
-    Package,
-    Module,
-    Class,
-    Interface,
-    Enum,
-    Annotation,
-    Method,
-    Constructor,
-    Field,
-    Variable,
-    // Build Specific
-    Project,
-    Dependency,
-    Task,
-    Plugin,
-    // Extension
-    Custom(
-        #[serde(with = "crate::util::serde_arc_str")]
-        #[schemars(with = "String")]
-        Arc<str>,
-    ),
-}
-
-impl From<&str> for NodeKind {
-    fn from(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "package" => NodeKind::Package,
-            "module" => NodeKind::Module,
-            "class" => NodeKind::Class,
-            "interface" => NodeKind::Interface,
-            "enum" => NodeKind::Enum,
-            "annotation" => NodeKind::Annotation,
-            "method" => NodeKind::Method,
-            "constructor" => NodeKind::Constructor,
-            "field" => NodeKind::Field,
-            "variable" => NodeKind::Variable,
-            "project" => NodeKind::Project,
-            "dependency" => NodeKind::Dependency,
-            "task" => NodeKind::Task,
-            "plugin" => NodeKind::Plugin,
-            _ => NodeKind::Custom(Arc::from(s)),
-        }
-    }
-}
-
-impl ToString for NodeKind {
-    fn to_string(&self) -> String {
-        match self {
-            NodeKind::Package => "package".to_string(),
-            NodeKind::Module => "module".to_string(),
-            NodeKind::Class => "class".to_string(),
-            NodeKind::Interface => "interface".to_string(),
-            NodeKind::Enum => "enum".to_string(),
-            NodeKind::Annotation => "annotation".to_string(),
-            NodeKind::Method => "method".to_string(),
-            NodeKind::Constructor => "constructor".to_string(),
-            NodeKind::Field => "field".to_string(),
-            NodeKind::Variable => "variable".to_string(),
-            NodeKind::Project => "project".to_string(),
-            NodeKind::Dependency => "dependency".to_string(),
-            NodeKind::Task => "task".to_string(),
-            NodeKind::Plugin => "plugin".to_string(),
-            NodeKind::Custom(s) => s.to_string(),
-        }
-    }
-}
+// Re-export types from API
+pub use naviscope_api::models::{EdgeType, GraphEdge, NodeKind, Range};
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct GraphNode {
@@ -166,6 +76,24 @@ impl GraphNode {
             .as_ref()
             .and_then(|l| l.selection_range.as_ref())
     }
+
+    pub fn to_api(&self) -> naviscope_api::models::GraphNode {
+        naviscope_api::models::GraphNode {
+            id: self.id.to_string(),
+            name: self.name.to_string(),
+            kind: self.kind.clone(),
+            lang: self.lang.to_string(),
+            location: self
+                .location
+                .as_ref()
+                .map(|l| naviscope_api::models::SymbolLocation {
+                    path: l.path.to_path_buf(),
+                    range: l.range.clone(),
+                    fqn: self.id.to_string(),
+                }),
+            metadata: self.metadata.clone(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -232,30 +160,5 @@ impl ResolvedUnit {
             to_id,
             edge,
         });
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
-pub enum EdgeType {
-    // Structural relationships
-    Contains,
-    // Inheritance/Implementation
-    InheritsFrom,
-    Implements,
-    // Usage/Reference
-    TypedAs,
-    DecoratedBy,
-    // Build system relationships
-    UsesDependency,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
-pub struct GraphEdge {
-    pub edge_type: EdgeType,
-}
-
-impl GraphEdge {
-    pub fn new(edge_type: EdgeType) -> Self {
-        Self { edge_type }
     }
 }

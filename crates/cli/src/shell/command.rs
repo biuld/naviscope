@@ -1,7 +1,6 @@
 use super::view::{ShellNodeView, ShellNodeViewShort, get_kind_weight};
 use clap::{Parser, ValueEnum};
-use naviscope_core::model::graph::{EdgeType, NodeKind};
-use naviscope_core::query::{GraphQuery, QueryResult};
+use naviscope_api::models::{EdgeType, GraphQuery, NodeKind, QueryResult};
 use shlex;
 use std::sync::Arc;
 use tabled::{Table, settings::Style};
@@ -44,7 +43,7 @@ impl From<CliNodeKind> for NodeKind {
             CliNodeKind::Dependency => NodeKind::Dependency,
             CliNodeKind::Task => NodeKind::Task,
             CliNodeKind::Plugin => NodeKind::Plugin,
-            CliNodeKind::Other => NodeKind::Custom(Arc::from("other")),
+            CliNodeKind::Other => NodeKind::Custom("other".to_string()),
         }
     }
 }
@@ -219,7 +218,7 @@ impl ShellCommand {
         result: QueryResult,
         context: &super::context::ShellContext,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        if result.is_empty() {
+        if result.nodes.is_empty() {
             return Ok("NO RECORDS FOUND".to_string());
         }
 
@@ -268,7 +267,7 @@ impl ShellCommand {
                             .join(", ");
 
                         // Get feature provider based on node's language
-                        use naviscope_core::project::source::Language;
+                        use naviscope_api::models::Language;
                         let lang = match node.lang.as_ref() {
                             "java" => Language::Java,
                             _ => Language::BuildFile, // Default fallback
@@ -277,24 +276,24 @@ impl ShellCommand {
                         let feature_provider =
                             context.get_feature_provider(lang).unwrap_or_else(|| {
                                 // Create a dummy feature provider that returns None for everything
-                                use naviscope_core::plugin::LanguageFeatureProvider;
+                                use naviscope_api::plugin::LanguageFeatureProvider;
                                 struct DummyProvider;
                                 impl LanguageFeatureProvider for DummyProvider {
                                     fn detail_view(
                                         &self,
-                                        _node: &naviscope_core::model::graph::GraphNode,
+                                        _node: &naviscope_api::models::GraphNode,
                                     ) -> Option<String> {
                                         None
                                     }
                                     fn signature(
                                         &self,
-                                        _node: &naviscope_core::model::graph::GraphNode,
+                                        _node: &naviscope_api::models::GraphNode,
                                     ) -> Option<String> {
                                         None
                                     }
                                     fn modifiers(
                                         &self,
-                                        _node: &naviscope_core::model::graph::GraphNode,
+                                        _node: &naviscope_api::models::GraphNode,
                                     ) -> Vec<String> {
                                         vec![]
                                     }

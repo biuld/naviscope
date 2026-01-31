@@ -1,5 +1,5 @@
 use crate::model::JavaElement;
-use naviscope_core::model::graph::GraphNode;
+use naviscope_api::models::GraphNode;
 use naviscope_core::model::signature::TypeRef;
 use naviscope_core::plugin::LanguageFeatureProvider;
 
@@ -35,7 +35,7 @@ impl JavaFeatureProvider {
 
 impl LanguageFeatureProvider for JavaFeatureProvider {
     fn detail_view(&self, node: &GraphNode) -> Option<String> {
-        if node.lang.as_ref() != "java" {
+        if node.lang.as_str() != "java" {
             return None;
         }
 
@@ -82,7 +82,7 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
     }
 
     fn signature(&self, node: &GraphNode) -> Option<String> {
-        if node.lang.as_ref() != "java" {
+        if node.lang.as_str() != "java" {
             return None;
         }
 
@@ -105,7 +105,7 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
     }
 
     fn modifiers(&self, node: &GraphNode) -> Vec<String> {
-        if node.lang.as_ref() != "java" {
+        if node.lang.as_str() != "java" {
             return vec![];
         }
 

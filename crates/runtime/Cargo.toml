@@ -1,0 +1,11 @@
+[package]
+name = "naviscope-runtime"
+version = "0.2.1"
+edition = "2024"
+
+[dependencies]
+naviscope-api = { workspace = true }
+naviscope-core = { workspace = true }
+naviscope-java = { workspace = true }
+naviscope-gradle = { workspace = true }
+tracing = { workspace = true }

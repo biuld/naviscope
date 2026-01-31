@@ -7,6 +7,8 @@ members = [
     "crates/cli",
     "crates/lsp",
     "crates/mcp",
+    "crates/api",
+    "crates/runtime",
 ]
 
 [workspace.dependencies]
@@ -15,6 +17,8 @@ naviscope-java = { path = "crates/lang-java" }
 naviscope-gradle = { path = "crates/lang-gradle" }
 naviscope-lsp = { path = "crates/lsp" }
 naviscope-mcp = { path = "crates/mcp" }
+naviscope-api = { path = "crates/api" }
+naviscope-runtime = { path = "crates/runtime" }
 
 petgraph = { version = "0.8", features = ["serde-1"] }
 tree-sitter = "0.26"
@@ -28,7 +32,7 @@ rayon = "1.11.0"
 notify = "8.2.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 regex = "1.11.1"
-tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net"] }
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "signal"] }
 schemars = "1.2.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
@@ -54,3 +58,6 @@ tokio-tungstenite = "0.28.0"
 rmcp = { version = "0.13.0", features = ["macros", "server", "transport-io"] }
 smol_str = { version = "0.3.2", features = ["serde"] }
 zstd = "0.13"
+async-trait = "0.1"
+url = "2.5.8"
+
