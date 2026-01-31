@@ -1,5 +1,5 @@
 use super::JavaParser;
-use naviscope_core::model::graph::Range;
+use naviscope_core::model::Range;
 use naviscope_core::parser::SymbolIntent;
 use naviscope_core::parser::utils::range_from_ts;
 use tree_sitter::Node;

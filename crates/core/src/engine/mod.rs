@@ -12,14 +12,12 @@ pub mod builder;
 pub mod engine;
 pub mod graph;
 pub mod handle;
-pub mod language_service;
 pub mod storage;
 
 pub use builder::CodeGraphBuilder;
 pub use engine::NaviscopeEngine;
 pub use graph::CodeGraph;
 pub use handle::EngineHandle;
-pub use language_service::LanguageService;
 
 pub const CURRENT_VERSION: u32 = 1;
 pub const DEFAULT_INDEX_DIR: &str = ".naviscope/indices";

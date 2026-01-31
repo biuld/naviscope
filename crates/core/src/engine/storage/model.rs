@@ -1,4 +1,4 @@
-use crate::model::graph::{GraphEdge, NodeKind, Range};
+use crate::model::{GraphEdge, NodeKind, Range};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]

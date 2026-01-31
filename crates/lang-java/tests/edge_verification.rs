@@ -1,7 +1,7 @@
 mod common;
 use common::setup_java_test_graph;
 use naviscope_core::engine::CodeGraph;
-use naviscope_core::model::graph::EdgeType;
+use naviscope_core::model::EdgeType;
 
 /// Helper assertion: Verify that an edge of the specified type exists from source to target in the graph
 fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: EdgeType) {

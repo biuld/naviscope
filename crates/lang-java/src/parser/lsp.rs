@@ -1,5 +1,5 @@
 use super::JavaParser;
-use naviscope_core::model::graph::NodeKind;
+use naviscope_core::model::NodeKind;
 use naviscope_core::parser::LspParser;
 use naviscope_core::parser::utils::{RawSymbol, build_symbol_hierarchy};
 use std::collections::HashMap;
@@ -59,17 +59,14 @@ impl LspParser for JavaParser {
                 RawSymbol {
                     name: e.element.name().to_string(),
                     kind,
-                    range: e
-                        .element
-                        .range()
-                        .unwrap_or(naviscope_core::model::graph::Range {
-                            start_line: 0,
-                            start_col: 0,
-                            end_line: 0,
-                            end_col: 0,
-                        }),
+                    range: e.element.range().unwrap_or(naviscope_core::model::Range {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    }),
                     selection_range: e.element.name_range().unwrap_or(
-                        naviscope_core::model::graph::Range {
+                        naviscope_core::model::Range {
                             start_line: 0,
                             start_col: 0,
                             end_line: 0,
@@ -104,7 +101,7 @@ impl LspParser for JavaParser {
         source: &str,
         tree: &Tree,
         target: &naviscope_core::parser::SymbolResolution,
-    ) -> Vec<naviscope_core::model::graph::Range> {
+    ) -> Vec<naviscope_core::model::Range> {
         let mut ranges = Vec::new();
         let name = match target {
             naviscope_core::parser::SymbolResolution::Local(_, _) => {
@@ -134,7 +131,7 @@ impl LspParser for JavaParser {
             while let Some(mat) = matches.next() {
                 for cap in mat.captures {
                     let r = cap.node.range();
-                    ranges.push(naviscope_core::model::graph::Range {
+                    ranges.push(naviscope_core::model::Range {
                         start_line: r.start_point.row,
                         start_col: r.start_point.column,
                         end_line: r.end_point.row,

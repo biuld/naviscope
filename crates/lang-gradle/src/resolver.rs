@@ -1,7 +1,7 @@
 use crate::model::{GradleElement, GradleModule};
 use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::Result;
-use naviscope_core::model::graph::{
+use naviscope_core::model::{
     EdgeType, GraphEdge, GraphNode, NodeKind, NodeLocation, Range, ResolvedUnit,
 };
 use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
@@ -134,6 +134,7 @@ impl BuildResolver for GradleResolver {
                         end_line: 0,
                         end_col: 0,
                     },
+                    fqn: Arc::from(project_id.as_str()),
                     selection_range: None,
                 }),
                 metadata: serde_json::json!({
@@ -204,6 +205,7 @@ impl BuildResolver for GradleResolver {
                                 end_line: 0,
                                 end_col: 0,
                             },
+                            fqn: Arc::from(root_module_id.as_str()),
                             selection_range: None,
                         }),
                     metadata: serde_json::to_value(GradleElement::Module(GradleModule {
@@ -259,6 +261,7 @@ impl BuildResolver for GradleResolver {
                                 end_line: 0,
                                 end_col: 0,
                             },
+                            fqn: Arc::from(id.as_str()),
                             selection_range: None,
                         }),
                     metadata: serde_json::to_value(GradleElement::Module(GradleModule {
@@ -340,6 +343,7 @@ impl BuildResolver for GradleResolver {
                                         end_line: 0,
                                         end_col: 0,
                                     },
+                                    fqn: Arc::from(target_id.as_str()),
                                     selection_range: None,
                                 }),
                                 metadata: serde_json::to_value(GradleElement::Dependency(dep_node))
@@ -369,7 +373,7 @@ struct ModuleData<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_core::model::graph::GraphOp;
+    use naviscope_core::model::GraphOp;
     use naviscope_core::project::source::SourceFile;
 
     fn create_mock_file(path: &str, content: ParsedContent) -> ParsedFile {

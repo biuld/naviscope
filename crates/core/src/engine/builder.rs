@@ -6,7 +6,7 @@
 
 use super::graph::{CodeGraph, CodeGraphInner};
 use crate::engine::storage::GLOBAL_POOL;
-use crate::model::graph::{GraphEdge, GraphNode, GraphOp};
+use crate::model::{GraphEdge, GraphNode, GraphOp};
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use std::collections::HashMap;
@@ -62,7 +62,7 @@ impl CodeGraphBuilder {
                 self.inner
                     .file_index
                     .entry(p.clone())
-                    .and_modify(|e| e.nodes.push(idx))
+                    .and_modify(|e: &mut crate::engine::graph::FileEntry| e.nodes.push(idx))
                     .or_insert_with(|| crate::engine::graph::FileEntry {
                         metadata: crate::project::source::SourceFile::new(p.to_path_buf(), 0, 0),
                         nodes: vec![idx],
@@ -76,11 +76,11 @@ impl CodeGraphBuilder {
     /// Add an edge between two nodes
     pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, edge: GraphEdge) {
         // Check for duplicate edges
-        let already_exists = self
-            .inner
-            .topology
-            .edges_connecting(from, to)
-            .any(|e| e.weight().edge_type == edge.edge_type);
+        let already_exists = self.inner.topology.edges_connecting(from, to).any(
+            |e: petgraph::stable_graph::EdgeReference<crate::model::GraphEdge>| {
+                e.weight().edge_type == edge.edge_type
+            },
+        );
 
         if !already_exists {
             self.inner.topology.add_edge(from, to, edge);
@@ -196,7 +196,7 @@ impl Default for CodeGraphBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::graph::NodeKind;
+    use crate::model::NodeKind;
     use smol_str::SmolStr;
 
     #[test]

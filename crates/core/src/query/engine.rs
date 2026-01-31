@@ -1,7 +1,7 @@
 use crate::error::{NaviscopeError, Result};
-use crate::model::graph::{EdgeType, NodeKind};
-use crate::query::dsl::GraphQuery;
+use crate::model::{EdgeType, NodeKind};
 use crate::query::model::{QueryResult, QueryResultEdge};
+use naviscope_api::models::GraphQuery;
 use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
 use smol_str::SmolStr;
@@ -12,10 +12,7 @@ use std::sync::Arc;
 pub trait CodeGraphLike: Send + Sync {
     fn topology(
         &self,
-    ) -> &petgraph::stable_graph::StableDiGraph<
-        crate::model::graph::GraphNode,
-        crate::model::graph::GraphEdge,
-    >;
+    ) -> &petgraph::stable_graph::StableDiGraph<crate::model::GraphNode, crate::model::GraphEdge>;
     fn fqn_map(&self) -> &std::collections::HashMap<Arc<str>, petgraph::stable_graph::NodeIndex>;
     fn path_to_nodes(&self, path: &Path) -> Option<&[petgraph::stable_graph::NodeIndex]>;
     fn reference_index(&self) -> &std::collections::HashMap<SmolStr, Vec<Arc<Path>>>;
@@ -31,10 +28,8 @@ pub trait CodeGraphLike: Send + Sync {
 impl<T: CodeGraphLike> CodeGraphLike for &T {
     fn topology(
         &self,
-    ) -> &petgraph::stable_graph::StableDiGraph<
-        crate::model::graph::GraphNode,
-        crate::model::graph::GraphEdge,
-    > {
+    ) -> &petgraph::stable_graph::StableDiGraph<crate::model::GraphNode, crate::model::GraphEdge>
+    {
         (*self).topology()
     }
 
@@ -64,10 +59,8 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
 impl CodeGraphLike for crate::engine::CodeGraph {
     fn topology(
         &self,
-    ) -> &petgraph::stable_graph::StableDiGraph<
-        crate::model::graph::GraphNode,
-        crate::model::graph::GraphEdge,
-    > {
+    ) -> &petgraph::stable_graph::StableDiGraph<crate::model::GraphNode, crate::model::GraphEdge>
+    {
         self.topology()
     }
 

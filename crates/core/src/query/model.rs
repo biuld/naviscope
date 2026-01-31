@@ -1,16 +1,6 @@
-use crate::model::graph::{GraphEdge, GraphNode};
+use crate::model::GraphNode;
+pub use crate::model::QueryResultEdge;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-
-/// A structured edge in the query result
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueryResultEdge {
-    #[serde(with = "crate::util::serde_arc_str")]
-    pub from: Arc<str>,
-    #[serde(with = "crate::util::serde_arc_str")]
-    pub to: Arc<str>,
-    pub data: GraphEdge,
-}
 
 /// The result of a query execution, representing a subgraph
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

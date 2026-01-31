@@ -2,7 +2,8 @@ use super::graph::NodeKind;
 use super::language::Language;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
 pub struct Range {
@@ -78,22 +79,21 @@ pub struct PositionContext {
 #[derive(Debug, Clone)]
 pub struct SymbolQuery {
     pub resolution: SymbolResolution,
-    // Note: Language is usually needed but we might infer it or pass it.
-    // For now we keep it simple or use strings.
-    // But Language enum is in core/project/source.rs.
-    // We should probably move Language enum to API models too if it's part of the API.
-    // Let's assume passed as generic or String or enum moved.
     pub language: Language,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SymbolLocation {
-    pub path: PathBuf,
+    #[serde(with = "super::util::serde_arc_path")]
+    #[schemars(with = "String")]
+    pub path: Arc<Path>,
     pub range: Range,
-    pub fqn: String,
-    // Add node_index? Better avoid if possible to keep it detached from graph internals.
-    // But for efficiency `find_definitions` returned `SymbolLocation` which had node_index.
-    // Let's keep node_index out for public API if possible.
+    #[serde(with = "super::util::serde_arc_str")]
+    #[schemars(with = "String")]
+    pub fqn: Arc<str>,
+    /// Range of the identifier/name (for precise navigation)
+    #[serde(default)]
+    pub selection_range: Option<Range>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,4 +133,53 @@ pub struct CallHierarchyIncomingCall {
 pub struct CallHierarchyOutgoingCall {
     pub to: CallHierarchyItem,
     pub from_ranges: Vec<Range>,
+}
+
+// --- Type System ---
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, JsonSchema)]
+pub enum TypeRef {
+    /// Unresolved or primitive type name (e.g., "int", "void", "List<T>")
+    Raw(String),
+
+    /// Resolved reference to a Type definition node (FQN)
+    Id(String),
+
+    /// Generic instantiation (e.g., List<String>)
+    Generic {
+        base: Box<TypeRef>,
+        args: Vec<TypeRef>,
+    },
+
+    /// Array type (e.g., String[])
+    Array {
+        element: Box<TypeRef>,
+        dimensions: usize,
+    },
+
+    /// Wildcard type (e.g., ? extends Number)
+    Wildcard {
+        bound: Option<Box<TypeRef>>,
+        is_upper_bound: bool, // true: extends, false: super
+    },
+
+    Unknown,
+}
+
+impl TypeRef {
+    /// Helper to create a Raw type
+    pub fn raw(s: impl Into<String>) -> Self {
+        TypeRef::Raw(s.into())
+    }
+
+    /// Helper to create an Id type
+    pub fn id(s: impl Into<String>) -> Self {
+        TypeRef::Id(s.into())
+    }
+}
+
+impl Default for TypeRef {
+    fn default() -> Self {
+        TypeRef::Unknown
+    }
 }

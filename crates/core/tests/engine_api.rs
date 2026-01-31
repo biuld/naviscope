@@ -1,4 +1,5 @@
-use naviscope_core::engine::{EngineHandle, NaviscopeEngine};
+use naviscope_api::GraphService;
+use naviscope_core::engine::{EngineHandle, NaviscopeEngine as CoreEngine};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -26,12 +27,12 @@ async fn test_engine_lifecycle() {
 
 #[tokio::test]
 async fn test_engine_handle_query() {
-    use naviscope_core::query::GraphQuery;
+    use naviscope_api::models::GraphQuery;
 
     let temp_dir = std::env::temp_dir().join("naviscope_test_query");
     std::fs::create_dir_all(&temp_dir).ok();
 
-    let engine = Arc::new(NaviscopeEngine::new(temp_dir.clone()));
+    let engine = Arc::new(CoreEngine::new(temp_dir.clone()));
     let handle = EngineHandle::from_engine(engine);
 
     // Test query execution via handle

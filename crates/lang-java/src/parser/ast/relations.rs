@@ -1,6 +1,6 @@
 use super::super::JavaParser;
 use super::JavaRelation;
-use naviscope_core::model::graph::EdgeType;
+use naviscope_core::model::EdgeType;
 use naviscope_core::parser::utils::range_from_ts;
 use tree_sitter::Node;
 

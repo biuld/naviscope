@@ -1,5 +1,5 @@
 use super::JavaParser;
-use naviscope_core::model::signature::TypeRef;
+use naviscope_api::models::TypeRef;
 use tree_sitter::Node;
 
 impl JavaParser {

@@ -68,7 +68,7 @@ pub async fn definition(
     let locations: Vec<Location> = definitions
         .into_iter()
         .map(|loc| Location {
-            uri: Url::from_file_path(loc.path).unwrap(),
+            uri: Url::from_file_path(&*loc.path).unwrap(),
             range: Range {
                 start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
                 end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
@@ -133,7 +133,7 @@ pub async fn type_definition(
     let lsp_locations: Vec<Location> = locations
         .into_iter()
         .map(|loc| Location {
-            uri: Url::from_file_path(loc.path).unwrap(),
+            uri: Url::from_file_path(&*loc.path).unwrap(),
             range: Range {
                 start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
                 end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
@@ -214,7 +214,7 @@ pub async fn references(
     let lsp_locations: Vec<Location> = locations
         .into_iter()
         .map(|loc| Location {
-            uri: Url::from_file_path(loc.path).unwrap(),
+            uri: Url::from_file_path(&*loc.path).unwrap(),
             range: Range {
                 start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
                 end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
@@ -274,7 +274,7 @@ pub async fn implementation(
     let lsp_locations: Vec<Location> = locations
         .into_iter()
         .map(|loc| Location {
-            uri: Url::from_file_path(loc.path).unwrap(),
+            uri: Url::from_file_path(&*loc.path).unwrap(),
             range: Range {
                 start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
                 end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),

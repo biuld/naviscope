@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::model::graph::{GraphNode, NodeKind, Range};
+use crate::model::{GraphNode, NodeKind, Range};
 use std::path::Path;
 use tree_sitter::Tree;
 
@@ -27,7 +27,7 @@ pub struct GlobalParseResult {
     pub package_name: Option<String>,
     pub imports: Vec<String>,
     pub nodes: Vec<GraphNode>,
-    pub relations: Vec<(String, String, crate::model::graph::EdgeType, Option<Range>)>,
+    pub relations: Vec<(String, String, crate::model::EdgeType, Option<Range>)>,
     pub source: Option<String>,
     pub tree: Option<Tree>,
     pub identifiers: Vec<String>,

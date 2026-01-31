@@ -1,7 +1,7 @@
-use crate::{get_session_path, SessionInfo};
+use crate::{SessionInfo, get_session_path};
 use futures::{SinkExt, StreamExt};
 use std::path::Path;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{Duration, sleep, timeout};
 use tracing::{info, warn};
 
 pub async fn run_mcp_proxy(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -83,7 +83,7 @@ fn is_pid_alive(pid: u32) -> bool {
 }
 
 async fn start_ws_proxy(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
     use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
     let url = format!("ws://127.0.0.1:{}/mcp", port);

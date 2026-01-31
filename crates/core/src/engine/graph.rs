@@ -4,7 +4,7 @@
 //! All data is wrapped in `Arc`, so cloning only increments a reference counter.
 
 use crate::error::NaviscopeError;
-use crate::model::graph::{GraphEdge, GraphNode};
+use crate::model::{GraphEdge, GraphNode};
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use smol_str::SmolStr;
@@ -123,7 +123,8 @@ impl CodeGraph {
 
         for &idx in &entry.nodes {
             if let Some(node) = self.inner.topology.node_weight(idx) {
-                if let Some(range) = node.name_range() {
+                let range_opt: Option<&crate::model::Range> = node.name_range();
+                if let Some(range) = range_opt {
                     if range.contains(line, col) {
                         return Some(idx);
                     }
@@ -228,7 +229,7 @@ mod tests {
     #[test]
     fn test_graph_serialization_roundtrip() {
         use crate::engine::builder::CodeGraphBuilder;
-        use crate::model::graph::{GraphNode, NodeKind};
+        use crate::model::{GraphNode, NodeKind};
         use std::sync::Arc;
 
         let mut builder = CodeGraphBuilder::new();

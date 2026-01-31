@@ -68,13 +68,13 @@ impl<'a> DiscoveryEngine<'a> {
 
     /// Smartly extract tokens for "bag of words" intersection.
     /// Returns (Primary Token, Optional Context Token)
-    fn extract_smart_tokens(node: &crate::model::graph::GraphNode) -> (String, Option<String>) {
+    fn extract_smart_tokens(node: &crate::model::GraphNode) -> (String, Option<String>) {
         let name = node.name().to_string();
         let fqn = node.fqn();
 
         let parts: Vec<&str> = fqn
-            .split(|c| c == '.' || c == '#' || c == ':')
-            .filter(|s| !s.is_empty())
+            .split(|c: char| c == '.' || c == '#' || c == ':')
+            .filter(|s: &&str| !s.is_empty())
             .collect();
 
         // Context is usually the immediate parent of the name in the FQN.

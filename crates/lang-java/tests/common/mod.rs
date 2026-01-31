@@ -1,5 +1,5 @@
 use naviscope_core::engine::{CodeGraph, CodeGraphBuilder};
-use naviscope_core::model::graph::GraphOp;
+use naviscope_core::model::GraphOp;
 use naviscope_core::parser::IndexParser;
 use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
 use naviscope_core::project::source::SourceFile;

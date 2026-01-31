@@ -1,4 +1,5 @@
 use naviscope_api::NaviscopeEngine;
+use naviscope_api::lifecycle::EngineResult;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,7 +32,7 @@ pub fn init_logging(component: &str) -> Option<impl Drop> {
 }
 
 /// Utility to clear all indices stored on the local system.
-pub fn clear_all_indices() -> naviscope_api::lifecycle::Result<()> {
+pub fn clear_all_indices() -> EngineResult<()> {
     naviscope_core::engine::NaviscopeEngine::clear_all_indices()
         .map_err(|e| naviscope_api::lifecycle::EngineError::Internal(e.to_string()))
 }

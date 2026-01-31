@@ -2,7 +2,7 @@ mod common;
 
 use common::setup_java_test_graph;
 use naviscope_core::analysis::discovery::DiscoveryEngine;
-use naviscope_core::model::graph::EdgeType;
+use naviscope_core::model::EdgeType;
 
 /// Capability 1: Structural Indexing
 /// The graph MUST represent the project structure (Package -> Class -> Method/Field)

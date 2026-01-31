@@ -1,12 +1,10 @@
 use crate::model::{JavaElement, JavaPackage};
 use crate::parser::JavaParser;
+use naviscope_api::models::TypeRef;
 use naviscope_core::engine::CodeGraph;
 use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::Result;
-use naviscope_core::model::graph::{
-    EdgeType, GraphEdge, GraphNode, GraphOp, NodeKind, ResolvedUnit,
-};
-use naviscope_core::model::signature::TypeRef;
+use naviscope_core::model::{EdgeType, GraphEdge, GraphNode, GraphOp, NodeKind, ResolvedUnit};
 use naviscope_core::parser::SymbolIntent;
 use naviscope_core::parser::{SymbolResolution, matches_intent};
 use naviscope_core::project::scanner::{ParsedContent, ParsedFile};

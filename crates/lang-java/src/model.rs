@@ -1,5 +1,5 @@
-use naviscope_core::model::graph::Range;
-use naviscope_core::model::signature::TypeRef;
+use naviscope_api::models::TypeRef;
+use naviscope_core::model::Range;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

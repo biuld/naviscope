@@ -1,5 +1,10 @@
+use super::language::Language;
+use super::symbol::Range;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -91,23 +96,63 @@ impl GraphEdge {
         Self { edge_type }
     }
 }
-// ... existing content ...
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct GraphNode {
     /// Unique Identifier (FQN)
-    pub id: String,
+    #[serde(with = "super::util::serde_arc_str")]
+    #[schemars(with = "String")]
+    pub id: Arc<str>,
     /// Short display name
-    pub name: String,
+    #[schemars(with = "String")]
+    pub name: SmolStr,
     /// Abstract categorization
     pub kind: NodeKind,
     /// Language identifier ("java", "rust", "buildfile")
-    pub lang: String,
+    #[serde(with = "super::util::serde_arc_str")]
+    #[schemars(with = "String")]
+    pub lang: Arc<str>,
     /// Physical Location
     pub location: Option<super::symbol::SymbolLocation>,
     /// Extension metadata
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+impl GraphNode {
+    pub fn language(&self) -> Language {
+        match self.lang.as_ref() {
+            "java" => Language::Java,
+            "rust" => Language::Rust,
+            _ => Language::BuildFile,
+        }
+    }
+
+    pub fn fqn(&self) -> &str {
+        &self.id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn kind(&self) -> NodeKind {
+        self.kind.clone()
+    }
+
+    pub fn file_path(&self) -> Option<&Path> {
+        self.location.as_ref().map(|l| l.path.as_ref())
+    }
+
+    pub fn range(&self) -> Option<&Range> {
+        self.location.as_ref().map(|l| &l.range)
+    }
+
+    pub fn name_range(&self) -> Option<&Range> {
+        self.location
+            .as_ref()
+            .and_then(|l| l.selection_range.as_ref())
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
@@ -153,8 +198,10 @@ fn default_limit() -> usize {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResultEdge {
-    pub from: String,
-    pub to: String,
+    #[serde(with = "super::util::serde_arc_str")]
+    pub from: Arc<str>,
+    #[serde(with = "super::util::serde_arc_str")]
+    pub to: Arc<str>,
     pub data: GraphEdge,
 }
 

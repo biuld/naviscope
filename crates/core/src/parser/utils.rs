@@ -1,5 +1,5 @@
 use crate::error::{NaviscopeError, Result};
-use crate::model::graph::{NodeKind, Range};
+use crate::model::{NodeKind, Range};
 use tree_sitter::{Language, Query};
 
 /// Converts a tree-sitter range to our internal Range model.
@@ -29,8 +29,8 @@ pub fn get_capture_index(query: &Query, name: &str) -> Result<u32> {
 pub struct RawSymbol<'a> {
     pub name: String,
     pub kind: NodeKind,
-    pub range: crate::model::graph::Range,
-    pub selection_range: crate::model::graph::Range,
+    pub range: crate::model::Range,
+    pub selection_range: crate::model::Range,
     pub node: tree_sitter::Node<'a>,
 }
 

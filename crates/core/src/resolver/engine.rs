@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::model::graph::{GraphOp, ResolvedUnit};
+use crate::model::{GraphOp, ResolvedUnit};
 use crate::project::scanner::ParsedFile;
 use crate::project::source::Language;
 use crate::resolver::{ProjectContext, SemanticResolver};

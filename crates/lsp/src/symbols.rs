@@ -114,13 +114,13 @@ pub async fn workspace_symbol(
         .filter_map(|node| {
             let loc = node.location?;
             Some(SymbolInformation {
-                name: node.name,
+                name: node.name.to_string(),
                 kind: node_kind_to_symbol_kind(&node.kind),
                 tags: None,
                 #[allow(deprecated)]
                 deprecated: None,
                 location: Location {
-                    uri: Url::from_file_path(loc.path).ok()?,
+                    uri: Url::from_file_path(&*loc.path).ok()?,
                     range: Range {
                         start: Position::new(
                             loc.range.start_line as u32,
@@ -129,7 +129,7 @@ pub async fn workspace_symbol(
                         end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
                     },
                 },
-                container_name: Some(node.id),
+                container_name: Some(node.id.to_string()),
             })
         })
         .collect();

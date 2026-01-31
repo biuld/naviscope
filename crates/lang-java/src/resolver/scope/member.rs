@@ -2,7 +2,7 @@ use crate::model::JavaElement;
 use crate::parser::JavaParser;
 use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
-use naviscope_core::model::signature::TypeRef;
+use naviscope_api::models::TypeRef;
 use naviscope_core::parser::SymbolResolution;
 
 pub struct MemberScope<'a> {
@@ -355,7 +355,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
 mod tests {
     use super::*;
     use naviscope_core::engine::CodeGraphBuilder;
-    use naviscope_core::model::graph::GraphNode;
+    use naviscope_core::model::GraphNode;
     use smol_str::SmolStr;
     use std::sync::Arc;
     use tree_sitter::Parser;
@@ -385,13 +385,13 @@ mod tests {
         let node = GraphNode {
             id: Arc::from("Test.field"),
             name: SmolStr::from("field"),
-            kind: naviscope_core::model::graph::NodeKind::Field,
+            kind: naviscope_core::model::NodeKind::Field,
             lang: Arc::from("java"),
             location: None,
             metadata: serde_json::to_value(JavaElement::Field(crate::model::JavaField {
                 name: "field".to_string(),
                 id: "Test.field".to_string(),
-                type_ref: naviscope_core::model::signature::TypeRef::Raw("int".to_string()),
+                type_ref: naviscope_api::models::TypeRef::Raw("int".to_string()),
                 modifiers: vec![],
                 range: None,
                 name_range: None,

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::model::graph::ResolvedUnit;
+use crate::model::ResolvedUnit;
 use crate::parser::SymbolResolution;
 use crate::project::scanner::ParsedFile;
 use petgraph::stable_graph::NodeIndex;

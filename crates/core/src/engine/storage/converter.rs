@@ -1,6 +1,6 @@
 use super::model::*;
 use crate::engine::graph::{CodeGraphInner, FileEntry};
-use crate::model::graph::GraphNode;
+use crate::model::{GraphNode, SymbolLocation};
 use petgraph::stable_graph::NodeIndex;
 use smol_str::SmolStr;
 use std::collections::HashMap;
@@ -136,19 +136,18 @@ pub fn from_storage(storage: StorageGraph) -> CodeGraphInner {
     let mut topology = petgraph::stable_graph::StableDiGraph::new();
 
     for snode in &storage.nodes {
+        let fqn: Arc<str> = Arc::from(storage.string_pool[snode.id_sid as usize].as_str());
         let node = GraphNode {
-            id: Arc::from(storage.string_pool[snode.id_sid as usize].as_str()),
+            id: fqn.clone(),
             name: SmolStr::from(&storage.string_pool[snode.name_sid as usize]),
             kind: snode.kind.clone(),
             lang: Arc::from(storage.string_pool[snode.lang_sid as usize].as_str()),
-            location: snode
-                .location
-                .as_ref()
-                .map(|loc| crate::model::graph::NodeLocation {
-                    path: Arc::from(Path::new(&storage.path_pool[loc.path_id as usize])),
-                    range: loc.range,
-                    selection_range: loc.selection_range,
-                }),
+            location: snode.location.as_ref().map(|loc| SymbolLocation {
+                path: Arc::from(Path::new(&storage.path_pool[loc.path_id as usize])),
+                range: loc.range,
+                fqn: fqn.clone(),
+                selection_range: loc.selection_range,
+            }),
             metadata: snode.metadata.clone(),
         };
         topology.add_node(node);

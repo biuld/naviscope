@@ -1,7 +1,7 @@
 use super::JavaParser;
 use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::{NaviscopeError, Result};
-use naviscope_core::model::graph::{GraphNode, NodeLocation, Range};
+use naviscope_core::model::{GraphNode, NodeLocation, Range};
 use naviscope_core::parser::{GlobalParseResult, IndexParser};
 use smol_str::SmolStr;
 use std::sync::Arc;
@@ -30,33 +30,28 @@ impl IndexParser for JavaParser {
             .into_iter()
             .map(|e| {
                 let kind = match &e.element {
-                    crate::model::JavaElement::Class(_) => {
-                        naviscope_core::model::graph::NodeKind::Class
-                    }
+                    crate::model::JavaElement::Class(_) => naviscope_core::model::NodeKind::Class,
                     crate::model::JavaElement::Interface(_) => {
-                        naviscope_core::model::graph::NodeKind::Interface
+                        naviscope_core::model::NodeKind::Interface
                     }
-                    crate::model::JavaElement::Enum(_) => {
-                        naviscope_core::model::graph::NodeKind::Enum
-                    }
+                    crate::model::JavaElement::Enum(_) => naviscope_core::model::NodeKind::Enum,
                     crate::model::JavaElement::Annotation(_) => {
-                        naviscope_core::model::graph::NodeKind::Annotation
+                        naviscope_core::model::NodeKind::Annotation
                     }
                     crate::model::JavaElement::Method(m) => {
                         if m.is_constructor {
-                            naviscope_core::model::graph::NodeKind::Constructor
+                            naviscope_core::model::NodeKind::Constructor
                         } else {
-                            naviscope_core::model::graph::NodeKind::Method
+                            naviscope_core::model::NodeKind::Method
                         }
                     }
-                    crate::model::JavaElement::Field(_) => {
-                        naviscope_core::model::graph::NodeKind::Field
-                    }
+                    crate::model::JavaElement::Field(_) => naviscope_core::model::NodeKind::Field,
                     crate::model::JavaElement::Package(_) => {
-                        naviscope_core::model::graph::NodeKind::Package
+                        naviscope_core::model::NodeKind::Package
                     }
                 };
 
+                let fqn: Arc<str> = Arc::from(e.element.id());
                 let location = file_path.map(|p| NodeLocation {
                     path: GLOBAL_POOL.intern_path(p),
                     range: e.element.range().unwrap_or(Range {
@@ -65,11 +60,12 @@ impl IndexParser for JavaParser {
                         end_line: 0,
                         end_col: 0,
                     }),
+                    fqn: fqn.clone(),
                     selection_range: e.element.name_range(),
                 });
 
                 GraphNode {
-                    id: Arc::from(e.element.id()),
+                    id: fqn,
                     name: SmolStr::from(e.element.name()),
                     kind,
                     lang: Arc::from("java"),

@@ -2,7 +2,7 @@
 
 use super::{CodeGraph, CodeGraphBuilder};
 use crate::error::{NaviscopeError, Result};
-use crate::model::graph::GraphOp;
+use crate::model::GraphOp;
 use crate::project::scanner::Scanner;
 use crate::resolver::engine::IndexResolver;
 use std::path::{Path, PathBuf};

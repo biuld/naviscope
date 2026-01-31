@@ -109,7 +109,7 @@ impl ReplServer {
 
             if let Ok(res) = self.context.execute_query(&query) {
                 if res.nodes.len() == 1 {
-                    let fqn = res.nodes[0].id.clone();
+                    let fqn = res.nodes[0].id.to_string();
                     self.context.set_current_fqn(Some(fqn));
                 }
             }
