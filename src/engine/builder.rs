@@ -59,8 +59,12 @@ impl CodeGraphBuilder {
             if let Some(p) = path {
                 self.inner
                     .file_index
-                    .entry(p)
-                    .and_modify(|e| e.nodes.push(idx));
+                    .entry(p.clone())
+                    .and_modify(|e| e.nodes.push(idx))
+                    .or_insert(crate::engine::graph::FileEntry {
+                        metadata: SourceFile::new(p, 0, 0),
+                        nodes: vec![idx],
+                    });
             }
 
             idx
@@ -156,6 +160,9 @@ impl CodeGraphBuilder {
                         files.push(path.clone());
                     }
                 }
+            }
+            GraphOp::UpdateFile { metadata } => {
+                self.update_file(metadata.path.clone(), metadata);
             }
         }
         Ok(())

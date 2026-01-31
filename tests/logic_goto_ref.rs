@@ -1,10 +1,8 @@
 mod common;
 
 use common::setup_java_test_graph;
-use naviscope::model::graph::EdgeType;
 use naviscope::resolver::SemanticResolver;
 use naviscope::resolver::lang::java::JavaResolver;
-use petgraph::Direction;
 
 fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
     let pre_content = &content[..offset];

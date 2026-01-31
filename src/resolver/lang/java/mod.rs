@@ -22,7 +22,7 @@ use scope::{BuiltinScope, ImportScope, LocalScope, MemberScope, Scope};
 
 #[derive(Clone)]
 pub struct JavaResolver {
-    parser: JavaParser,
+    pub parser: JavaParser,
 }
 
 impl JavaResolver {
@@ -181,6 +181,12 @@ impl SemanticResolver for JavaResolver {
                 }
                 vec![]
             }
+            SymbolResolution::Global(fqn) => {
+                if let Some(&idx) = index.fqn_map().get(fqn) {
+                    return vec![idx];
+                }
+                vec![]
+            }
         }
     }
 
@@ -239,6 +245,14 @@ impl SemanticResolver for JavaResolver {
                     }
                 } else if *intent == SymbolIntent::Type {
                     type_resolutions.push(resolution.clone());
+                }
+            }
+            SymbolResolution::Global(fqn) => {
+                if let Some(&idx) = index.fqn_map().get(fqn) {
+                    let node = &index.topology()[idx];
+                    if matches_intent(&node.kind(), SymbolIntent::Type) {
+                        type_resolutions.push(resolution.clone());
+                    }
                 }
             }
         }
@@ -374,11 +388,16 @@ impl LangResolver for JavaResolver {
                 module_id
             };
 
-            let mut known_fqns = std::collections::HashSet::new();
+            let mut known_types = std::collections::HashSet::new();
+            let mut other_fqns = std::collections::HashSet::new();
             let mut local_type_map = std::collections::HashMap::new();
 
             for node in &parse_result.nodes {
-                known_fqns.insert(node.fqn().to_string());
+                if self.is_top_level_node(node) {
+                    known_types.insert(node.fqn().to_string());
+                } else {
+                    other_fqns.insert(node.fqn().to_string());
+                }
             }
 
             for node in &parse_result.nodes {
@@ -395,14 +414,14 @@ impl LangResolver for JavaResolver {
                                 &m.return_type,
                                 parse_result.package_name.as_deref(),
                                 &parse_result.imports,
-                                &known_fqns,
+                                &known_types,
                             );
                             for param in &mut m.parameters {
                                 param.type_ref = self.resolve_type_ref(
                                     &param.type_ref,
                                     parse_result.package_name.as_deref(),
                                     &parse_result.imports,
-                                    &known_fqns,
+                                    &known_types,
                                 );
                                 if let TypeRef::Id(type_fqn) = &param.type_ref {
                                     local_type_map.insert(param.name.clone(), type_fqn.clone());
@@ -414,7 +433,7 @@ impl LangResolver for JavaResolver {
                                 &f.type_ref,
                                 parse_result.package_name.as_deref(),
                                 &parse_result.imports,
-                                &known_fqns,
+                                &known_types,
                             );
                             if let TypeRef::Id(type_fqn) = &f.type_ref {
                                 local_type_map.insert(f.name.clone(), type_fqn.clone());

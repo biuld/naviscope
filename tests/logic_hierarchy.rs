@@ -1,10 +1,10 @@
 mod common;
 
 use common::setup_java_test_graph;
-use naviscope::model::graph::EdgeType;
-use naviscope::resolver::SemanticResolver;
-use naviscope::resolver::lang::java::JavaResolver;
-use petgraph::Direction;
+use naviscope::analysis::discovery::DiscoveryEngine;
+use naviscope::parser::SymbolResolution;
+use naviscope::query::CodeGraphLike;
+use naviscope::resolver::{SemanticResolver, lang::java::JavaResolver};
 
 fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
     let pre_content = &content[..offset];
@@ -39,15 +39,36 @@ fn test_call_hierarchy_incoming() {
         .expect("Should resolve leaf");
     let target_idx = resolver.find_matches(&index, &res)[0];
 
-    // Check callers
+    // Check callers using DiscoveryEngine
+    let discovery = DiscoveryEngine::new(&index);
+    let candidate_files = discovery.scout_references(&[target_idx]);
+
     let mut callers = Vec::new();
-    let mut incoming = index
-        .topology()
-        .neighbors_directed(target_idx, Direction::Incoming)
-        .detach();
-    while let Some((edge_idx, neighbor_idx)) = incoming.next(&index.topology()) {
-        if index.topology()[edge_idx].edge_type == EdgeType::Calls {
-            callers.push(index.topology()[neighbor_idx].fqn().to_string());
+    let abs_path = std::env::current_dir().unwrap().join("Test.java");
+    let uri = tower_lsp::lsp_types::Url::from_file_path(&abs_path).unwrap();
+
+    for path in candidate_files {
+        let locations = discovery.scan_file(&resolver.parser, content, &res, &uri);
+        for loc in locations {
+            if let Some(container_idx) = index.find_container_node_at(
+                &path,
+                loc.range.start.line as usize,
+                loc.range.start.character as usize,
+            ) {
+                // Skip if the occurrence is actually the definition of the target itself
+                if let Some(name_range) = index.topology()[target_idx].name_range() {
+                    if name_range.start_line == loc.range.start.line as usize
+                        && name_range.start_col == loc.range.start.character as usize
+                    {
+                        continue;
+                    }
+                }
+                let node = &index.topology()[container_idx];
+                let fqn = node.fqn().to_string();
+                if !callers.contains(&fqn) {
+                    callers.push(fqn);
+                }
+            }
         }
     }
 
@@ -80,15 +101,44 @@ fn test_call_hierarchy_outgoing() {
         .expect("Should resolve root");
     let target_idx = resolver.find_matches(&index, &res)[0];
 
-    // Check callees
+    // Check callees using manual walk (similar to outgoing_calls in LSP)
+    let container_range = index.topology()[target_idx].range().unwrap();
     let mut callees = Vec::new();
-    let mut outgoing = index
-        .topology()
-        .neighbors_directed(target_idx, Direction::Outgoing)
-        .detach();
-    while let Some((edge_idx, neighbor_idx)) = outgoing.next(&index.topology()) {
-        if index.topology()[edge_idx].edge_type == EdgeType::Calls {
-            callees.push(index.topology()[neighbor_idx].fqn().to_string());
+
+    let mut stack = vec![tree.root_node()];
+    while let Some(n) = stack.pop() {
+        let r = n.range();
+        if r.start_point.row > container_range.end_line
+            || r.end_point.row < container_range.start_line
+        {
+            continue;
+        }
+
+        if n.kind() == "identifier" {
+            if let Some(out_res) = resolver.resolve_at(
+                tree,
+                content,
+                r.start_point.row,
+                r.start_point.column,
+                &index,
+            ) {
+                let target_fqn = match out_res {
+                    SymbolResolution::Global(fqn) => Some(fqn),
+                    SymbolResolution::Precise(fqn, _) => Some(fqn),
+                    _ => None,
+                };
+
+                if let Some(fqn) = target_fqn {
+                    if !callees.contains(&fqn) && fqn != "Test.root" {
+                        callees.push(fqn);
+                    }
+                }
+            }
+        }
+
+        let mut cursor = n.walk();
+        for child in n.children(&mut cursor) {
+            stack.push(child);
         }
     }
 
@@ -119,15 +169,33 @@ fn test_call_hierarchy_recursion() {
     let idx = resolver.find_matches(&index, &res)[0];
 
     // Incoming should contain itself
-    let callers: Vec<_> = index
-        .topology()
-        .neighbors_directed(idx, Direction::Incoming)
-        .filter(|&n| {
-            index.topology()[index.topology().find_edge(n, idx).unwrap()].edge_type
-                == EdgeType::Calls
-        })
-        .map(|n| index.topology()[n].fqn().to_string())
-        .collect();
+    let discovery = DiscoveryEngine::new(&index);
+    let mut callers = Vec::new();
+    let abs_path = std::env::current_dir().unwrap().join("Test.java");
+    let uri = tower_lsp::lsp_types::Url::from_file_path(&abs_path).unwrap();
+
+    let locations = discovery.scan_file(&resolver.parser, content, &res, &uri);
+    for loc in locations {
+        if let Some(c_idx) = index.find_container_node_at(
+            &std::path::PathBuf::from("Test.java"),
+            loc.range.start.line as usize,
+            loc.range.start.character as usize,
+        ) {
+            // Skip if the occurrence is actually the definition of the target itself
+            if let Some(name_range) = index.topology()[idx].name_range() {
+                if name_range.start_line == loc.range.start.line as usize
+                    && name_range.start_col == loc.range.start.character as usize
+                {
+                    continue;
+                }
+            }
+            let node = &index.topology()[c_idx];
+            let fqn = node.fqn().to_string();
+            if !callers.contains(&fqn) {
+                callers.push(fqn);
+            }
+        }
+    }
 
     assert!(callers.contains(&"Test.rec".to_string()));
 }

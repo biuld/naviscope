@@ -60,10 +60,13 @@ impl IndexResolver {
     pub fn resolve(&self, files: Vec<ParsedFile>) -> Result<Vec<GraphOp>> {
         let mut all_ops = Vec::new();
 
-        // Add RemovePath operations for each file being processed to ensure a clean state
+        // Add RemovePath operations and UpdateFile operations for each file being processed
         for file in &files {
             all_ops.push(GraphOp::RemovePath {
                 path: file.file.path.clone(),
+            });
+            all_ops.push(GraphOp::UpdateFile {
+                metadata: file.file.clone(),
             });
         }
 

@@ -212,7 +212,6 @@ fn cap_static_field_access() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let main_s_idx = index.fqn_map()["Main.s"];
     let config_key_idx = index.fqn_map()["Config.KEY"];
 
     // Checking if Main.java is discovered as a candidate for Config.KEY

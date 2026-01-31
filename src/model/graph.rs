@@ -239,6 +239,10 @@ pub enum GraphOp {
         path: PathBuf,
         identifiers: Vec<String>,
     },
+    /// Update file metadata (hash, mtime)
+    UpdateFile {
+        metadata: crate::project::source::SourceFile,
+    },
 }
 
 /// Result of resolving a single file

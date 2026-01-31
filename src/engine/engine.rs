@@ -216,9 +216,6 @@ impl NaviscopeEngine {
         let mut builder = CodeGraphBuilder::new();
         builder.apply_ops(ops)?;
 
-        // Update file map
-        // TODO: Add file metadata
-
         Ok(builder.build())
     }
 }

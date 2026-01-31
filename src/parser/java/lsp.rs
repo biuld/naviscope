@@ -108,7 +108,8 @@ impl LspParser for JavaParser {
                 // Local resolution is usually handled by the caller or by a separate pass
                 return Vec::new();
             }
-            crate::parser::SymbolResolution::Precise(fqn, _) => {
+            crate::parser::SymbolResolution::Precise(fqn, _)
+            | crate::parser::SymbolResolution::Global(fqn) => {
                 fqn.split('.').last().unwrap_or(fqn).to_string()
             }
         };

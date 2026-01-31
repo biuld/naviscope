@@ -17,6 +17,12 @@ pub trait CodeGraphLike {
     fn path_to_nodes(&self, path: &std::path::Path)
     -> Option<&[petgraph::stable_graph::NodeIndex]>;
     fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>>;
+    fn find_container_node_at(
+        &self,
+        path: &std::path::Path,
+        line: usize,
+        col: usize,
+    ) -> Option<petgraph::stable_graph::NodeIndex>;
 }
 
 // Blanket implementation for references
@@ -44,6 +50,15 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
     fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>> {
         (*self).reference_index()
     }
+
+    fn find_container_node_at(
+        &self,
+        path: &std::path::Path,
+        line: usize,
+        col: usize,
+    ) -> Option<petgraph::stable_graph::NodeIndex> {
+        (*self).find_container_node_at(path, line, col)
+    }
 }
 
 // Implement for new CodeGraph
@@ -70,6 +85,33 @@ impl CodeGraphLike for crate::engine::CodeGraph {
 
     fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>> {
         self.reference_index()
+    }
+
+    fn find_container_node_at(
+        &self,
+        path: &std::path::Path,
+        line: usize,
+        col: usize,
+    ) -> Option<petgraph::stable_graph::NodeIndex> {
+        let entry = self.file_index().get(path)?;
+        let mut best_node = None;
+        let mut best_range_size = usize::MAX;
+
+        for &idx in &entry.nodes {
+            let node = &self.topology()[idx];
+            if let Some(range) = node.range() {
+                if range.contains(line, col) {
+                    // We want the smallest node that contains the location (e.g. Method inside Class)
+                    let size = (range.end_line - range.start_line) * 1000
+                        + (range.end_col.saturating_sub(range.start_col));
+                    if size < best_range_size {
+                        best_range_size = size;
+                        best_node = Some(idx);
+                    }
+                }
+            }
+        }
+        best_node
     }
 }
 

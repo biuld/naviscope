@@ -326,7 +326,8 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
             .receiver_node
             .map(|recv| {
                 // Case A: Explicit Receiver (obj.field)
-                self.resolve_expression_type(&recv, context)
+                let res = self
+                    .resolve_expression_type(&recv, context)
                     .and_then(|type_ref| self.get_base_fqn(&type_ref))
                     .and_then(|raw_type_fqn| self.resolve_fqn_from_context(&raw_type_fqn, context))
                     .map(|type_fqn| format!("{}.{}", type_fqn, name))
@@ -338,7 +339,8 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                         if exists { Some(candidate) } else { None }
                     })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
-                    .unwrap_or(Err(()))
+                    .unwrap_or(Err(()));
+                res
             })
             .or_else(|| {
                 // Case B: Implicit this (Lexical Scope)
