@@ -140,7 +140,7 @@ impl McpServer {
         let guide = r#"
 # Naviscope User Guide
 
-Naviscope is a graph-based code understanding engine. Unlike text search, it understands the structural and semantic relationships in your code (Calls, Inheritance, Dependencies).
+Naviscope is a graph-based code understanding engine. Unlike text search, it understands the structural and semantic relationships in your code (Type Usage, Inheritance, Dependencies).
 
 ## 🚀 Recommended Workflow
 
@@ -153,12 +153,12 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
 
 3. **Deep Analysis**: Once you have a Fully Qualified Name (FQN), use `cat` and `deps`.
    - `cat(fqn="...")` -> View source code and metadata
-   - `deps(fqn="...")` -> View outgoing calls/dependencies (What does this code use?)
-   - `deps(fqn="...", rev=true)` -> View incoming calls (Who uses this code?)
+   - `deps(fqn="...")` -> View outgoing dependencies (What does this code use?)
+   - `deps(fqn="...", rev=true)` -> View incoming dependencies (Who uses this code?)
 
 ## 💡 Tips
 - **FQNs**: Naviscope relies on Fully Qualified Names (e.g., `com.example.MyClass`, `src/main.rs`). Always use the FQN returned by `ls` or `find` for subsequent `cat`/`deps` calls.
-- **Filters**: Use the `kind` (e.g., "class", "method") and `edge_type` (e.g., "Calls", "InheritsFrom") filters to narrow down noisy results.
+- **Filters**: Use the `kind` (e.g., "class", "method") and `edge_type` (e.g., "TypedAs", "InheritsFrom") filters to narrow down noisy results.
 "#;
         Ok(CallToolResult::success(vec![Content::text(guide)]))
     }
