@@ -31,10 +31,6 @@ pub enum Commands {
         /// Path to the project root directory to index
         #[arg(value_name = "PROJECT_PATH")]
         path: PathBuf,
-
-        /// Save a human-readable JSON version for debugging purposes
-        #[arg(long)]
-        debug: bool,
     },
     /// Start an interactive shell to query the code knowledge graph
     #[command(
@@ -55,10 +51,6 @@ pub enum Commands {
         /// Path to the project root directory to watch
         #[arg(value_name = "PROJECT_PATH")]
         path: PathBuf,
-
-        /// Save a human-readable JSON version for debugging purposes
-        #[arg(long)]
-        debug: bool,
     },
     /// Clear built indices
     #[command(
@@ -94,10 +86,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Runtime::new()?;
 
     match cli.command {
-        Commands::Index { path, debug } => index::run(path, debug),
-        Commands::Shell { path } => shell::run(path),
-        Commands::Watch { path, debug } => watch::run(path, debug),
-        Commands::Clear { path } => clear::run(path),
+        Commands::Index { path } => rt.block_on(index::run(path)),
+        Commands::Shell { path } => rt.block_on(shell::run(path)),
+        Commands::Watch { path } => rt.block_on(watch::run(path)),
+        Commands::Clear { path } => rt.block_on(clear::run(path)),
         Commands::Mcp { path } => {
             let project_path = path
                 .clone()

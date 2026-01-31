@@ -21,40 +21,34 @@ use self::highlighter::NaviscopeHighlighter;
 use self::prompt::DefaultPrompt;
 
 // Shell configuration constants
-// Shell configuration constants
 const SHELL_HISTORY_SIZE: usize = 500;
 
 pub struct ReplServer {
     context: ShellContext,
     project_path: PathBuf,
-    // Runtime must be kept alive for the shell session
-    rt: tokio::runtime::Runtime,
 }
 
 impl ReplServer {
     pub fn new(project_path: PathBuf) -> Self {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-
         let engine = naviscope_runtime::build_default_engine(project_path.clone());
         let current_node = Arc::new(RwLock::new(None));
 
         // ShellContext will get resolver from engine
-        let context = ShellContext::new(engine, rt.handle().clone(), current_node);
+        let context = ShellContext::new(engine, tokio::runtime::Handle::current(), current_node);
 
         Self {
             context,
             project_path,
-            rt,
         }
     }
 
-    pub fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         println!("Project: {:?}", self.project_path);
 
-        self.initialize_index()?;
+        self.initialize_index().await?;
 
         // Start watcher (spawns background task on the runtime)
-        if let Err(e) = self.rt.block_on(self.context.engine.watch()) {
+        if let Err(e) = self.context.engine.watch().await {
             error!("Failed to start file watcher: {}", e);
         } else {
             info!("File watcher started.");
@@ -66,12 +60,12 @@ impl ReplServer {
         self.run_loop(line_editor)
     }
 
-    fn initialize_index(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn initialize_index(&self) -> Result<(), Box<dyn std::error::Error>> {
         let engine = &self.context.engine;
         let start = std::time::Instant::now();
 
         // Load index (blocking on async)
-        match self.rt.block_on(engine.load()) {
+        match engine.load().await {
             Ok(true) => {
                 let stats = self.context.get_stats().unwrap_or_default();
                 println!(
@@ -94,7 +88,7 @@ impl ReplServer {
 
         // Sync with filesystem (rebuild/refresh)
         let sync_start = std::time::Instant::now();
-        if let Err(e) = self.rt.block_on(engine.refresh()) {
+        if let Err(e) = engine.refresh().await {
             error!("Synchronization failed: {}", e);
             println!("Warning: Index synchronization failed: {}", e);
         } else {
@@ -227,9 +221,9 @@ impl ReplServer {
     }
 }
 
-pub fn run(path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     let project_path =
         path.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let server = ReplServer::new(project_path);
-    server.run()
+    server.run().await
 }
