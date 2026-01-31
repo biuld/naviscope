@@ -6,6 +6,7 @@ use crate::resolver::{ProjectContext, SemanticResolver};
 use rayon::prelude::*;
 use std::sync::Arc;
 
+use crate::engine::storage::GLOBAL_POOL;
 use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
 /// Main resolver that dispatches to specific strategies based on file type for indexing
@@ -104,7 +105,7 @@ impl IndexResolver {
         // Add RemovePath operations and UpdateFile operations for each file being processed
         for file in &files {
             all_ops.push(GraphOp::RemovePath {
-                path: file.file.path.clone(),
+                path: GLOBAL_POOL.intern_path(&file.file.path),
             });
             all_ops.push(GraphOp::UpdateFile {
                 metadata: file.file.clone(),

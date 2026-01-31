@@ -35,7 +35,7 @@ impl JavaFeatureProvider {
 
 impl LanguageFeatureProvider for JavaFeatureProvider {
     fn detail_view(&self, node: &GraphNode) -> Option<String> {
-        if node.lang != "java" {
+        if node.lang.as_ref() != "java" {
             return None;
         }
 
@@ -82,7 +82,7 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
     }
 
     fn signature(&self, node: &GraphNode) -> Option<String> {
-        if node.lang != "java" {
+        if node.lang.as_ref() != "java" {
             return None;
         }
 
@@ -105,7 +105,7 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
     }
 
     fn modifiers(&self, node: &GraphNode) -> Vec<String> {
-        if node.lang != "java" {
+        if node.lang.as_ref() != "java" {
             return vec![];
         }
 

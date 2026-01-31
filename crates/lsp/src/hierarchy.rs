@@ -110,7 +110,7 @@ pub async fn incoming_calls(
     let graph = engine.graph().await;
     let index: &dyn CodeGraphLike = &graph;
 
-    let target_idx = match index.fqn_map().get(&fqn) {
+    let target_idx = match index.fqn_map().get(fqn.as_str()) {
         Some(&idx) => idx,
         None => return Ok(None),
     };
@@ -221,7 +221,7 @@ pub async fn outgoing_calls(
     let graph = engine.graph().await;
     let index: &dyn CodeGraphLike = &graph;
 
-    let node_idx = match index.fqn_map().get(&fqn) {
+    let node_idx = match index.fqn_map().get(fqn.as_str()) {
         Some(&idx) => idx,
         None => return Ok(None),
     };

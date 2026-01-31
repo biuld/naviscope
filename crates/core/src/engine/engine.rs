@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use xxhash_rust::xxh3::xxh3_64;
 
+use crate::engine::storage::GLOBAL_POOL;
 use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
 /// Naviscope indexing engine
@@ -148,7 +149,10 @@ impl NaviscopeEngine {
         // Prepare existing file metadata for change detection
         let mut existing_metadata = std::collections::HashMap::new();
         for (path, entry) in graph.file_index() {
-            existing_metadata.insert(path.clone(), entry.metadata.clone());
+            existing_metadata.insert(
+                PathBuf::from(path.to_string_lossy().to_string()),
+                entry.metadata.clone(),
+            );
         }
 
         // Processing in blocking pool
@@ -161,7 +165,9 @@ impl NaviscopeEngine {
                     to_scan.push(path);
                 } else {
                     // File was deleted
-                    manual_ops.push(GraphOp::RemovePath { path });
+                    manual_ops.push(GraphOp::RemovePath {
+                        path: GLOBAL_POOL.intern_path(&path),
+                    });
                 }
             }
 
@@ -259,7 +265,7 @@ impl NaviscopeEngine {
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to parse index at {}: {}. Will rebuild.",
+                    "Failed to parse index at {}: {:?}. Will rebuild.",
                     path.display(),
                     e
                 );
@@ -276,9 +282,7 @@ impl NaviscopeEngine {
         }
 
         // Serialize the graph
-        let bytes = graph
-            .serialize()
-            .map_err(|e| NaviscopeError::Internal(format!("Serialization failed: {}", e)))?;
+        let bytes = graph.serialize()?;
 
         // Write to file atomically (write to temp, then rename)
         let temp_path = path.with_extension("tmp");

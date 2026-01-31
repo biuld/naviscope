@@ -1,10 +1,10 @@
-use super::view::{get_kind_weight, ShellNodeView, ShellNodeViewShort};
+use super::view::{ShellNodeView, ShellNodeViewShort, get_kind_weight};
 use clap::{Parser, ValueEnum};
 use naviscope_core::model::graph::{EdgeType, NodeKind};
 use naviscope_core::query::{GraphQuery, QueryResult};
 use shlex;
 use std::sync::Arc;
-use tabled::{settings::Style, Table};
+use tabled::{Table, settings::Style};
 
 /// Default limit for search results
 const DEFAULT_SEARCH_LIMIT: usize = 20;
@@ -44,7 +44,7 @@ impl From<CliNodeKind> for NodeKind {
             CliNodeKind::Dependency => NodeKind::Dependency,
             CliNodeKind::Task => NodeKind::Task,
             CliNodeKind::Plugin => NodeKind::Plugin,
-            CliNodeKind::Other => NodeKind::Custom("other".to_string()),
+            CliNodeKind::Other => NodeKind::Custom(Arc::from("other")),
         }
     }
 }
@@ -233,7 +233,7 @@ impl ShellCommand {
                         name: if is_container(node.kind.clone()) {
                             format!("{}/", node.name)
                         } else {
-                            node.name.clone()
+                            node.name.to_string()
                         },
                     })
                     .collect();
@@ -269,7 +269,7 @@ impl ShellCommand {
 
                         // Get feature provider based on node's language
                         use naviscope_core::project::source::Language;
-                        let lang = match node.lang.as_str() {
+                        let lang = match node.lang.as_ref() {
                             "java" => Language::Java,
                             _ => Language::BuildFile, // Default fallback
                         };

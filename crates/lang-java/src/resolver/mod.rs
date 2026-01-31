@@ -1,6 +1,7 @@
 use crate::model::{JavaElement, JavaPackage};
 use crate::parser::JavaParser;
 use naviscope_core::engine::CodeGraph;
+use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::Result;
 use naviscope_core::model::graph::{
     EdgeType, GraphEdge, GraphNode, GraphOp, NodeKind, ResolvedUnit,
@@ -13,7 +14,9 @@ use naviscope_core::query::CodeGraphLike;
 use naviscope_core::resolver::SemanticResolver;
 use naviscope_core::resolver::{LangResolver, ProjectContext};
 use petgraph::stable_graph::NodeIndex;
+use smol_str::SmolStr;
 use std::ops::ControlFlow;
+use std::sync::Arc;
 use tree_sitter::Tree;
 
 pub mod context;
@@ -173,7 +176,7 @@ impl SemanticResolver for JavaResolver {
         match resolution {
             SymbolResolution::Local(_, _) => vec![],
             SymbolResolution::Precise(fqn, intent) => {
-                if let Some(&idx) = index.fqn_map().get(fqn) {
+                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
                     if let Some(node) = index.topology().node_weight(idx) {
                         if *intent == SymbolIntent::Unknown || matches_intent(&node.kind(), *intent)
                         {
@@ -184,7 +187,7 @@ impl SemanticResolver for JavaResolver {
                 vec![]
             }
             SymbolResolution::Global(fqn) => {
-                if let Some(&idx) = index.fqn_map().get(fqn) {
+                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
                     return vec![idx];
                 }
                 vec![]
@@ -208,7 +211,7 @@ impl SemanticResolver for JavaResolver {
                 }
             }
             SymbolResolution::Precise(fqn, intent) => {
-                if let Some(&idx) = index.fqn_map().get(fqn) {
+                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
                     let node = &index.topology()[idx];
                     if let Ok(element) =
                         serde_json::from_value::<JavaElement>(node.metadata.clone())
@@ -242,7 +245,7 @@ impl SemanticResolver for JavaResolver {
                 }
             }
             SymbolResolution::Global(fqn) => {
-                if let Some(&idx) = index.fqn_map().get(fqn) {
+                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
                     let node = &index.topology()[idx];
                     if matches_intent(&node.kind(), SymbolIntent::Type) {
                         type_resolutions.push(resolution.clone());
@@ -354,10 +357,14 @@ impl LangResolver for JavaResolver {
 
         {
             // Scope for usage of parse_result
-            unit.identifiers = parse_result.identifiers.clone();
+            unit.identifiers = parse_result
+                .identifiers
+                .iter()
+                .map(|s| SmolStr::from(s))
+                .collect();
             unit.ops.push(GraphOp::UpdateIdentifiers {
-                path: file.file.path.clone(),
-                identifiers: parse_result.identifiers.clone(),
+                path: GLOBAL_POOL.intern_path(&file.file.path),
+                identifiers: unit.identifiers.clone(),
             });
 
             let module_id = context
@@ -372,10 +379,10 @@ impl LangResolver for JavaResolver {
                 };
 
                 let package_node = GraphNode {
-                    id: package_id.clone(),
-                    name: pkg_name.clone(),
+                    id: Arc::from(package_id.as_str()),
+                    name: SmolStr::from(pkg_name.as_str()),
                     kind: NodeKind::Package,
-                    lang: "java".to_string(),
+                    lang: Arc::from("java"),
                     location: None,
                     metadata: serde_json::to_value(JavaElement::Package(JavaPackage {
                         name: pkg_name.clone(),
@@ -384,11 +391,11 @@ impl LangResolver for JavaResolver {
                     .unwrap_or(serde_json::Value::Null),
                 };
 
-                unit.add_node(package_id.clone(), package_node);
+                unit.add_node(Arc::from(package_id.as_str()), package_node);
 
                 unit.add_edge(
-                    module_id.clone(),
-                    package_id.clone(),
+                    Arc::from(module_id.as_str()),
+                    Arc::from(package_id.as_str()),
                     GraphEdge::new(EdgeType::Contains),
                 );
 
@@ -451,11 +458,11 @@ impl LangResolver for JavaResolver {
                         serde_json::to_value(element).unwrap_or(serde_json::Value::Null);
                 }
 
-                unit.add_node(fqn.to_string(), node.clone());
+                unit.add_node(Arc::from(fqn), node.clone());
                 if self.is_top_level_node(&node) {
                     unit.add_edge(
-                        container_id.clone(),
-                        fqn.to_string(),
+                        Arc::from(container_id.as_str()),
+                        Arc::from(fqn),
                         GraphEdge::new(EdgeType::Contains),
                     );
                 }
@@ -516,7 +523,11 @@ impl LangResolver for JavaResolver {
                 }
 
                 let edge = GraphEdge::new(edge_type.clone());
-                unit.add_edge(source_fqn.clone(), resolved_target, edge);
+                unit.add_edge(
+                    Arc::from(source_fqn.as_str()),
+                    Arc::from(resolved_target.as_str()),
+                    edge,
+                );
             }
         }
 

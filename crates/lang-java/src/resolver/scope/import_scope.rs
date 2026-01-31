@@ -29,7 +29,7 @@ impl SemanticScope<ResolutionContext<'_>> for ImportScope<'_> {
                         context
                             .index
                             .fqn_map()
-                            .contains_key(&candidate)
+                            .contains_key(candidate.as_str())
                             .then_some(candidate)
                     })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))

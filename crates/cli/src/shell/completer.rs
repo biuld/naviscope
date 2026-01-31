@@ -77,7 +77,7 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
                         .keys()
                         .filter(|fqn| fqn.starts_with(last_word))
                         .take(20) // Reduced from 50 to 20 for global search
-                        .cloned()
+                        .map(|s| s.to_string())
                         .collect();
 
                     for fqn in matches {

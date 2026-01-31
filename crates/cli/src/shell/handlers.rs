@@ -135,7 +135,7 @@ impl CommandHandler for GenericQueryHandler {
             if let Some(target) = resolved_target_fqn {
                 // Check if node itself exists in the graph
                 let graph = context.graph();
-                if graph.fqn_map().contains_key(&target) {
+                if graph.fqn_map().contains_key(target.as_str()) {
                     return Ok(format!(
                         "Node '{}' exists but has no children/relationships matching your criteria.",
                         target

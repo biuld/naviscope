@@ -132,7 +132,7 @@ impl ShellContext {
 
         if let Some(c) = current_fqn {
             // Graph-based parent lookup
-            if let Some(&idx) = graph.fqn_map().get(c) {
+            if let Some(&idx) = graph.fqn_map().get(c.as_str()) {
                 let mut incoming = graph
                     .topology()
                     .neighbors_directed(idx, petgraph::Direction::Incoming)

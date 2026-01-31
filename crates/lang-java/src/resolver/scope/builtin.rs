@@ -22,7 +22,7 @@ impl SemanticScope<ResolutionContext<'_>> for BuiltinScope<'_> {
             .resolve_type_name_to_fqn_data(name, context.package.as_deref(), &context.imports)
             .and_then(|fqn| {
                 // Only return if it's a known FQN or a primitive or java.lang
-                if context.index.fqn_map().contains_key(&fqn)
+                if context.index.fqn_map().contains_key(fqn.as_str())
                     || fqn.starts_with("java.lang.")
                     || !fqn.contains('.')
                 {

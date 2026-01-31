@@ -13,6 +13,7 @@ pub mod engine;
 pub mod graph;
 pub mod handle;
 pub mod language_service;
+pub mod storage;
 
 pub use builder::CodeGraphBuilder;
 pub use engine::NaviscopeEngine;

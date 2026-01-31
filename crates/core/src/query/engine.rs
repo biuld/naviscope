@@ -4,6 +4,9 @@ use crate::query::dsl::GraphQuery;
 use crate::query::model::{QueryResult, QueryResultEdge};
 use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
+use smol_str::SmolStr;
+use std::path::Path;
+use std::sync::Arc;
 
 // Trait to abstract over different CodeGraph implementations
 pub trait CodeGraphLike: Send + Sync {
@@ -13,10 +16,9 @@ pub trait CodeGraphLike: Send + Sync {
         crate::model::graph::GraphNode,
         crate::model::graph::GraphEdge,
     >;
-    fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex>;
-    fn path_to_nodes(&self, path: &std::path::Path)
-    -> Option<&[petgraph::stable_graph::NodeIndex]>;
-    fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>>;
+    fn fqn_map(&self) -> &std::collections::HashMap<Arc<str>, petgraph::stable_graph::NodeIndex>;
+    fn path_to_nodes(&self, path: &Path) -> Option<&[petgraph::stable_graph::NodeIndex]>;
+    fn reference_index(&self) -> &std::collections::HashMap<SmolStr, Vec<Arc<Path>>>;
     fn find_container_node_at(
         &self,
         path: &std::path::Path,
@@ -36,18 +38,15 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
         (*self).topology()
     }
 
-    fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex> {
+    fn fqn_map(&self) -> &std::collections::HashMap<Arc<str>, petgraph::stable_graph::NodeIndex> {
         (*self).fqn_map()
     }
 
-    fn path_to_nodes(
-        &self,
-        path: &std::path::Path,
-    ) -> Option<&[petgraph::stable_graph::NodeIndex]> {
+    fn path_to_nodes(&self, path: &Path) -> Option<&[petgraph::stable_graph::NodeIndex]> {
         (*self).path_to_nodes(path)
     }
 
-    fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>> {
+    fn reference_index(&self) -> &std::collections::HashMap<SmolStr, Vec<Arc<Path>>> {
         (*self).reference_index()
     }
 
@@ -72,18 +71,15 @@ impl CodeGraphLike for crate::engine::CodeGraph {
         self.topology()
     }
 
-    fn fqn_map(&self) -> &std::collections::HashMap<String, petgraph::stable_graph::NodeIndex> {
+    fn fqn_map(&self) -> &std::collections::HashMap<Arc<str>, petgraph::stable_graph::NodeIndex> {
         self.fqn_map()
     }
 
-    fn path_to_nodes(
-        &self,
-        path: &std::path::Path,
-    ) -> Option<&[petgraph::stable_graph::NodeIndex]> {
+    fn path_to_nodes(&self, path: &Path) -> Option<&[petgraph::stable_graph::NodeIndex]> {
         self.file_index().get(path).map(|e| e.nodes.as_slice())
     }
 
-    fn reference_index(&self) -> &std::collections::HashMap<String, Vec<std::path::PathBuf>> {
+    fn reference_index(&self) -> &std::collections::HashMap<SmolStr, Vec<Arc<Path>>> {
         self.reference_index()
     }
 
@@ -209,7 +205,7 @@ impl<G: CodeGraphLike> QueryEngine<G> {
                 }
             }
             GraphQuery::Cat { fqn } => {
-                if let Some(&idx) = self.graph.fqn_map().get(fqn) {
+                if let Some(&idx) = self.graph.fqn_map().get(fqn.as_str()) {
                     let node = &self.graph.topology()[idx];
                     Ok(QueryResult::new(vec![node.clone()], vec![]))
                 } else {
@@ -226,7 +222,7 @@ impl<G: CodeGraphLike> QueryEngine<G> {
                 } else {
                     PetDirection::Outgoing
                 };
-                self.traverse_neighbors(fqn, edge_types, direction, &[])
+                self.traverse_neighbors(fqn.as_str(), edge_types, direction, &[])
             }
         }
     }
@@ -269,15 +265,9 @@ impl<G: CodeGraphLike> QueryEngine<G> {
                     nodes.push(neighbor_node.clone());
 
                     let (from, to) = if dir == PetDirection::Outgoing {
-                        (
-                            start_node.fqn().to_string(),
-                            neighbor_node.fqn().to_string(),
-                        )
+                        (start_node.id.clone(), neighbor_node.id.clone())
                     } else {
-                        (
-                            neighbor_node.fqn().to_string(),
-                            start_node.fqn().to_string(),
-                        )
+                        (neighbor_node.id.clone(), start_node.id.clone())
                     };
 
                     edges_result.push(QueryResultEdge {

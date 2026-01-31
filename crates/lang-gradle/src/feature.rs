@@ -12,7 +12,7 @@ impl GradleFeatureProvider {
 
 impl LanguageFeatureProvider for GradleFeatureProvider {
     fn detail_view(&self, node: &GraphNode) -> Option<String> {
-        if node.lang != "buildfile" {
+        if node.lang.as_ref() != "buildfile" {
             return None;
         }
 
@@ -36,7 +36,7 @@ impl LanguageFeatureProvider for GradleFeatureProvider {
     }
 
     fn signature(&self, node: &GraphNode) -> Option<String> {
-        if node.lang != "buildfile" {
+        if node.lang.as_ref() != "buildfile" {
             return None;
         }
 

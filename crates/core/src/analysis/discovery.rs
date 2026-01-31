@@ -2,7 +2,6 @@ use crate::parser::{LspParser, SymbolResolution};
 use crate::query::CodeGraphLike;
 use lsp_types::{Location, Url};
 use std::collections::HashSet;
-use std::path::PathBuf;
 
 /// DiscoveryEngine bridges Meso-level graph knowledge with Micro-level file scanning.
 pub struct DiscoveryEngine<'a> {
@@ -16,32 +15,35 @@ impl<'a> DiscoveryEngine<'a> {
 
     /// Meso-level: Scout for candidate files that likely contain references to the given nodes.
     /// Returns a set of unique file paths.
-    /// 
+    ///
     /// Strategy:
     /// 1. Extract all possible identifier tokens from node's FQN and name
     /// 2. Use reference_index (inverted index) to quickly find candidate files containing these tokens
-    /// 
+    ///
     /// Note: This relies on reference_index which contains all identifier tokens found during parsing.
     /// The actual reference verification is done at micro-level using tree-sitter parsing.
-    pub fn scout_references(&self, matches: &[petgraph::prelude::NodeIndex]) -> HashSet<PathBuf> {
+    pub fn scout_references(
+        &self,
+        matches: &[petgraph::prelude::NodeIndex],
+    ) -> HashSet<std::path::PathBuf> {
         let mut unique_paths = HashSet::new();
         let topology = self.index.topology();
         let ref_index = self.index.reference_index();
 
         for &node_idx in matches {
             let node = &topology[node_idx];
-            
+
             // 1. Reference Index "Scouting" - Extract all identifier tokens from FQN
             // For a node like "com.example.UserService.login", we want to search for:
             // - "login" (method name)
             // - "UserService" (class name)
             // - "example" (package name segment, optional)
             let tokens_to_search = Self::extract_identifier_tokens(node);
-            
+
             for token in tokens_to_search {
-                if let Some(paths) = ref_index.get(&token) {
+                if let Some(paths) = ref_index.get(token.as_str()) {
                     for p in paths {
-                        unique_paths.insert(p.clone());
+                        unique_paths.insert(p.to_path_buf());
                     }
                 }
             }
@@ -53,13 +55,13 @@ impl<'a> DiscoveryEngine<'a> {
     /// This helps maximize the effectiveness of reference_index lookup.
     fn extract_identifier_tokens(node: &crate::model::graph::GraphNode) -> Vec<String> {
         let mut tokens = Vec::new();
-        
+
         // Always include the node's simple name (e.g., "login" for a method)
         tokens.push(node.name().to_string());
-        
+
         // Extract tokens from FQN (e.g., "com.example.UserService.login")
         let fqn = node.fqn();
-        
+
         // Split by common separators: '.', '::', '#'
         // For Java: "com.example.UserService.login" -> ["com", "example", "UserService", "login"]
         // For modules: "module::root" -> ["module", "root"]
@@ -67,7 +69,7 @@ impl<'a> DiscoveryEngine<'a> {
             .split(|c| c == '.' || c == '#' || c == ':')
             .filter(|s| !s.is_empty())
             .collect();
-        
+
         // Add all parts as potential tokens (but skip duplicates)
         for part in parts {
             let part_str = part.to_string();
@@ -75,7 +77,7 @@ impl<'a> DiscoveryEngine<'a> {
                 tokens.push(part_str);
             }
         }
-        
+
         tokens
     }
 

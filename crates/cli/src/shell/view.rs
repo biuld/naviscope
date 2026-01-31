@@ -50,7 +50,7 @@ impl ShellNodeView {
         let name = if is_container {
             format!("{}/", node.name)
         } else {
-            node.name.clone()
+            node.name.to_string()
         };
 
         // Use feature provider to get signature

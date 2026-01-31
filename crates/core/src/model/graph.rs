@@ -2,7 +2,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::project::source::Language;
-use std::path::PathBuf;
+use smol_str::SmolStr;
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
 pub struct Range {
@@ -46,7 +48,11 @@ pub enum NodeKind {
     Task,
     Plugin,
     // Extension
-    Custom(String),
+    Custom(
+        #[serde(with = "crate::util::serde_arc_str")]
+        #[schemars(with = "String")]
+        Arc<str>,
+    ),
 }
 
 impl From<&str> for NodeKind {
@@ -66,7 +72,7 @@ impl From<&str> for NodeKind {
             "dependency" => NodeKind::Dependency,
             "task" => NodeKind::Task,
             "plugin" => NodeKind::Plugin,
-            _ => NodeKind::Custom(s.to_string()),
+            _ => NodeKind::Custom(Arc::from(s)),
         }
     }
 }
@@ -88,18 +94,23 @@ impl ToString for NodeKind {
             NodeKind::Dependency => "dependency".to_string(),
             NodeKind::Task => "task".to_string(),
             NodeKind::Plugin => "plugin".to_string(),
-            NodeKind::Custom(s) => s.clone(),
+            NodeKind::Custom(s) => s.to_string(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct GraphNode {
     // --- Identity ---
-    pub id: String,     // Unique Identifier (FQN)
-    pub name: String,   // Short display name
+    #[serde(with = "crate::util::serde_arc_str")]
+    #[schemars(with = "String")]
+    pub id: Arc<str>, // Unique Identifier (FQN)
+    #[schemars(with = "String")]
+    pub name: SmolStr, // Short display name
     pub kind: NodeKind, // Abstract categorization
-    pub lang: String,   // Language identifier ("java", "rust", "buildfile")
+    #[serde(with = "crate::util::serde_arc_str")]
+    #[schemars(with = "String")]
+    pub lang: Arc<str>, // Language identifier ("java", "rust", "buildfile")
 
     // --- Physical Location ---
     pub location: Option<NodeLocation>,
@@ -115,14 +126,16 @@ fn empty_metadata() -> serde_json::Value {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
 pub struct NodeLocation {
-    pub path: PathBuf,
+    #[serde(with = "crate::util::serde_arc_path")]
+    #[schemars(with = "String")]
+    pub path: Arc<Path>,
     pub range: Range,
     pub selection_range: Option<Range>, // Range of the identifier
 }
 
 impl GraphNode {
     pub fn language(&self) -> Language {
-        match self.lang.as_str() {
+        match self.lang.as_ref() {
             "java" => Language::Java,
             _ => Language::BuildFile,
         }
@@ -140,8 +153,8 @@ impl GraphNode {
         self.kind.clone()
     }
 
-    pub fn file_path(&self) -> Option<&PathBuf> {
-        self.location.as_ref().map(|l| &l.path)
+    pub fn file_path(&self) -> Option<&Path> {
+        self.location.as_ref().map(|l| l.path.as_ref())
     }
 
     pub fn range(&self) -> Option<&Range> {
@@ -155,23 +168,32 @@ impl GraphNode {
     }
 }
 
-/// Graph operation commands that can be computed in parallel
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GraphOp {
     /// Add or update a node
-    AddNode { id: String, data: GraphNode },
+    AddNode {
+        #[serde(with = "crate::util::serde_arc_str")]
+        id: Arc<str>,
+        data: GraphNode,
+    },
     /// Add an edge between two nodes (referenced by their IDs)
     AddEdge {
-        from_id: String,
-        to_id: String,
+        #[serde(with = "crate::util::serde_arc_str")]
+        from_id: Arc<str>,
+        #[serde(with = "crate::util::serde_arc_str")]
+        to_id: Arc<str>,
         edge: GraphEdge,
     },
     /// Remove all nodes and edges associated with a specific file path
-    RemovePath { path: PathBuf },
+    RemovePath {
+        #[serde(with = "crate::util::serde_arc_path")]
+        path: Arc<Path>,
+    },
     /// Update the reference index for a specific file
     UpdateIdentifiers {
-        path: PathBuf,
-        identifiers: Vec<String>,
+        #[serde(with = "crate::util::serde_arc_path")]
+        path: Arc<Path>,
+        identifiers: Vec<SmolStr>,
     },
     /// Update file metadata (hash, mtime)
     UpdateFile {
@@ -185,9 +207,9 @@ pub struct ResolvedUnit {
     /// The operations needed to integrate this file into the graph
     pub ops: Vec<GraphOp>,
     /// Fast access to nodes being added in this unit
-    pub nodes: std::collections::HashMap<String, GraphNode>,
+    pub nodes: std::collections::HashMap<Arc<str>, GraphNode>,
     /// All unique identifier tokens in this file
-    pub identifiers: Vec<String>,
+    pub identifiers: Vec<SmolStr>,
 }
 
 impl ResolvedUnit {
@@ -199,12 +221,12 @@ impl ResolvedUnit {
         }
     }
 
-    pub fn add_node(&mut self, id: String, data: GraphNode) {
+    pub fn add_node(&mut self, id: Arc<str>, data: GraphNode) {
         self.nodes.insert(id.clone(), data.clone());
         self.ops.push(GraphOp::AddNode { id, data });
     }
 
-    pub fn add_edge(&mut self, from_id: String, to_id: String, edge: GraphEdge) {
+    pub fn add_edge(&mut self, from_id: Arc<str>, to_id: Arc<str>, edge: GraphEdge) {
         self.ops.push(GraphOp::AddEdge {
             from_id,
             to_id,

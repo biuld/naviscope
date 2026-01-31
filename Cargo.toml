@@ -52,3 +52,5 @@ axum = { version = "0.7.5", features = ["ws"] }
 futures = "0.3.31"
 tokio-tungstenite = "0.28.0"
 rmcp = { version = "0.13.0", features = ["macros", "server", "transport-io"] }
+smol_str = { version = "0.3.2", features = ["serde"] }
+zstd = "0.13"

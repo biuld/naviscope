@@ -5,11 +5,13 @@
 //! to an immutable `CodeGraph` via the `build()` method.
 
 use super::graph::{CodeGraph, CodeGraphInner};
+use crate::engine::storage::GLOBAL_POOL;
 use crate::model::graph::{GraphEdge, GraphNode, GraphOp};
 use crate::project::source::SourceFile;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
+use std::sync::Arc;
 
 /// Mutable graph builder
 pub struct CodeGraphBuilder {
@@ -44,13 +46,13 @@ impl CodeGraphBuilder {
     // ---- Mutation methods ----
 
     /// Add or update a node
-    pub fn add_node(&mut self, fqn: String, node: GraphNode) -> NodeIndex {
+    pub fn add_node(&mut self, fqn: Arc<str>, node: GraphNode) -> NodeIndex {
         if let Some(&idx) = self.inner.fqn_index.get(&fqn) {
             // Node already exists, optionally update it
             idx
         } else {
-            let name = node.name().to_string();
-            let path = node.file_path().cloned();
+            let name = node.name.clone();
+            let path = node.file_path().map(|p| GLOBAL_POOL.intern_path(p));
 
             let idx = self.inner.topology.add_node(node);
             self.inner.fqn_index.insert(fqn, idx);
@@ -61,8 +63,8 @@ impl CodeGraphBuilder {
                     .file_index
                     .entry(p.clone())
                     .and_modify(|e| e.nodes.push(idx))
-                    .or_insert(crate::engine::graph::FileEntry {
-                        metadata: SourceFile::new(p, 0, 0),
+                    .or_insert_with(|| crate::engine::graph::FileEntry {
+                        metadata: crate::project::source::SourceFile::new(p.to_path_buf(), 0, 0),
                         nodes: vec![idx],
                     });
             }
@@ -88,8 +90,8 @@ impl CodeGraphBuilder {
     /// Remove a node
     pub fn remove_node(&mut self, idx: NodeIndex) {
         if let Some(node) = self.inner.topology.node_weight(idx) {
-            let fqn = node.fqn().to_string();
-            let name = node.name().to_string();
+            let fqn = node.id.clone();
+            let name = node.name.clone();
 
             // Remove from indices
             self.inner.fqn_index.remove(&fqn);
@@ -107,8 +109,9 @@ impl CodeGraphBuilder {
     }
 
     /// Remove all nodes associated with a file path
-    pub fn remove_path(&mut self, path: &PathBuf) {
-        if let Some(entry) = self.inner.file_index.remove(path) {
+    pub fn remove_path(&mut self, path: &Path) {
+        let interned_path = GLOBAL_POOL.intern_path(path);
+        if let Some(entry) = self.inner.file_index.remove(&interned_path) {
             for idx in entry.nodes {
                 self.remove_node(idx);
             }
@@ -116,15 +119,16 @@ impl CodeGraphBuilder {
 
         // Also remove from reference_index
         for files in self.inner.reference_index.values_mut() {
-            files.retain(|p| p != path);
+            files.retain(|p| p.as_ref() != path);
         }
     }
 
     /// Update file metadata (creates or updates FileEntry)
-    pub fn update_file(&mut self, path: PathBuf, source: SourceFile) {
+    pub fn update_file(&mut self, path: &Path, source: SourceFile) {
+        let interned_path = GLOBAL_POOL.intern_path(path);
         self.inner
             .file_index
-            .entry(path)
+            .entry(interned_path)
             .and_modify(|e| e.metadata = source.clone())
             .or_insert(crate::engine::graph::FileEntry {
                 metadata: source,
@@ -162,7 +166,8 @@ impl CodeGraphBuilder {
                 }
             }
             GraphOp::UpdateFile { metadata } => {
-                self.update_file(metadata.path.clone(), metadata);
+                let path = GLOBAL_POOL.intern_path(&metadata.path);
+                self.update_file(&path, metadata);
             }
         }
         Ok(())
@@ -192,21 +197,22 @@ impl Default for CodeGraphBuilder {
 mod tests {
     use super::*;
     use crate::model::graph::NodeKind;
+    use smol_str::SmolStr;
 
     #[test]
     fn test_build_from_scratch() {
         let mut builder = CodeGraphBuilder::new();
 
         let node = GraphNode {
-            id: "test_project".to_string(),
-            name: "test_project".to_string(),
+            id: Arc::from("test_project"),
+            name: SmolStr::from("test_project"),
             kind: NodeKind::Project,
-            lang: "buildfile".to_string(),
+            lang: Arc::from("buildfile"),
             location: None,
             metadata: serde_json::Value::Null,
         };
 
-        let _idx = builder.add_node("test_project".to_string(), node);
+        let _idx = builder.add_node(Arc::from("test_project"), node);
         let graph = builder.build();
 
         assert_eq!(graph.node_count(), 1);
@@ -221,15 +227,15 @@ mod tests {
         let mut builder = CodeGraphBuilder::from_graph(&graph);
 
         let node = GraphNode {
-            id: "new_project".to_string(),
-            name: "new_project".to_string(),
+            id: Arc::from("new_project"),
+            name: SmolStr::from("new_project"),
             kind: NodeKind::Project,
-            lang: "buildfile".to_string(),
+            lang: Arc::from("buildfile"),
             location: None,
             metadata: serde_json::Value::Null,
         };
 
-        builder.add_node("new_project".to_string(), node);
+        builder.add_node(Arc::from("new_project"), node);
         let updated = builder.build();
 
         assert_eq!(updated.node_count(), 1);

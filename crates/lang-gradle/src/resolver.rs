@@ -1,10 +1,15 @@
 use crate::model::{GradleElement, GradleModule};
+use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::Result;
-use naviscope_core::model::graph::{EdgeType, GraphEdge, GraphNode, NodeKind, ResolvedUnit};
+use naviscope_core::model::graph::{
+    EdgeType, GraphEdge, GraphNode, NodeKind, NodeLocation, Range, ResolvedUnit,
+};
 use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
 use naviscope_core::resolver::{BuildResolver, ProjectContext};
+use smol_str::SmolStr;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub struct GradleResolver;
 
@@ -115,15 +120,15 @@ impl BuildResolver for GradleResolver {
 
         // Add Project node
         unit.add_node(
-            project_id.clone(),
+            Arc::from(project_id.as_str()),
             GraphNode {
-                id: project_id.clone(),
-                name: project_name.clone(),
+                id: Arc::from(project_id.as_str()),
+                name: SmolStr::from(project_name.as_str()),
                 kind: NodeKind::Project,
-                lang: "buildfile".to_string(),
-                location: Some(naviscope_core::model::graph::NodeLocation {
-                    path: root_path.clone(),
-                    range: naviscope_core::model::graph::Range {
+                lang: Arc::from("buildfile"),
+                location: Some(NodeLocation {
+                    path: GLOBAL_POOL.intern_path(&root_path),
+                    range: Range {
                         start_line: 0,
                         start_col: 0,
                         end_line: 0,
@@ -176,12 +181,12 @@ impl BuildResolver for GradleResolver {
                 .unwrap_or(&project_name);
 
             unit.add_node(
-                root_module_id.clone(),
+                Arc::from(root_module_id.as_str()),
                 GraphNode {
-                    id: root_module_id.clone(),
-                    name: display_name.to_string(),
+                    id: Arc::from(root_module_id.as_str()),
+                    name: SmolStr::from(display_name),
                     kind: NodeKind::Module,
-                    lang: "buildfile".to_string(),
+                    lang: Arc::from("buildfile"),
                     location: data
                         .build_file
                         .as_ref()
@@ -191,9 +196,9 @@ impl BuildResolver for GradleResolver {
                                 .as_ref()
                                 .map(|(f, _)| f.file.path.clone())
                         })
-                        .map(|path| naviscope_core::model::graph::NodeLocation {
-                            path,
-                            range: naviscope_core::model::graph::Range {
+                        .map(|path| NodeLocation {
+                            path: GLOBAL_POOL.intern_path(&path),
+                            range: Range {
                                 start_line: 0,
                                 start_col: 0,
                                 end_line: 0,
@@ -210,8 +215,8 @@ impl BuildResolver for GradleResolver {
             );
 
             unit.add_edge(
-                project_id.clone(),
-                root_module_id.clone(),
+                Arc::from(project_id.as_str()),
+                Arc::from(root_module_id.as_str()),
                 GraphEdge::new(EdgeType::Contains),
             );
 
@@ -231,12 +236,12 @@ impl BuildResolver for GradleResolver {
             let display_name = id.split("::module:").nth(1).unwrap_or(id);
 
             unit.add_node(
-                id.clone(),
+                Arc::from(id.as_str()),
                 GraphNode {
-                    id: id.clone(),
-                    name: display_name.to_string(),
+                    id: Arc::from(id.as_str()),
+                    name: SmolStr::from(display_name),
                     kind: NodeKind::Module,
-                    lang: "buildfile".to_string(),
+                    lang: Arc::from("buildfile"),
                     location: data
                         .build_file
                         .as_ref()
@@ -246,9 +251,9 @@ impl BuildResolver for GradleResolver {
                                 .as_ref()
                                 .map(|(f, _)| f.file.path.clone())
                         })
-                        .map(|path| naviscope_core::model::graph::NodeLocation {
-                            path,
-                            range: naviscope_core::model::graph::Range {
+                        .map(|path| NodeLocation {
+                            path: GLOBAL_POOL.intern_path(&path),
+                            range: Range {
                                 start_line: 0,
                                 start_col: 0,
                                 end_line: 0,
@@ -274,8 +279,8 @@ impl BuildResolver for GradleResolver {
                 let normalized_p = self.normalize_path(p);
                 if let Some(parent_id) = path_to_id.get(&normalized_p) {
                     unit.add_edge(
-                        parent_id.clone(),
-                        id.clone(),
+                        Arc::from(parent_id.as_str()),
+                        Arc::from(id.as_str()),
                         GraphEdge::new(EdgeType::Contains),
                     );
                     found_parent = true;
@@ -290,8 +295,8 @@ impl BuildResolver for GradleResolver {
             // Fallback: link to root module if no parent found
             if !found_parent && path.starts_with(&root_path) {
                 unit.add_edge(
-                    root_module_id.clone(),
-                    id.clone(),
+                    Arc::from(root_module_id.as_str()),
+                    Arc::from(id.as_str()),
                     GraphEdge::new(EdgeType::Contains),
                 );
             }
@@ -319,15 +324,17 @@ impl BuildResolver for GradleResolver {
                         let mut dep_node = dep.clone();
                         dep_node.id = target_id.clone();
                         unit.add_node(
-                            target_id.clone(),
+                            Arc::from(target_id.as_str()),
                             GraphNode {
-                                id: target_id.clone(),
-                                name: dep_node.name.clone(),
+                                id: Arc::from(target_id.as_str()),
+                                name: SmolStr::from(dep_node.name.as_str()),
                                 kind: NodeKind::Dependency,
-                                lang: "buildfile".to_string(),
-                                location: Some(naviscope_core::model::graph::NodeLocation {
-                                    path: data.build_file.as_ref().unwrap().0.file.path.clone(),
-                                    range: naviscope_core::model::graph::Range {
+                                lang: Arc::from("buildfile"),
+                                location: Some(NodeLocation {
+                                    path: GLOBAL_POOL.intern_path(
+                                        &data.build_file.as_ref().unwrap().0.file.path,
+                                    ),
+                                    range: Range {
                                         start_line: 0,
                                         start_col: 0,
                                         end_line: 0,
@@ -342,8 +349,8 @@ impl BuildResolver for GradleResolver {
                     }
 
                     unit.add_edge(
-                        id.clone(),
-                        target_id,
+                        Arc::from(id.as_str()),
+                        Arc::from(target_id.as_str()),
                         GraphEdge::new(EdgeType::UsesDependency),
                     );
                 }
@@ -423,7 +430,7 @@ mod tests {
                 } = op
                 {
                     if edge.edge_type == EdgeType::Contains {
-                        Some((from_id.as_str(), to_id.as_str()))
+                        Some((from_id.as_ref(), to_id.as_ref()))
                     } else {
                         None
                     }
