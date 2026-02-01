@@ -2,7 +2,7 @@
 
 **Unified Code Knowledge Graph Engine for AI Agents & Developers**
 
-Naviscope bridges the gap between AI and IDEs. It builds a comprehensive, graph-based representation of your codebase (connecting micro-level semantics like calls and inheritance with macro-level structures) that powers both **LLM agents** (via MCP) and **code editors** (via LSP).
+Naviscope bridges the gap between AI and IDEs. It builds a comprehensive, graph-based representation of your codebase (connecting micro-level semantics like type relationships and inheritance with macro-level structures) that powers both **LLM agents** (via MCP) and **code editors** (via LSP).
 
 Unlike traditional tools that maintain separate indexes for different purposes, Naviscope provides a **single, unified knowledge graph**, ensuring that what AI agents see is exactly what developers navigate.
 
@@ -20,10 +20,11 @@ Unlike traditional tools that maintain separate indexes for different purposes, 
 ### 🤖 For AI Agents (MCP Support)
 Naviscope implements the [Model Context Protocol](https://modelcontextprotocol.io/), giving LLMs "X-ray vision" into your code structure.
 
+- **`get_guide`**: Call this first! Get a comprehensive guide on how to use Naviscope tools.
 - **`ls`**: Hierarchical exploration of packages, modules, and fields.
-- **`grep`**: Precise symbol search (find "Class definitions", not just string matches).
-- **`inspect`**: Retrieve definition, source code, and metadata for any symbol.
-- **`deps`**: Analyze incoming/outgoing dependencies and call graphs.
+- **`find`**: Precise symbol search (find "Class definitions", not just string matches).
+- **`cat`**: Retrieve definition, source code, and metadata for any symbol.
+- **`deps`**: Analyze incoming/outgoing dependencies and relationships (inheritance, type usage, etc.).
 
 ### 👨‍💻 For Developers (LSP Support)
 A lightweight, lightning-fast alternative to standard language servers (like JDTLS).
@@ -38,61 +39,79 @@ A lightweight, lightning-fast alternative to standard language servers (like JDT
 ```mermaid
 graph TD
     %% Styles
-    classDef layer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:5,ry:5
-    classDef component fill:#fff,stroke:#333,stroke-width:1px
-    classDef storage fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:5,ry:5
+    classDef interface fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:5,ry:5
+    classDef runtime fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,rx:5,ry:5
+    classDef language fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,rx:5,ry:5
+    classDef core fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:5,ry:5
+    classDef api fill:#fafafa,stroke:#616161,stroke-width:2px,rx:5,ry:5
 
-    subgraph Access [Interfaces Layer]
-        direction LR
-        CLI[CLI Shell]:::component
-        MCP["MCP Server<br/>(AI Agents)"]:::component
-        LSP["LSP Server<br/>(Editors)"]:::component
+    subgraph Interfaces [Interface Layer]
+        CLI["naviscope-cli<br/>(Shell & Main)"]:::interface
+        LSP["naviscope-lsp<br/>(LSP Server)"]:::interface
+        MCP["naviscope-mcp<br/>(MCP Server)"]:::interface
     end
 
-    subgraph Service [Query & Analysis Layer]
-        direction LR
-        Query[Query Engine]:::component
-        Search[Semantic Search]:::component
-        Deps[Dependency Analysis]:::component
+    subgraph Orchestration [Runtime Layer]
+        Runtime["naviscope-runtime<br/>(Engine Orchestrator)"]:::runtime
     end
 
-    subgraph Core [Core Knowledge Graph]
-        direction LR
-        Graph["Unified Graph<br/>(petgraph)"]:::component
-        Index["Symbol Index"]:::component
+    subgraph Strategies [Language Layer]
+        Java["naviscope-java<br/>(Java Analysis)"]:::language
+        Gradle["naviscope-gradle<br/>(Gradle Analysis)"]:::language
     end
 
-    subgraph Ingestion [Ingestion Layer]
-        direction LR
-        Scanner[File Scanner]:::component
-        Parser["Parsers<br/>(Tree-sitter)"]:::component
-        Resolver["Symbol Resolver<br/>(Java/Gradle)"]:::component
+    subgraph Engine [Core Layer]
+        Core["naviscope-core<br/>(Graph, Index & IO)"]:::core
     end
 
-    subgraph Infra [Infrastructure]
-        direction LR
-        Store[("Persistence")]:::storage
-        Watch[File Watcher]:::component
+    subgraph Foundation [API Layer]
+        API["naviscope-api<br/>(Common Traits & Models)"]:::api
     end
 
-    %% Connections
-    CLI --> Query
-    MCP --> Query
-    LSP --> Query
+    %% Crate Dependencies
+    CLI --> LSP
+    CLI --> MCP
+    CLI --> Runtime
+    CLI --> API
 
-    Query --> Graph
-    Search --> Graph
-    Deps --> Graph
+    LSP --> MCP
+    LSP --> API
 
-    Scanner --> Parser
-    Parser --> Resolver
-    Resolver --> Graph
+    MCP --> API
 
-    Graph -.-> Store
-    Watch -.-> Scanner
+    Runtime --> Java
+    Runtime --> Gradle
+    Runtime --> Core
+    Runtime --> API
+
+    Java --> Core
+    Java --> API
+
+    Gradle --> Core
+    Gradle --> API
+
+    Core --> API
 ```
 
-Naviscope is built on a **layered architecture** that separates ingestion, core graph logic, and external interfaces. The core is a language-agnostic graph structure populated by language-specific strategies (currently Java/Gradle via Tree-sitter), exposing a unified query engine to both AI agents and developer tools.
+Naviscope is built on a **layered crate architecture** that separates concerns across multiple Rust crates:
+
+- **Interface Layer** (`naviscope-cli`, `naviscope-lsp`, `naviscope-mcp`): Entry points for different use cases (CLI shell, LSP for editors, MCP for AI agents).
+- **Runtime Layer** (`naviscope-runtime`): Orchestrates the engine assembly, registering language plugins and providing a unified factory.
+- **Language Layer** (`naviscope-java`, `naviscope-gradle`): Language-specific analysis plugins that parse and resolve symbols.
+- **Core Layer** (`naviscope-core`): The heart of the system - graph storage, indexing, file scanning, and persistence.
+- **API Layer** (`naviscope-api`): Common traits and models shared across all crates, ensuring a consistent interface.
+
+The core is a language-agnostic graph structure populated by language-specific strategies (currently Java/Gradle via Tree-sitter), exposing a unified query engine to both AI agents and developer tools.
+
+### 🔍 Reference Discovery Strategy
+
+Naviscope uses a **two-phase reference discovery** approach for optimal performance:
+
+1. **Meso-level (Coarse Filtering)**: Uses an inverted `reference_index` (token → files) to quickly identify candidate files that likely contain references to a symbol. This index is built during parsing by extracting all identifier tokens from source files.
+
+2. **Micro-level (Precise Analysis)**: For each candidate file, uses Tree-sitter to parse and verify actual symbol occurrences, ensuring accurate reference locations.
+
+This hybrid approach combines the speed of inverted indexing with the precision of syntax-aware parsing, enabling fast reference discovery even in large codebases.
 
 ## 🚀 Quick Start
 
@@ -109,7 +128,7 @@ cd naviscope
 git submodule update --init --recursive
 
 # 2. Install the Naviscope CLI
-cargo install --path .
+cargo install --path crates/cli
 
 # 3. (Optional) Build the VS Code Extension
 cd editors/vscode
@@ -124,6 +143,10 @@ npm run package
 - `naviscope index <PATH>`: Build a persistent index for a project.
 - `naviscope shell [PATH]`: Start an interactive shell to query the graph.
 - `naviscope watch <PATH>`: Start a background service to keep the index updated.
+- `naviscope clear [PATH]`: Clear built indices (or all indices if path omitted).
+- `naviscope mcp`: Start the MCP server.
+- `naviscope lsp`: Start the LSP server.
+
 #### Configure in Cursor (for AI Agents)
 1.  Open **Cursor Settings** (Cmd + Shift + J) -> **Features** -> **MCP**.
 2.  Click **+ Add New MCP Server**.
@@ -136,23 +159,47 @@ npm run package
 - **VS Code**: Install the extension built in step 3.
 - **Other Clients**: Point your LSP client to run `naviscope lsp`.
 
-## 🛠️ Query DSL Examples
+## 🛠️ Query DSL (Interactive Shell)
 
-Whether using the CLI shell or MCP tools, the query logic is consistent:
+The `naviscope shell` provides a Unix-like experience for exploring the Code Knowledge Graph:
 
 ```bash
-# Find all classes named 'UserService'
-grep "UserService" --kind class
+# Change current context to a package or class
+cd "com.example.service"
 
-# List contents of a package
-ls "com.example.service"
+# List members in current context
+ls
+
+# List with detailed information
+ls -l
+
+# Find all classes named 'UserService'
+find "UserService" --kind class
 
 # Inspect full details of a symbol (source code, metadata)
-cat "com.example.service.UserService"
+cat "UserService"
 
-# Who calls 'login'? (Incoming dependencies / Reverse lookups)
-deps --rev "com.example.auth.AuthService.login"
+# Find who references current symbol?
+deps --rev
+
+# Print current FQN context
+pwd
+
+# Clear screen
+clear
 ```
+
+## 🔗 Graph Relationships
+
+Naviscope tracks the following relationship types in the knowledge graph:
+
+- **Structural**: `Contains` (package → class, class → method, etc.)
+- **Inheritance**: `InheritsFrom`, `Implements`
+- **Type Usage**: `TypedAs` (field/variable → type)
+- **Annotations**: `DecoratedBy` (class/method → annotation)
+- **Build System**: `UsesDependency` (project → dependency)
+
+Reference discovery (method calls, instantiations) is handled efficiently through the `reference_index` + Tree-sitter two-phase approach, avoiding the need to store explicit call edges for every reference.
 
 ## 📈 Roadmap
 
@@ -160,6 +207,7 @@ deps --rev "com.example.auth.AuthService.login"
 - [x] **Languages**: Java & Gradle (Tree-sitter driven).
 - [x] **Interfaces**: CLI Shell, MCP Server, LSP Server.
 - [x] **Editors**: VS Code Extension.
+- [x] **Reference Discovery**: Two-phase approach (reference_index + Tree-sitter).
 - [ ] **Upcoming**: Maven Support, Python/Rust Language Strategies.
 
 ## 📄 License

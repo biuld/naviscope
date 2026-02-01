@@ -1,0 +1,20 @@
+[package]
+name = "naviscope-mcp"
+version = "0.5.0"
+edition = "2024"
+
+[dependencies]
+naviscope-api = { workspace = true }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+tower-lsp = { workspace = true }
+axum = { workspace = true }
+futures = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+xxhash-rust = { workspace = true }
+schemars = { workspace = true }

@@ -1,0 +1,17 @@
+[package]
+name = "naviscope-lsp"
+version = "0.5.0"
+edition = "2024"
+
+[dependencies]
+naviscope-mcp = { workspace = true }
+tower-lsp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dashmap = { workspace = true }
+tracing = { workspace = true }
+tokio-util = { workspace = true }
+tree-sitter = { workspace = true }
+petgraph = { workspace = true }
+naviscope-api = { workspace = true }
