@@ -45,7 +45,7 @@ impl ParsedFile {
         match self.content {
             ParsedContent::Unparsed(..) => {
                 if self.is_build() {
-                    Some(BuildTool::Gradle)
+                    Some(BuildTool::GRADLE)
                 } else {
                     None
                 }
@@ -56,15 +56,24 @@ impl ParsedFile {
 
     pub fn language(&self) -> Option<Language> {
         match self.content {
-            ParsedContent::Language(..) => Some(Language::Java), // Still assuming Java for now if it's Language
+            ParsedContent::Language(ref res) => {
+                // Try to infer from package
+                if let Some(ref pkg) = res.package_name {
+                    if pkg.starts_with("java.") || pkg.starts_with("javax.") {
+                        return Some(Language::JAVA);
+                    }
+                }
+                Some(Language::UNKNOWN)
+            }
             ParsedContent::MetaData(..) => None,
             ParsedContent::Unparsed(..) => {
                 if self.is_build() {
-                    Some(Language::BuildFile)
-                } else if self.path().extension().map_or(false, |e| e == "java") {
-                    Some(Language::Java)
+                    Some(Language::BUILDFILE)
                 } else {
-                    None
+                    self.path()
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .and_then(Language::from_extension)
                 }
             }
         }
@@ -122,13 +131,12 @@ impl Scanner {
 
                 // Determine build tool or language from file extension/name
                 let file_name = path.file_name()?.to_str()?;
-                let extension = path.extension()?.to_str()?;
 
                 if file_name == "build.gradle"
                     || file_name == "build.gradle.kts"
                     || file_name == "settings.gradle"
                     || file_name == "settings.gradle.kts"
-                    || extension == "java"
+                    || path.extension().is_some()
                 {
                     Some(ParsedFile {
                         file: source_file,

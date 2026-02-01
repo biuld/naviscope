@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::parser::GlobalParseResult;
+use crate::project::source::{BuildTool, Language};
 use crate::resolver::SemanticResolver;
 use std::path::Path;
 use std::sync::Arc;
@@ -32,8 +33,8 @@ pub trait MetadataPlugin: Send + Sync {
 
 /// Unified interface for language-specific support.
 pub trait LanguagePlugin: MetadataPlugin + Send + Sync {
-    /// Plugin name, e.g., "java"
-    fn name(&self) -> &str;
+    /// Plugin name, e.g., Language::JAVA
+    fn name(&self) -> Language;
 
     /// Supported file extensions
     fn supported_extensions(&self) -> &[&str];
@@ -56,8 +57,8 @@ pub trait LanguagePlugin: MetadataPlugin + Send + Sync {
 
 /// Unified interface for build tool support.
 pub trait BuildToolPlugin: MetadataPlugin + Send + Sync {
-    /// Plugin name, e.g., "gradle"
-    fn name(&self) -> &str;
+    /// Plugin name, e.g., BuildTool::GRADLE
+    fn name(&self) -> BuildTool;
 
     /// Checks if this plugin can handle the given file name
     fn recognize(&self, file_name: &str) -> bool;

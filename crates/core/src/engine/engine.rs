@@ -202,8 +202,10 @@ impl NaviscopeEngine {
 
         if let Some(updated_graph) = new_graph {
             // Atomically update current
-            let mut lock = self.current.write().await;
-            *lock = Arc::new(updated_graph);
+            {
+                let mut lock = self.current.write().await;
+                *lock = Arc::new(updated_graph);
+            }
 
             // Save to disk
             self.save().await?;
@@ -227,38 +229,29 @@ impl NaviscopeEngine {
     /// Watch for filesystem changes and update incrementally
     pub async fn watch(&self) -> Result<()> {
         use crate::project::watcher::Watcher;
-        use std::thread;
         use std::time::Duration;
 
-        let engine = Arc::new(self.clone_for_watch()); // We need an Arc to share with the watcher thread
+        let engine = Arc::new(self.clone_for_watch());
         let root = self.project_root.clone();
 
-        thread::spawn(move || {
-            let mut watcher = match Watcher::new(&root) {
-                Ok(w) => w,
-                Err(e) => {
-                    tracing::error!("Failed to start watcher: {}", e);
-                    return;
-                }
-            };
+        // Create watcher before spawning task, so we can return errors immediately
+        let mut watcher =
+            Watcher::new(&root).map_err(|e| NaviscopeError::Internal(e.to_string()))?;
 
-            let rt = tokio::runtime::Handle::current();
+        tokio::spawn(async move {
+            while let Some(event) = watcher.next_event_async().await {
+                // Debounce: wait 500ms and clear any subsequent events during that time
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                while watcher.try_next_event().is_some() {}
 
-            loop {
-                if let Some(event) = watcher.next_event() {
-                    // Debounce
-                    thread::sleep(Duration::from_millis(500));
-                    while watcher.try_next_event().is_some() {}
-
-                    let paths = event.paths.clone();
-                    let e = engine.clone();
-                    rt.spawn(async move {
-                        if let Err(err) = e.update_files(paths).await {
-                            tracing::error!("Failed to update files after change: {}", err);
-                        }
-                    });
+                let paths = event.paths.clone();
+                let e = engine.clone();
+                // update_files internally uses spawn_blocking for heavy work
+                if let Err(err) = e.update_files(paths).await {
+                    tracing::error!("Failed to update files after change: {}", err);
                 }
             }
+            tracing::info!("File watcher task ended.");
         });
 
         Ok(())
@@ -325,12 +318,12 @@ impl NaviscopeEngine {
 
         let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::MetadataPlugin>> {
             for p in lang_plugins.iter() {
-                if p.name() == lang {
+                if p.name().as_str() == lang {
                     return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
                 }
             }
             for p in build_plugins.iter() {
-                if p.name() == lang {
+                if p.name().as_str() == lang {
                     return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
                 }
             }
@@ -367,12 +360,12 @@ impl NaviscopeEngine {
 
         let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::MetadataPlugin>> {
             for p in lang_plugins.iter() {
-                if p.name() == lang {
+                if p.name().as_str() == lang {
                     return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
                 }
             }
             for p in build_plugins.iter() {
-                if p.name() == lang {
+                if p.name().as_str() == lang {
                     return Some(p.clone() as Arc<dyn crate::plugin::MetadataPlugin>);
                 }
             }

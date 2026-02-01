@@ -7,6 +7,7 @@ pub mod resolver;
 use naviscope_core::error::Result;
 use naviscope_core::parser::{GlobalParseResult, LspParser};
 use naviscope_core::plugin::{LanguageFeatureProvider, LanguagePlugin, MetadataPlugin};
+use naviscope_core::project::source::Language;
 use naviscope_core::resolver::SemanticResolver;
 use std::path::Path;
 use std::sync::Arc;
@@ -51,7 +52,8 @@ impl MetadataPlugin for JavaPlugin {
         value: serde_json::Value,
         ctx: &dyn naviscope_core::engine::storage::model::StorageContext,
     ) -> serde_json::Value {
-        if let Ok(storage_element) = serde_json::from_value::<crate::model::JavaStorageElement>(value)
+        if let Ok(storage_element) =
+            serde_json::from_value::<crate::model::JavaStorageElement>(value)
         {
             let element = storage_element.from_storage(ctx);
             serde_json::to_value(element).unwrap_or(serde_json::Value::Null)
@@ -62,8 +64,8 @@ impl MetadataPlugin for JavaPlugin {
 }
 
 impl LanguagePlugin for JavaPlugin {
-    fn name(&self) -> &str {
-        "java"
+    fn name(&self) -> Language {
+        Language::JAVA
     }
 
     fn supported_extensions(&self) -> &[&str] {

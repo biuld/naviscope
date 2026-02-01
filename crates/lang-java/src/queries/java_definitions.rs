@@ -36,3 +36,5 @@ naviscope_core::decl_indices!(JavaIndices, {
     lambda_def => "lambda_def",
     lambda_param => "lambda_param",
 });
+
+pub const JAVA_DEFINITIONS_SCM: &str = include_str!("java_definitions.scm");

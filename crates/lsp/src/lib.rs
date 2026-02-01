@@ -173,7 +173,7 @@ impl LanguageServer for LspServer {
         let lang = self
             .get_language_for_uri(&uri)
             .await
-            .unwrap_or(Language::Other("unknown".into()));
+            .unwrap_or(Language::UNKNOWN);
         self.documents
             .insert(uri, Arc::new(Document::new(content, lang, version)));
     }

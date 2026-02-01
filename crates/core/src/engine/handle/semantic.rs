@@ -171,11 +171,12 @@ impl ReferenceAnalyzer for EngineHandle {
         let candidate_paths = discovery.scout_references(&matches);
 
         let mut tasks = tokio::task::JoinSet::new();
+        let shared_graph = Arc::new(graph);
 
         for path in candidate_paths {
             let handle = self.clone();
             let resolution = query.resolution.clone();
-            let _lang = query.language.clone();
+            let graph_snap = Arc::clone(&shared_graph);
 
             tasks.spawn(async move {
                 let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
@@ -193,8 +194,7 @@ impl ReferenceAnalyzer for EngineHandle {
                     Err(_) => return Vec::new(),
                 };
 
-                let graph = handle.graph().await;
-                let discovery = DiscoveryEngine::new(&graph);
+                let discovery = DiscoveryEngine::new(graph_snap.as_ref());
 
                 let uri_str = format!("file://{}", path.display());
                 let uri = match url::Url::parse(&uri_str) {

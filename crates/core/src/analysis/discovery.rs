@@ -47,13 +47,17 @@ impl<'a> DiscoveryEngine<'a> {
                     // Optimization: INTERSECTION
                     // Only candidate files that contain BOTH the context (e.g. Class) and name (e.g. Method).
                     if let Some(ctx_paths) = ref_index.get(ctx_str.as_str()) {
-                        let ctx_set: HashSet<_> = ctx_paths.iter().collect();
-                        for p in primary_paths {
-                            if ctx_set.contains(p) {
-                                unique_paths.insert(p.to_path_buf());
+                        // SPARSITY CHECK: If context is too generic (e.g. "com", "org", "java"),
+                        // intersection is expensive and useless. Skip if it hits > 1000 files.
+                        if ctx_paths.len() < 1000 {
+                            let ctx_set: HashSet<_> = ctx_paths.iter().collect();
+                            for p in primary_paths {
+                                if ctx_set.contains(p) {
+                                    unique_paths.insert(p.to_path_buf());
+                                }
                             }
+                            continue; // Optimization applied, skip fallback
                         }
-                        continue; // Optimization applied, skip fallback
                     }
                 }
 
@@ -72,8 +76,10 @@ impl<'a> DiscoveryEngine<'a> {
         let name = node.name().to_string();
         let fqn = node.fqn();
 
+        // Split by ANY non-alphanumeric character (except underscore)
+        // This is much more language-agnostic than hardcoding '.', ':', etc.
         let parts: Vec<&str> = fqn
-            .split(|c: char| c == '.' || c == '#' || c == ':')
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
             .filter(|s: &&str| !s.is_empty())
             .collect();
 

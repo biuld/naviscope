@@ -42,59 +42,35 @@ impl IndexResolver {
     }
 
     pub fn get_semantic_resolver(&self, language: Language) -> Option<Arc<dyn SemanticResolver>> {
-        // Find plugin by name or language mapping
-        // For now, let's assume Language maps to plugin name lowercase
-        let name = match language {
-            Language::Java => "java",
-            _ => return None,
-        };
         self.lang_plugins
             .iter()
-            .find(|p| p.name() == name)
+            .find(|p| p.name() == language)
             .map(|p| p.resolver())
     }
 
     pub fn get_lsp_parser(&self, language: Language) -> Option<Arc<dyn crate::parser::LspParser>> {
-        let name = match language {
-            Language::Java => "java",
-            _ => return None,
-        };
         self.lang_plugins
             .iter()
-            .find(|p| p.name() == name)
+            .find(|p| p.name() == language)
             .map(|p| p.lsp_parser())
     }
 
     pub fn get_language_by_extension(&self, ext: &str) -> Option<Language> {
-        // This is a bit awkward as Language enum is hardcoded but plugins are dynamic.
-        // Ideally we should move away from Language enum or make it dynamic.
-        // For now, hardcode mapping to plugins.
         for plugin in &self.lang_plugins {
             if plugin.supported_extensions().contains(&ext) {
-                // Map plugin name to Language enum
-                return match plugin.name() {
-                    "java" => Some(Language::Java),
-                    _ => None,
-                };
+                return Some(plugin.name());
             }
         }
-        if ext == "gradle" || ext == "kts" {
-            return Some(Language::BuildFile);
-        }
-        None
+        Language::from_extension(ext)
     }
 
     pub fn get_feature_provider(
         &self,
         language: Language,
     ) -> Option<Arc<dyn crate::plugin::LanguageFeatureProvider>> {
-        let name = match language {
-            Language::Java => "java",
-            _ => return None,
-        };
         self.lang_plugins
             .iter()
-            .find(|p| p.name() == name)
+            .find(|p| p.name() == language)
             .map(|p| p.feature_provider())
     }
 
@@ -161,11 +137,7 @@ impl IndexResolver {
         let source_results: Vec<Result<ResolvedUnit>> = source_files
             .par_iter()
             .map(|file| {
-                let language = file.language().unwrap_or(Language::BuildFile);
-                let name = match language {
-                    Language::Java => "java",
-                    _ => return Ok(ResolvedUnit::new()),
-                };
+                let language = file.language().unwrap_or(Language::BUILDFILE);
 
                 // We cannot access self.lang_plugins here easily because self is not Sync/Send via reference in par_iter if we capture it incorrectly?
                 // Actually helper method would be better or passing plugins as argument to closure.
@@ -182,7 +154,7 @@ impl IndexResolver {
 
                 // But wait, the closure captures `&self`.
 
-                let plugin = self.lang_plugins.iter().find(|p| p.name() == name);
+                let plugin = self.lang_plugins.iter().find(|p| p.name() == language);
 
                 if let Some(p) = plugin {
                     let resolver = p.lang_resolver();

@@ -97,14 +97,45 @@ impl LspParser for JavaParser {
         target: &naviscope_core::parser::SymbolResolution,
     ) -> Vec<naviscope_core::model::Range> {
         let mut ranges = Vec::new();
-        let name = match target {
-            naviscope_core::parser::SymbolResolution::Local(_, _) => {
-                // Local resolution is usually handled by the caller or by a separate pass
-                return Vec::new();
+
+        // 1. Extract the identifier name and intent
+        let (name, intent) = match target {
+            naviscope_core::parser::SymbolResolution::Local(range, _) => {
+                // For local symbols, we extract the name directly from the source at the declaration range
+                let start = naviscope_core::model::util::line_col_at_to_offset(
+                    source,
+                    range.start_line,
+                    range.start_col,
+                );
+                let end = naviscope_core::model::util::line_col_at_to_offset(
+                    source,
+                    range.end_line,
+                    range.end_col,
+                );
+
+                if let (Some(s), Some(e)) = (start, end) {
+                    if s < e && e <= source.len() {
+                        (
+                            source[s..e].to_string(),
+                            naviscope_api::models::SymbolIntent::Variable,
+                        )
+                    } else {
+                        return Vec::new();
+                    }
+                } else {
+                    return Vec::new();
+                }
             }
-            naviscope_core::parser::SymbolResolution::Precise(fqn, _)
-            | naviscope_core::parser::SymbolResolution::Global(fqn) => {
-                fqn.split('.').last().unwrap_or(fqn).to_string()
+            naviscope_core::parser::SymbolResolution::Precise(fqn, intent) => {
+                (fqn.split('.').last().unwrap_or(fqn).to_string(), *intent)
+            }
+            naviscope_core::parser::SymbolResolution::Global(fqn) => {
+                // Global resolution from graph usually implies a high-level symbol (Method/Type/Field)
+                // We'll try to guess intent if it's not provided, but mostly it will stay broad
+                (
+                    fqn.split('.').last().unwrap_or(fqn).to_string(),
+                    naviscope_api::models::SymbolIntent::Unknown,
+                )
             }
         };
 
@@ -112,25 +143,41 @@ impl LspParser for JavaParser {
             return ranges;
         }
 
-        let query_str = format!(
-            "((identifier) @ident (#eq? @ident \"{}\"))
-             ((type_identifier) @ident (#eq? @ident \"{}\"))",
-            name, name
-        );
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut matches =
+            cursor.matches(&self.occurrence_query, tree.root_node(), source.as_bytes());
 
-        if let Ok(query) = tree_sitter::Query::new(&tree.language(), &query_str) {
-            let mut cursor = tree_sitter::QueryCursor::new();
-            let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
-            use tree_sitter::StreamingIterator;
-            while let Some(mat) = matches.next() {
-                for cap in mat.captures {
-                    let r = cap.node.range();
-                    ranges.push(naviscope_core::model::Range {
-                        start_line: r.start_point.row,
-                        start_col: r.start_point.column,
-                        end_line: r.end_point.row,
-                        end_col: r.end_point.column,
-                    });
+        // Mapping from Intent to the capture index we care about
+        let target_capture_index = match intent {
+            naviscope_api::models::SymbolIntent::Method => Some(self.occurrence_indices.method),
+            naviscope_api::models::SymbolIntent::Type => Some(self.occurrence_indices.type_alias),
+            naviscope_api::models::SymbolIntent::Field => Some(self.occurrence_indices.field),
+            _ => None, // Search all identifiers
+        };
+
+        use tree_sitter::StreamingIterator;
+        while let Some(mat) = matches.next() {
+            // Optimization: If intent is specific, skip matches that don't satisfy the intent structure.
+            if let Some(target_idx) = target_capture_index {
+                if !mat.captures.iter().any(|c| c.index == target_idx) {
+                    continue;
+                }
+            }
+
+            // Extract the identifier node using our indices
+            for cap in mat.captures {
+                if cap.index == self.occurrence_indices.ident {
+                    if let Ok(text) = cap.node.utf8_text(source.as_bytes()) {
+                        if text == name {
+                            let r = cap.node.range();
+                            ranges.push(naviscope_core::model::Range {
+                                start_line: r.start_point.row,
+                                start_col: r.start_point.column,
+                                end_line: r.end_point.row,
+                                end_col: r.end_point.column,
+                            });
+                        }
+                    }
                 }
             }
         }

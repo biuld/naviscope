@@ -268,10 +268,7 @@ impl ShellCommand {
 
                         // Get feature provider based on node's language
                         use naviscope_api::models::Language;
-                        let lang = match node.lang.as_ref() {
-                            "java" => Language::Java,
-                            _ => Language::BuildFile, // Default fallback
-                        };
+                        let lang = Language::new(node.lang.as_ref());
 
                         let feature_provider =
                             context.get_feature_provider(lang).unwrap_or_else(|| {

@@ -38,64 +38,69 @@ A lightweight, lightning-fast alternative to standard language servers (like JDT
 ```mermaid
 graph TD
     %% Styles
-    classDef layer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:5,ry:5
-    classDef component fill:#fff,stroke:#333,stroke-width:1px
-    classDef storage fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:5,ry:5
+    classDef interface fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:5,ry:5
+    classDef runtime fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,rx:5,ry:5
+    classDef language fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,rx:5,ry:5
+    classDef core fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:5,ry:5
+    classDef api fill:#fafafa,stroke:#616161,stroke-width:2px,rx:5,ry:5
 
-    subgraph Access [Interfaces Layer]
-        direction LR
-        CLI[CLI Shell]:::component
-        MCP["MCP Server<br/>(AI Agents)"]:::component
-        LSP["LSP Server<br/>(Editors)"]:::component
+    subgraph Interfaces [Interface Layer]
+        CLI["naviscope-cli<br/>(Shell & Main)"]:::interface
+        LSP["naviscope-lsp<br/>(LSP Server)"]:::interface
+        MCP["naviscope-mcp<br/>(MCP Server)"]:::interface
     end
 
-    subgraph Service [Query & Analysis Layer]
-        direction LR
-        Query[Query Engine]:::component
-        Search[Semantic Search]:::component
-        Deps[Dependency Analysis]:::component
+    subgraph Orchestration [Runtime Layer]
+        Runtime["naviscope-runtime<br/>(Engine Orchestrator)"]:::runtime
     end
 
-    subgraph Core [Core Knowledge Graph]
-        direction LR
-        Graph["Unified Graph<br/>(petgraph)"]:::component
-        Index["Symbol Index<br/>(FQN, Name)"]:::component
-        RefIndex["Reference Index<br/>(Token → Files)"]:::component
+    subgraph Strategies [Language Layer]
+        Java["naviscope-java<br/>(Java Analysis)"]:::language
+        Gradle["naviscope-gradle<br/>(Gradle Analysis)"]:::language
     end
 
-    subgraph Ingestion [Ingestion Layer]
-        direction LR
-        Scanner[File Scanner]:::component
-        Parser["Parsers<br/>(Tree-sitter)"]:::component
-        Resolver["Symbol Resolver<br/>(Java/Gradle)"]:::component
+    subgraph Engine [Core Layer]
+        Core["naviscope-core<br/>(Graph, Index & IO)"]:::core
     end
 
-    subgraph Infra [Infrastructure]
-        direction LR
-        Store[("Persistence")]:::storage
-        Watch[File Watcher]:::component
+    subgraph Foundation [API Layer]
+        API["naviscope-api<br/>(Common Traits & Models)"]:::api
     end
 
-    %% Connections
-    CLI --> Query
-    MCP --> Query
-    LSP --> Query
+    %% Crate Dependencies
+    CLI --> LSP
+    CLI --> MCP
+    CLI --> Runtime
+    CLI --> API
 
-    Query --> Graph
-    Search --> Graph
-    Deps --> Graph
-    Search --> RefIndex
+    LSP --> MCP
+    LSP --> API
 
-    Scanner --> Parser
-    Parser --> Resolver
-    Resolver --> Graph
-    Resolver --> RefIndex
+    MCP --> API
 
-    Graph -.-> Store
-    Watch -.-> Scanner
+    Runtime --> Java
+    Runtime --> Gradle
+    Runtime --> Core
+    Runtime --> API
+
+    Java --> Core
+    Java --> API
+
+    Gradle --> Core
+    Gradle --> API
+
+    Core --> API
 ```
 
-Naviscope is built on a **layered architecture** that separates ingestion, core graph logic, and external interfaces. The core is a language-agnostic graph structure populated by language-specific strategies (currently Java/Gradle via Tree-sitter), exposing a unified query engine to both AI agents and developer tools.
+Naviscope is built on a **layered crate architecture** that separates concerns across multiple Rust crates:
+
+- **Interface Layer** (`naviscope-cli`, `naviscope-lsp`, `naviscope-mcp`): Entry points for different use cases (CLI shell, LSP for editors, MCP for AI agents).
+- **Runtime Layer** (`naviscope-runtime`): Orchestrates the engine assembly, registering language plugins and providing a unified factory.
+- **Language Layer** (`naviscope-java`, `naviscope-gradle`): Language-specific analysis plugins that parse and resolve symbols.
+- **Core Layer** (`naviscope-core`): The heart of the system - graph storage, indexing, file scanning, and persistence.
+- **API Layer** (`naviscope-api`): Common traits and models shared across all crates, ensuring a consistent interface.
+
+The core is a language-agnostic graph structure populated by language-specific strategies (currently Java/Gradle via Tree-sitter), exposing a unified query engine to both AI agents and developer tools.
 
 ### 🔍 Reference Discovery Strategy
 

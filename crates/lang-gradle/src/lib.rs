@@ -6,6 +6,7 @@ pub mod resolver;
 
 use naviscope_core::error::Result;
 use naviscope_core::plugin::{BuildParseResult, BuildToolPlugin, MetadataPlugin};
+use naviscope_core::project::source::BuildTool;
 use naviscope_core::resolver::BuildResolver;
 use std::sync::Arc;
 
@@ -40,7 +41,8 @@ impl MetadataPlugin for GradlePlugin {
         value: serde_json::Value,
         ctx: &dyn naviscope_core::engine::storage::model::StorageContext,
     ) -> serde_json::Value {
-        if let Ok(storage_element) = serde_json::from_value::<crate::model::GradleStorageElement>(value)
+        if let Ok(storage_element) =
+            serde_json::from_value::<crate::model::GradleStorageElement>(value)
         {
             let element = storage_element.resolve(ctx);
             serde_json::to_value(element).unwrap_or(serde_json::Value::Null)
@@ -51,8 +53,8 @@ impl MetadataPlugin for GradlePlugin {
 }
 
 impl BuildToolPlugin for GradlePlugin {
-    fn name(&self) -> &str {
-        "gradle"
+    fn name(&self) -> BuildTool {
+        BuildTool::GRADLE
     }
 
     fn recognize(&self, file_name: &str) -> bool {

@@ -15,11 +15,14 @@ unsafe extern "C" {
 }
 
 use crate::queries::java_definitions::JavaIndices;
+use crate::queries::java_occurrences::OccurrenceIndices;
 
 pub struct JavaParser {
     pub language: tree_sitter::Language,
     pub(crate) definition_query: Arc<Query>,
     pub(crate) indices: JavaIndices,
+    pub(crate) occurrence_query: Arc<Query>,
+    pub(crate) occurrence_indices: OccurrenceIndices,
 }
 
 impl Clone for JavaParser {
@@ -28,6 +31,8 @@ impl Clone for JavaParser {
             language: self.language.clone(),
             definition_query: Arc::clone(&self.definition_query),
             indices: self.indices.clone(),
+            occurrence_query: Arc::clone(&self.occurrence_query),
+            occurrence_indices: self.occurrence_indices.clone(),
         }
     }
 }
@@ -35,16 +40,25 @@ impl Clone for JavaParser {
 impl JavaParser {
     pub fn new() -> Result<Self> {
         let language = unsafe { tree_sitter_java() };
+
         let definition_query = naviscope_core::parser::utils::load_query(
             &language,
-            include_str!("../queries/java_definitions.scm"),
+            crate::queries::java_definitions::JAVA_DEFINITIONS_SCM,
         )?;
         let indices = JavaIndices::new(&definition_query)?;
+
+        let occurrence_query = naviscope_core::parser::utils::load_query(
+            &language,
+            crate::queries::java_occurrences::JAVA_OCCURRENCES_SCM,
+        )?;
+        let occurrence_indices = OccurrenceIndices::new(&occurrence_query)?;
 
         Ok(Self {
             language,
             definition_query: Arc::new(definition_query),
             indices,
+            occurrence_query: Arc::new(occurrence_query),
+            occurrence_indices,
         })
     }
 

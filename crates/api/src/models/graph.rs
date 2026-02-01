@@ -121,11 +121,7 @@ pub struct GraphNode {
 
 impl GraphNode {
     pub fn language(&self) -> Language {
-        match self.lang.as_ref() {
-            "java" => Language::Java,
-            "rust" => Language::Rust,
-            _ => Language::BuildFile,
-        }
+        Language::new(SmolStr::from(self.lang.as_ref()))
     }
 
     pub fn fqn(&self) -> &str {
