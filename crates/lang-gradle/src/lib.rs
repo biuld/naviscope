@@ -27,7 +27,7 @@ impl NodeRenderer for GradlePlugin {
             id: node.fqn(rodeo).to_string(),
             name: node.name(rodeo).to_string(),
             kind: node.kind.clone(),
-            lang: "buildfile".to_string(),
+            lang: "gradle".to_string(),
             location: node.location.as_ref().map(|l| l.to_display(rodeo)),
             detail: None,
             signature: None,

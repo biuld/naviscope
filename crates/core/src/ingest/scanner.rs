@@ -68,7 +68,8 @@ impl ParsedFile {
             ParsedContent::MetaData(..) => None,
             ParsedContent::Unparsed(..) => {
                 if self.is_build() {
-                    Some(Language::BUILDFILE)
+                    self.build_tool()
+                        .map(|t| Language::new(t.as_str().to_string()))
                 } else {
                     self.path()
                         .extension()

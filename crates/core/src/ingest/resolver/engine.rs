@@ -65,6 +65,12 @@ impl IndexResolver {
             .iter()
             .find(|p| p.name() == language)
             .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>)
+            .or_else(|| {
+                self.build_plugins
+                    .iter()
+                    .find(|p| p.name().as_str() == language.as_str())
+                    .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>)
+            })
     }
 
     pub fn get_node_renderer(
@@ -75,6 +81,12 @@ impl IndexResolver {
             .iter()
             .find(|p| p.name() == language)
             .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::NodeRenderer>)
+            .or_else(|| {
+                self.build_plugins
+                    .iter()
+                    .find(|p| p.name().as_str() == language.as_str())
+                    .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::NodeRenderer>)
+            })
     }
 
     pub fn get_language_by_extension(&self, ext: &str) -> Option<Language> {

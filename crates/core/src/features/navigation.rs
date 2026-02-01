@@ -97,9 +97,10 @@ impl<'a> NavigationEngine<'a> {
                             let node = &self.graph.topology()[child_idx];
                             let fqn = node.fqn(self.graph.symbols());
 
-                            // Match by simple name (last component)
+                            // Match by simple name (last component) or display name
                             let simple_name = fqn.split(&['.', ':']).last().unwrap_or(fqn);
-                            if simple_name == target {
+                            let display_name = node.name(self.graph.symbols());
+                            if simple_name == target || display_name == target {
                                 Some(fqn.to_string())
                             } else {
                                 None
@@ -121,10 +122,18 @@ impl<'a> NavigationEngine<'a> {
                     let fqn = self.graph.symbols().resolve(&sym.0);
                     let simple_name = fqn.split(&['.', ':']).last().unwrap_or(fqn);
                     if simple_name == target {
-                        Some(fqn.to_string())
-                    } else {
-                        None
+                        return Some(fqn.to_string());
                     }
+
+                    // Also check display name
+                    if let Some(idx) = self.graph.fqn_map().get(sym) {
+                        let node = &self.graph.topology()[*idx];
+                        if node.name(self.graph.symbols()) == target {
+                            return Some(fqn.to_string());
+                        }
+                    }
+
+                    None
                 })
                 .collect()
         };

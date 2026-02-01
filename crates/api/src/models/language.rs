@@ -33,7 +33,8 @@ impl Language {
             "ts" => Some(Self::TYPESCRIPT),
             "py" => Some(Self::PYTHON),
             "go" => Some(Self::GO),
-            "gradle" | "gradle.kts" => Some(Self::BUILDFILE),
+            "gradle" | "gradle.kts" => Some(Self::new("gradle")),
+            "pom.xml" => Some(Self::new("maven")),
             ext => Some(Self::new(ext.to_string())),
         }
     }

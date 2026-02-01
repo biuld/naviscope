@@ -120,7 +120,7 @@ impl BuildResolver for GradleResolver {
             id: project_id.clone(),
             name: project_name.clone(),
             kind: NodeKind::Project,
-            lang: "buildfile".to_string(),
+            lang: "gradle".to_string(),
             location: Some(DisplaySymbolLocation {
                 path: root_path.to_string_lossy().to_string(),
                 range: Range {
@@ -147,7 +147,7 @@ impl BuildResolver for GradleResolver {
                     .components()
                     .map(|c| c.as_os_str().to_string_lossy())
                     .collect::<Vec<_>>()
-                    .join(":");
+                    .join("/");
                 format!("{}::module:{}", project_id, logical)
             } else {
                 // External modules (e.g., buildSrc)
@@ -175,7 +175,7 @@ impl BuildResolver for GradleResolver {
                 id: root_module_id.clone(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
-                lang: "buildfile".to_string(),
+                lang: "gradle".to_string(),
                 location: data
                     .build_file
                     .as_ref()
@@ -223,7 +223,7 @@ impl BuildResolver for GradleResolver {
                 id: id.clone(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
-                lang: "buildfile".to_string(),
+                lang: "gradle".to_string(),
                 location: data
                     .build_file
                     .as_ref()
@@ -289,7 +289,8 @@ impl BuildResolver for GradleResolver {
                     let target_id = if dep.is_project {
                         let clean_name = dep
                             .name
-                            .trim_matches(|c| c == ':' || c == '\"' || c == '\'');
+                            .trim_matches(|c| c == ':' || c == '\"' || c == '\'')
+                            .replace(':', "/");
                         format!("{}::module:{}", project_id, clean_name)
                     } else {
                         let group = dep.group.as_deref().unwrap_or("");
@@ -307,7 +308,7 @@ impl BuildResolver for GradleResolver {
                             id: target_id.clone(),
                             name: dep.name.clone(),
                             kind: NodeKind::Dependency,
-                            lang: "buildfile".to_string(),
+                            lang: "gradle".to_string(),
                             location: Some(DisplaySymbolLocation {
                                 path: data
                                     .build_file
@@ -433,7 +434,7 @@ mod tests {
         )));
         assert!(edges.contains(&(
             "project:spring-boot-build::module:spring-boot-project",
-            "project:spring-boot-build::module:spring-boot-project:spring-boot"
+            "project:spring-boot-build::module:spring-boot-project/spring-boot"
         )));
     }
 }
