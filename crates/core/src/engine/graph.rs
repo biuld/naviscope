@@ -176,7 +176,7 @@ impl CodeGraph {
         bytes: &[u8],
         get_plugin: impl Fn(&str) -> Option<Arc<dyn crate::plugin::MetadataPlugin>>,
     ) -> Result<Self, NaviscopeError> {
-        use super::storage::{from_storage, StorageGraph};
+        use super::storage::{StorageGraph, from_storage};
 
         // Decompress
         let decompressed = zstd::decode_all(bytes)

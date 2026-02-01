@@ -17,6 +17,7 @@ notify = { workspace = true }
 xxhash-rust = { workspace = true }
 regex = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 schemars = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

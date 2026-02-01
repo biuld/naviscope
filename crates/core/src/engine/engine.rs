@@ -32,6 +32,15 @@ pub struct NaviscopeEngine {
     /// Plugins
     build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
     lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
+
+    /// Cancellation token for background tasks (like watcher)
+    cancel_token: tokio_util::sync::CancellationToken,
+}
+
+impl Drop for NaviscopeEngine {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
+    }
 }
 
 impl NaviscopeEngine {
@@ -45,6 +54,7 @@ impl NaviscopeEngine {
             index_path,
             build_plugins: Arc::new(Vec::new()),
             lang_plugins: Arc::new(Vec::new()),
+            cancel_token: tokio_util::sync::CancellationToken::new(),
         }
     }
 
@@ -227,47 +237,63 @@ impl NaviscopeEngine {
     }
 
     /// Watch for filesystem changes and update incrementally
-    pub async fn watch(&self) -> Result<()> {
+    pub async fn watch(self: Arc<Self>) -> Result<()> {
         use crate::project::watcher::Watcher;
+        use std::collections::HashSet;
         use std::time::Duration;
 
-        let engine = Arc::new(self.clone_for_watch());
         let root = self.project_root.clone();
-
-        // Create watcher before spawning task, so we can return errors immediately
         let mut watcher =
             Watcher::new(&root).map_err(|e| NaviscopeError::Internal(e.to_string()))?;
 
-        tokio::spawn(async move {
-            while let Some(event) = watcher.next_event_async().await {
-                // Debounce: wait 500ms and clear any subsequent events during that time
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                while watcher.try_next_event().is_some() {}
+        let engine_weak = Arc::downgrade(&self);
+        let cancel_token = self.cancel_token.clone();
 
-                let paths = event.paths.clone();
-                let e = engine.clone();
-                // update_files internally uses spawn_blocking for heavy work
-                if let Err(err) = e.update_files(paths).await {
-                    tracing::error!("Failed to update files after change: {}", err);
+        tokio::spawn(async move {
+            tracing::info!("Started watching {}", root.display());
+            let mut pending_events: Vec<notify::Event> = Vec::new();
+            let debounce_interval = Duration::from_millis(500);
+
+            loop {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                    event = watcher.next_event_async() => {
+                        match event {
+                            Some(e) => pending_events.push(e),
+                            None => break,
+                        }
+                    }
+                    _ = tokio::time::sleep(debounce_interval), if !pending_events.is_empty() => {
+                        let mut paths = HashSet::new();
+                        for event in &pending_events {
+                            for path in &event.paths {
+                                if crate::project::is_relevant_path(path) {
+                                    paths.insert(path.clone());
+                                }
+                            }
+                        }
+                        pending_events.clear();
+
+                        if !paths.is_empty() {
+                            if let Some(engine) = engine_weak.upgrade() {
+                                let path_vec: Vec<_> = paths.into_iter().collect();
+                                tracing::info!("Detected changes in {} files. Updating...", path_vec.len());
+                                if let Err(err) = engine.update_files(path_vec).await {
+                                    tracing::error!("Failed to update files: {}", err);
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
-            tracing::info!("File watcher task ended.");
+            tracing::info!("File watcher task ended for {}", root.display());
         });
 
         Ok(())
-    }
-
-    /// Helper for watch to get a shared handle
-    fn clone_for_watch(&self) -> NaviscopeEngine {
-        // We need a way to clone the engine's internal state.
-        // Since it's all Arcs, we can just return a new instance with same Arcs.
-        NaviscopeEngine {
-            current: self.current.clone(),
-            project_root: self.project_root.clone(),
-            index_path: self.index_path.clone(),
-            build_plugins: self.build_plugins.clone(),
-            lang_plugins: self.lang_plugins.clone(),
-        }
     }
 
     /// Clear the index for the current project

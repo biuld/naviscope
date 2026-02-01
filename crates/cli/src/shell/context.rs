@@ -1,5 +1,5 @@
 use naviscope_api::NaviscopeEngine;
-use naviscope_api::graph::{GraphService, GraphStats};
+use naviscope_api::graph::GraphService;
 use naviscope_api::models::{GraphQuery, Language, QueryResult};
 use naviscope_api::navigation::NavigationService;
 use naviscope_api::plugin::LanguageFeatureProvider;
@@ -40,20 +40,17 @@ impl ShellContext {
         *self.current_node.write().unwrap() = fqn;
     }
 
-    /// Helper to get graph stats synchronously using the API GraphService
-    pub fn get_stats(&self) -> Result<GraphStats, Box<dyn std::error::Error>> {
-        let service: &dyn GraphService = self.engine.as_ref();
-        let stats = self.rt_handle.block_on(service.get_stats());
-        Ok(stats?)
-    }
-
     /// Helper to execute query synchronously using the API GraphService
     pub fn execute_query(
         &self,
         query: &GraphQuery,
     ) -> Result<QueryResult, Box<dyn std::error::Error>> {
         let service: &dyn GraphService = self.engine.as_ref();
-        let result = self.rt_handle.block_on(service.query(query));
+        let result = if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::block_in_place(|| self.rt_handle.block_on(service.query(query)))
+        } else {
+            self.rt_handle.block_on(service.query(query))
+        };
         Ok(result?)
     }
 
@@ -62,7 +59,14 @@ impl ShellContext {
         let nav_service: &dyn NavigationService = self.engine.as_ref();
         let current_context = self.current_fqn();
 
-        self.rt_handle
-            .block_on(nav_service.resolve_path(target, current_context.as_deref()))
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::block_in_place(|| {
+                self.rt_handle
+                    .block_on(nav_service.resolve_path(target, current_context.as_deref()))
+            })
+        } else {
+            self.rt_handle
+                .block_on(nav_service.resolve_path(target, current_context.as_deref()))
+        }
     }
 }

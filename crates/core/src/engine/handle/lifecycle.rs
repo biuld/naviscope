@@ -38,6 +38,7 @@ impl EngineLifecycle for EngineHandle {
 
     async fn watch(&self) -> naviscope_api::lifecycle::EngineResult<()> {
         self.engine
+            .clone()
             .watch()
             .await
             .map_err(|e: NaviscopeError| EngineError::Internal(e.to_string()))

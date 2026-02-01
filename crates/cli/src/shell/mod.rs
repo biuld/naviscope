@@ -67,7 +67,7 @@ impl ReplServer {
         // Load index (blocking on async)
         match engine.load().await {
             Ok(true) => {
-                let stats = self.context.get_stats().unwrap_or_default();
+                let stats = engine.get_stats().await.unwrap_or_default();
                 println!(
                     "Index loaded from disk in {:?}. Nodes: {}, Edges: {}",
                     start.elapsed(),
@@ -92,7 +92,7 @@ impl ReplServer {
             error!("Synchronization failed: {}", e);
             println!("Warning: Index synchronization failed: {}", e);
         } else {
-            let stats = self.context.get_stats().unwrap_or_default();
+            let stats = engine.get_stats().await.unwrap_or_default();
             println!(
                 "Index synchronized in {:?}. Total nodes: {}",
                 sync_start.elapsed(),
@@ -107,7 +107,7 @@ impl ReplServer {
                 modifiers: vec![],
             };
 
-            if let Ok(res) = self.context.execute_query(&query) {
+            if let Ok(res) = engine.query(&query).await {
                 if res.nodes.len() == 1 {
                     let fqn = res.nodes[0].id.to_string();
                     self.context.set_current_fqn(Some(fqn));

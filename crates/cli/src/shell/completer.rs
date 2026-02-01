@@ -68,10 +68,17 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
                     use naviscope_api::navigation::NavigationService;
                     let nav_service: &dyn NavigationService = self.context.engine.as_ref();
 
-                    let matches = self
-                        .context
-                        .rt_handle
-                        .block_on(nav_service.get_completion_candidates(last_word));
+                    let matches = if tokio::runtime::Handle::try_current().is_ok() {
+                        tokio::task::block_in_place(|| {
+                            self.context
+                                .rt_handle
+                                .block_on(nav_service.get_completion_candidates(last_word))
+                        })
+                    } else {
+                        self.context
+                            .rt_handle
+                            .block_on(nav_service.get_completion_candidates(last_word))
+                    };
 
                     for fqn in matches {
                         suggestions.push(Suggestion {
