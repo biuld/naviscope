@@ -39,46 +39,16 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
             return None;
         }
 
-        let element = serde_json::from_value::<JavaElement>(node.metadata.clone()).ok()?;
+        let _element = serde_json::from_value::<JavaElement>(node.metadata.clone()).ok()?;
 
-        match element {
-            JavaElement::Class(c) => {
-                let mut detail = format!("**class** {}", node.name);
-                if !c.modifiers.is_empty() {
-                    detail = format!("{} {}", c.modifiers.join(" "), detail);
-                }
-                Some(detail)
-            }
-            JavaElement::Interface(i) => {
-                let mut detail = format!("**interface** {}", node.name);
-                if !i.modifiers.is_empty() {
-                    detail = format!("{} {}", i.modifiers.join(" "), detail);
-                }
-                Some(detail)
-            }
-            JavaElement::Method(m) => {
-                let params_str = m
-                    .parameters
-                    .iter()
-                    .map(|p| format!("{}: {}", p.name, self.fmt_type(&p.type_ref)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let return_type_str = self.fmt_type(&m.return_type);
-                let mut detail =
-                    format!("**{}**({}) -> {}", node.name, params_str, return_type_str);
-                if !m.modifiers.is_empty() {
-                    detail = format!("{} {}", m.modifiers.join(" "), detail);
-                }
-                Some(detail)
-            }
-            JavaElement::Field(f) => {
-                let mut detail = format!("**{}**: {}", node.name, self.fmt_type(&f.type_ref));
-                if !f.modifiers.is_empty() {
-                    detail = format!("{} {}", f.modifiers.join(" "), detail);
-                }
-                Some(detail)
-            }
-            _ => None,
+        // For meso-level, we can provide context like which class/package it belongs to
+        // node.id is usually the FQN
+        let parts: Vec<&str> = node.id.split('.').collect();
+        if parts.len() > 1 {
+            let container = parts[..parts.len() - 1].join(".");
+            Some(format!("*Defined in `{}`*", container))
+        } else {
+            None
         }
     }
 
@@ -90,17 +60,41 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
         let element = serde_json::from_value::<JavaElement>(node.metadata.clone()).ok()?;
 
         match element {
+            JavaElement::Class(c) => {
+                let mut sig = format!("class {}", node.name);
+                if !c.modifiers.is_empty() {
+                    sig = format!("{} {}", c.modifiers.join(" "), sig);
+                }
+                Some(sig)
+            }
+            JavaElement::Interface(i) => {
+                let mut sig = format!("interface {}", node.name);
+                if !i.modifiers.is_empty() {
+                    sig = format!("{} {}", i.modifiers.join(" "), sig);
+                }
+                Some(sig)
+            }
             JavaElement::Method(m) => {
                 let params_str = m
                     .parameters
                     .iter()
-                    .map(|p| self.fmt_type(&p.type_ref))
+                    .map(|p| format!("{}: {}", p.name, self.fmt_type(&p.type_ref)))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_type_str = self.fmt_type(&m.return_type);
-                Some(format!("({}) -> {}", params_str, return_type_str))
+                let mut sig = format!("{}({}) -> {}", node.name, params_str, return_type_str);
+                if !m.modifiers.is_empty() {
+                    sig = format!("{} {}", m.modifiers.join(" "), sig);
+                }
+                Some(sig)
             }
-            JavaElement::Field(f) => Some(format!("{} {}", self.fmt_type(&f.type_ref), node.name)),
+            JavaElement::Field(f) => {
+                let mut sig = format!("{}: {}", node.name, self.fmt_type(&f.type_ref));
+                if !f.modifiers.is_empty() {
+                    sig = format!("{} {}", f.modifiers.join(" "), sig);
+                }
+                Some(sig)
+            }
             _ => None,
         }
     }

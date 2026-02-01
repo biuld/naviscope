@@ -78,7 +78,10 @@ fn test_goto_definition_cross_file() {
         .expect("Should resolve hello");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology()[matches[0]].fqn(index.symbols()), "com.A.hello");
+    assert_eq!(
+        index.topology()[matches[0]].fqn(index.symbols()),
+        "com.A.hello"
+    );
 }
 
 #[test]
@@ -131,7 +134,11 @@ fn test_goto_definition_constructor() {
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     // In our model, constructor might be the class or the method depending on implementation
-    assert!(index.topology()[matches[0]].fqn(index.symbols()).contains("A"));
+    assert!(
+        index.topology()[matches[0]]
+            .fqn(index.symbols())
+            .contains("A")
+    );
 }
 
 #[test]

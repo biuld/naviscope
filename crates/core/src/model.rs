@@ -13,9 +13,7 @@ pub type NodeLocation = SymbolLocation;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GraphOp {
     /// Add or update a node
-    AddNode {
-        data: DisplayGraphNode,
-    },
+    AddNode { data: DisplayGraphNode },
     /// Add an edge between two nodes (referenced by their IDs)
     AddEdge {
         #[serde(with = "naviscope_api::models::util::serde_arc_str")]

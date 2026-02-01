@@ -40,7 +40,11 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
         while let Some((e_idx, target_idx)) = edges.next(&graph.topology()) {
             let target_node = &graph.topology()[target_idx];
             let edge = &graph.topology()[e_idx];
-            println!(" -> {} ({:?})", target_node.fqn(graph.symbols()), edge.edge_type);
+            println!(
+                " -> {} ({:?})",
+                target_node.fqn(graph.symbols()),
+                edge.edge_type
+            );
         }
         panic!("Edge not found between {} and {}", from_fqn, to_fqn);
     }
@@ -54,9 +58,7 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
 }
 
 fn assert_reference_scouted(graph: &CodeGraph, target_fqn: &str, expected_file: &str) {
-    let target_idx = graph
-        .find_node(target_fqn)
-        .expect("Target node not found");
+    let target_idx = graph.find_node(target_fqn).expect("Target node not found");
     let discovery = naviscope_core::analysis::discovery::DiscoveryEngine::new(graph);
     let candidate_files = discovery.scout_references(&[target_idx]);
     assert!(

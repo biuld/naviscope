@@ -1,19 +1,52 @@
-use super::EngineHandle;
 use crate::analysis::discovery::DiscoveryEngine;
+use crate::engine::EngineHandle;
 use crate::util::utf16_col_to_byte_col;
 use async_trait::async_trait;
 use naviscope_api::models::{
-    CallHierarchyIncomingCall, CallHierarchyOutgoingCall, DocumentSymbol, Language,
-    PositionContext, Range, ReferenceQuery, SymbolInfo, SymbolLocation, SymbolQuery,
-    SymbolResolution,
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, DocumentSymbol,
+    Language, NodeKind, PositionContext, Range, ReferenceQuery, SymbolInfo, SymbolLocation,
+    SymbolQuery, SymbolResolution,
 };
 use naviscope_api::semantic::{
     CallHierarchyAnalyzer, ReferenceAnalyzer, SemanticError, SemanticResult, SymbolInfoProvider,
     SymbolNavigator,
 };
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+impl EngineHandle {
+    fn node_to_call_item(
+        &self,
+        graph: &crate::engine::graph::CodeGraph,
+        idx: petgraph::stable_graph::NodeIndex,
+    ) -> CallHierarchyItem {
+        let node = &graph.topology()[idx];
+        let symbols = graph.symbols();
+        let fqn = node.fqn(symbols).to_string();
+        let name = node.name(symbols).to_string();
+        let path_str = node.path(symbols).unwrap_or("");
+
+        let range = node.range().cloned().unwrap_or(Range {
+            start_line: 0,
+            start_col: 0,
+            end_line: 0,
+            end_col: 0,
+        });
+        let selection_range = node.name_range().cloned().unwrap_or(range);
+
+        CallHierarchyItem {
+            name,
+            kind: node.kind.clone(),
+            detail: Some(fqn.clone()),
+            uri: format!("file://{}", path_str),
+            range,
+            selection_range,
+            id: fqn,
+        }
+    }
+}
 
 #[async_trait]
 impl SymbolNavigator for EngineHandle {
@@ -271,26 +304,242 @@ impl ReferenceAnalyzer for EngineHandle {
 impl CallHierarchyAnalyzer for EngineHandle {
     async fn find_incoming_calls(
         &self,
-        _fqn: &str,
+        fqn: &str,
     ) -> SemanticResult<Vec<CallHierarchyIncomingCall>> {
-        // Placeholder
-        Ok(vec![])
+        let graph = self.graph().await;
+        let target_indices = graph.find_matches_by_fqn(fqn);
+        if target_indices.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // 1. Meso-level scouting for candidate files
+        let discovery = DiscoveryEngine::new(&graph);
+        let candidate_paths = discovery.scout_references(&target_indices);
+
+        // 2. Micro-level scanning
+        let mut tasks = tokio::task::JoinSet::new();
+        let shared_graph = Arc::new(graph.clone());
+        let resolution = SymbolResolution::Global(fqn.to_string());
+
+        for path in candidate_paths {
+            let handle = self.clone();
+            let res = resolution.clone();
+            let graph_snap = Arc::clone(&shared_graph);
+
+            tasks.spawn(async move {
+                let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
+                    Some(x) => x,
+                    None => return vec![],
+                };
+
+                let file_resolver = match handle.get_semantic_resolver(file_lang) {
+                    Some(r) => r,
+                    None => return vec![],
+                };
+
+                let content = match fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(_) => return vec![],
+                };
+
+                let discovery = DiscoveryEngine::new(graph_snap.as_ref());
+                let uri_str = format!("file://{}", path.display());
+                let uri = match url::Url::parse(&uri_str) {
+                    Ok(u) => u,
+                    Err(_) => return vec![],
+                };
+
+                // Verification
+                discovery.scan_file(
+                    parser.as_ref(),
+                    file_resolver.as_ref(),
+                    &content,
+                    &res,
+                    &uri,
+                )
+            });
+        }
+
+        let mut all_call_sites = Vec::new();
+        while let Some(res) = tasks.join_next().await {
+            if let Ok(locs) = res {
+                all_call_sites.extend(locs);
+            }
+        }
+
+        // 3. Meso-level: group call sites by caller method
+        let mut caller_map: HashMap<petgraph::stable_graph::NodeIndex, Vec<Range>> = HashMap::new();
+
+        for loc in all_call_sites {
+            if let Ok(path) = loc.uri.to_file_path() {
+                if let Some(caller_idx) = graph.find_container_node_at(
+                    &path,
+                    loc.range.start.line as usize,
+                    loc.range.start.character as usize,
+                ) {
+                    let node = &graph.topology()[caller_idx];
+                    // Only include methods or constructors as callers
+                    if matches!(node.kind(), NodeKind::Method | NodeKind::Constructor) {
+                        caller_map.entry(caller_idx).or_default().push(Range {
+                            start_line: loc.range.start.line as usize,
+                            start_col: loc.range.start.character as usize,
+                            end_line: loc.range.end.line as usize,
+                            end_col: loc.range.end.character as usize,
+                        });
+                    }
+                }
+            }
+        }
+
+        let results = caller_map
+            .into_iter()
+            .map(|(idx, ranges)| CallHierarchyIncomingCall {
+                from: self.node_to_call_item(&graph, idx),
+                from_ranges: ranges,
+            })
+            .collect();
+
+        Ok(results)
     }
 
     async fn find_outgoing_calls(
         &self,
-        _fqn: &str,
+        fqn: &str,
     ) -> SemanticResult<Vec<CallHierarchyOutgoingCall>> {
-        // Placeholder
-        Ok(vec![])
+        let graph = self.graph().await;
+        let node_idx = match graph.find_node(fqn) {
+            Some(idx) => idx,
+            None => return Ok(vec![]),
+        };
+
+        let node = graph.get_node(node_idx).unwrap();
+        let symbols = graph.symbols();
+        let path_str = node
+            .path(symbols)
+            .ok_or_else(|| SemanticError::Internal("Node has no path".into()))?;
+        let path = PathBuf::from(path_str);
+
+        let range = node
+            .range()
+            .ok_or_else(|| SemanticError::Internal("Node has no range".into()))?;
+
+        let (parser, lang) = self
+            .get_parser_and_lang_for_path(&path)
+            .ok_or_else(|| SemanticError::Internal("No parser for file".into()))?;
+        let resolver = self
+            .get_semantic_resolver(lang)
+            .ok_or_else(|| SemanticError::Internal("No resolver for file".into()))?;
+
+        let content =
+            fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
+
+        // Micro-level scanning: extract method body and find all calls
+        let tree = parser
+            .parse(&content, None)
+            .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
+
+        let mut outgoing_calls: HashMap<petgraph::stable_graph::NodeIndex, Vec<Range>> =
+            HashMap::new();
+
+        // Simple AST walk to find identifiers in range
+        let mut stack = vec![tree.root_node()];
+
+        while let Some(n) = stack.pop() {
+            let n_range = n.range();
+            if n_range.start_point.row > range.end_line {
+                continue;
+            }
+            if n_range.end_point.row < range.start_line {
+                // Not in range, but children might be
+                for i in 0..n.child_count() {
+                    stack.push(n.child(i as u32).unwrap());
+                }
+                continue;
+            }
+
+            // Check if it's an identifier-like node
+            if matches!(
+                n.kind(),
+                "identifier" | "method_invocation" | "call_expression"
+            ) {
+                let pos_ctx = PositionContext {
+                    uri: format!("file://{}", path.display()),
+                    line: n_range.start_point.row as u32,
+                    char: n_range.start_point.column as u32,
+                    content: Some(content.clone()),
+                };
+
+                if let Ok(Some(res)) = self.resolve_symbol_at(&pos_ctx).await {
+                    let matches = resolver.find_matches(&graph, &res);
+                    for &m_idx in &matches {
+                        let m_node = &graph.topology()[m_idx];
+                        if matches!(m_node.kind(), NodeKind::Method | NodeKind::Constructor) {
+                            outgoing_calls.entry(m_idx).or_default().push(Range {
+                                start_line: n_range.start_point.row,
+                                start_col: n_range.start_point.column,
+                                end_line: n_range.end_point.row,
+                                end_col: n_range.end_point.column,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Recurse children
+            for i in 0..n.child_count() {
+                stack.push(n.child(i as u32).unwrap());
+            }
+        }
+
+        let results = outgoing_calls
+            .into_iter()
+            .map(|(idx, ranges)| CallHierarchyOutgoingCall {
+                to: self.node_to_call_item(&graph, idx),
+                from_ranges: ranges,
+            })
+            .collect();
+
+        Ok(results)
     }
 }
 
 #[async_trait]
 impl SymbolInfoProvider for EngineHandle {
-    async fn get_symbol_info(&self, _fqn: &str) -> SemanticResult<Option<SymbolInfo>> {
-        // Placeholder
-        Ok(None)
+    async fn get_symbol_info(&self, fqn: &str) -> SemanticResult<Option<SymbolInfo>> {
+        let graph = self.graph().await;
+        let node_idx = match graph.find_node(fqn) {
+            Some(idx) => idx,
+            None => return Ok(None),
+        };
+
+        let node = graph.get_node(node_idx).unwrap();
+        let symbols = graph.symbols();
+        let display_node = node.to_display(symbols);
+        let lang = node.language(symbols);
+
+        let feature_provider = self.get_feature_provider(lang.clone());
+
+        let mut info = SymbolInfo {
+            name: display_node.name.clone(),
+            kind: display_node.kind.clone(),
+            detail: None,
+            signature: None,
+            location: naviscope_api::models::SymbolLocation {
+                path: std::sync::Arc::from(std::path::PathBuf::from(
+                    &display_node.location.as_ref().unwrap().path,
+                )),
+                range: display_node.location.as_ref().unwrap().range,
+                selection_range: display_node.location.as_ref().unwrap().selection_range,
+            },
+            language: lang,
+        };
+
+        if let Some(fp) = feature_provider {
+            info.detail = fp.detail_view(&display_node);
+            info.signature = fp.signature(&display_node);
+        }
+
+        Ok(Some(info))
     }
 
     async fn get_document_symbols(&self, uri: &str) -> SemanticResult<Vec<DocumentSymbol>> {

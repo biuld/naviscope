@@ -46,22 +46,23 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         | naviscope_api::models::SymbolResolution::Global(fqn) => {
             // Fetch detailed info for FQN
             if let Ok(Some(info)) = engine.get_symbol_info(&fqn).await {
-                hover_text.push_str(&format!(
-                    "**{}** *{}*\n\n",
-                    info.name,
-                    info.kind.to_string()
-                ));
-
                 if let Some(sig) = info.signature {
-                    hover_text.push_str(&format!("```java\n{}\n```\n", sig));
+                    let lang_tag = info.language.as_str();
+                    hover_text.push_str(&format!("```{}\n{}\n```\n", lang_tag, sig));
+                } else {
+                    hover_text.push_str(&format!(
+                        "**{}** *{}*\n\n",
+                        info.name,
+                        info.kind.to_string()
+                    ));
                 }
 
                 if let Some(detail) = info.detail {
-                    hover_text.push_str("\n---\n\n");
                     hover_text.push_str(&detail);
+                    hover_text.push_str("\n\n");
                 }
 
-                hover_text.push_str(&format!("\n*`{}`*", fqn));
+                hover_text.push_str(&format!("*`{}`*", fqn));
             } else {
                 // Fallback to FQN only
                 hover_text.push_str(&format!("**Symbol**\n\n*`{}`*", fqn));

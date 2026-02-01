@@ -224,35 +224,33 @@ impl BuildResolver for GradleResolver {
             let id = path_to_id.get(path).unwrap();
             let display_name = id.split("::module:").nth(1).unwrap_or(id);
 
-            unit.add_node(
-                DisplayGraphNode {
-                    id: id.clone(),
-                    name: display_name.to_string(),
-                    kind: NodeKind::Module,
-                    lang: "buildfile".to_string(),
-                    location: data
-                        .build_file
-                        .as_ref()
-                        .map(|(f, _)| f.file.path.clone())
-                        .or_else(|| {
-                            data.settings_file
-                                .as_ref()
-                                .map(|(f, _)| f.file.path.clone())
-                        })
-                        .map(|path| DisplaySymbolLocation {
-                            path: path.to_string_lossy().to_string(),
-                            range: Range {
-                                start_line: 0,
-                                start_col: 0,
-                                end_line: 0,
-                                end_col: 0,
-                            },
-                            selection_range: None,
-                        }),
-                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
-                        .unwrap_or(serde_json::Value::Null),
-                },
-            );
+            unit.add_node(DisplayGraphNode {
+                id: id.clone(),
+                name: display_name.to_string(),
+                kind: NodeKind::Module,
+                lang: "buildfile".to_string(),
+                location: data
+                    .build_file
+                    .as_ref()
+                    .map(|(f, _)| f.file.path.clone())
+                    .or_else(|| {
+                        data.settings_file
+                            .as_ref()
+                            .map(|(f, _)| f.file.path.clone())
+                    })
+                    .map(|path| DisplaySymbolLocation {
+                        path: path.to_string_lossy().to_string(),
+                        range: Range {
+                            start_line: 0,
+                            start_col: 0,
+                            end_line: 0,
+                            end_col: 0,
+                        },
+                        selection_range: None,
+                    }),
+                metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
+                    .unwrap_or(serde_json::Value::Null),
+            });
 
             context.path_to_module.insert(path.clone(), id.clone());
 
@@ -311,34 +309,32 @@ impl BuildResolver for GradleResolver {
                             version: dep.version.clone(),
                             is_project: dep.is_project,
                         };
-                        unit.add_node(
-                            DisplayGraphNode {
-                                id: target_id.clone(),
-                                name: dep.name.clone(),
-                                kind: NodeKind::Dependency,
-                                lang: "buildfile".to_string(),
-                                location: Some(DisplaySymbolLocation {
-                                    path: data
-                                        .build_file
-                                        .as_ref()
-                                        .unwrap()
-                                        .0
-                                        .file
-                                        .path
-                                        .to_string_lossy()
-                                        .to_string(),
-                                    range: Range {
-                                        start_line: 0,
-                                        start_col: 0,
-                                        end_line: 0,
-                                        end_col: 0,
-                                    },
-                                    selection_range: None,
-                                }),
-                                metadata: serde_json::to_value(GradleElement::Dependency(dep_node))
-                                    .unwrap_or(serde_json::Value::Null),
-                            },
-                        );
+                        unit.add_node(DisplayGraphNode {
+                            id: target_id.clone(),
+                            name: dep.name.clone(),
+                            kind: NodeKind::Dependency,
+                            lang: "buildfile".to_string(),
+                            location: Some(DisplaySymbolLocation {
+                                path: data
+                                    .build_file
+                                    .as_ref()
+                                    .unwrap()
+                                    .0
+                                    .file
+                                    .path
+                                    .to_string_lossy()
+                                    .to_string(),
+                                range: Range {
+                                    start_line: 0,
+                                    start_col: 0,
+                                    end_line: 0,
+                                    end_col: 0,
+                                },
+                                selection_range: None,
+                            }),
+                            metadata: serde_json::to_value(GradleElement::Dependency(dep_node))
+                                .unwrap_or(serde_json::Value::Null),
+                        });
                     }
 
                     unit.add_edge(

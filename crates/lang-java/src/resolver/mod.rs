@@ -385,11 +385,7 @@ impl LangResolver for JavaResolver {
 
         {
             // Scope for usage of parse_result
-            unit.identifiers = parse_result
-                .identifiers
-                .iter()
-                .cloned()
-                .collect();
+            unit.identifiers = parse_result.identifiers.iter().cloned().collect();
             unit.ops.push(GraphOp::UpdateIdentifiers {
                 path: GLOBAL_POOL.intern_path(&file.file.path),
                 identifiers: unit.identifiers.clone(),

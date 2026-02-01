@@ -31,6 +31,8 @@ naviscope-api = { workspace = true }
 async-trait = { workspace = true }
 url = { workspace = true }
 
+[dev-dependencies]
+tree-sitter-java = "0.23.5"
 
 [build-dependencies]
 cc = { workspace = true }

@@ -3,7 +3,6 @@ mod common;
 use common::setup_java_test_graph;
 use naviscope_core::analysis::discovery::DiscoveryEngine;
 use naviscope_core::parser::SymbolResolution;
-use naviscope_core::query::CodeGraphLike;
 use naviscope_core::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
 

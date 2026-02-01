@@ -130,6 +130,7 @@ pub struct SymbolInfo {
     pub detail: Option<String>,
     pub location: SymbolLocation,
     pub signature: Option<String>,
+    pub language: Language,
 }
 
 #[derive(Debug, Clone)]

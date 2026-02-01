@@ -13,7 +13,6 @@ use naviscope_core::project::scanner::ParsedFile;
 use naviscope_core::query::CodeGraphLike;
 use naviscope_core::resolver::{LangResolver, ProjectContext, SemanticResolver};
 use petgraph::stable_graph::NodeIndex;
-// use smol_str::SmolStr;
 use std::path::Path;
 use std::sync::Arc;
 use tree_sitter::Tree;
@@ -30,7 +29,6 @@ impl LanguagePlugin for MockPlugin {
     fn name(&self) -> Language {
         Language::new("mock")
     }
-    // ... (lines 32-59 mostly same)
     fn supported_extensions(&self) -> &[&str] {
         &["mock"]
     }
@@ -46,7 +44,7 @@ impl LanguagePlugin for MockPlugin {
             relations: vec![],
             source: Some(_source.to_string()),
             tree: None,
-            identifiers: vec![],
+            identifiers: vec!["Callee".to_string()],
         })
     }
     fn resolver(&self) -> Arc<dyn SemanticResolver> {
@@ -70,10 +68,30 @@ struct MockLangResolver {
 impl LangResolver for MockLangResolver {
     fn resolve(
         &self,
-        _file: &ParsedFile,
+        file: &ParsedFile,
         _context: &ProjectContext,
     ) -> naviscope_core::error::Result<ResolvedUnit> {
         let mut unit = ResolvedUnit::new();
+
+        let identifiers = match &file.content {
+            naviscope_core::project::scanner::ParsedContent::Language(res) => {
+                res.identifiers.clone()
+            }
+            naviscope_core::project::scanner::ParsedContent::Unparsed(_src) => {
+                vec!["Callee".to_string()]
+            }
+            _ => vec![],
+        };
+
+        if !identifiers.is_empty() {
+            unit.identifiers = identifiers.clone();
+            unit.ops
+                .push(naviscope_core::model::GraphOp::UpdateIdentifiers {
+                    path: file.file.path.clone().into(),
+                    identifiers: unit.identifiers.clone(),
+                });
+        }
+
         let nodes = self.nodes.lock().unwrap();
         for node in nodes.iter() {
             unit.add_node(node.clone());
@@ -84,19 +102,19 @@ impl LangResolver for MockLangResolver {
 
 struct MockFeatureProvider;
 impl LanguageFeatureProvider for MockFeatureProvider {
-    fn detail_view(&self, _node: &DisplayGraphNode) -> Option<String> {
-        None
+    fn detail_view(&self, node: &DisplayGraphNode) -> Option<String> {
+        Some(format!("Mock detail for {}", node.id))
     }
-    fn signature(&self, _node: &DisplayGraphNode) -> Option<String> {
-        None
+    fn signature(&self, node: &DisplayGraphNode) -> Option<String> {
+        Some(format!("Mock signature for {}", node.id))
     }
     fn modifiers(&self, _node: &DisplayGraphNode) -> Vec<String> {
-        vec![]
+        vec!["mock".to_string()]
     }
 }
-// ... (MockResolver struct and impl - lines 96-139 same)
+
 struct MockResolver {
-    res_at: Option<SymbolResolution>,
+    res_at: std::sync::Mutex<Option<SymbolResolution>>,
 }
 
 impl SemanticResolver for MockResolver {
@@ -108,7 +126,7 @@ impl SemanticResolver for MockResolver {
         _byte_col: usize,
         _index: &dyn CodeGraphLike,
     ) -> Option<SymbolResolution> {
-        self.res_at.clone()
+        self.res_at.lock().unwrap().clone()
     }
 
     fn find_matches(&self, index: &dyn CodeGraphLike, res: &SymbolResolution) -> Vec<NodeIndex> {
@@ -142,8 +160,12 @@ impl SemanticResolver for MockResolver {
 
 struct MockLspParser;
 impl LspParser for MockLspParser {
-    fn parse(&self, _source: &str, _old_tree: Option<&Tree>) -> Option<Tree> {
-        None
+    fn parse(&self, source: &str, _old_tree: Option<&Tree>) -> Option<Tree> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_java::LANGUAGE.into())
+            .ok()?;
+        parser.parse(source, None)
     }
     fn extract_symbols(
         &self,
@@ -159,20 +181,27 @@ impl LspParser for MockLspParser {
         &self,
         _source: &str,
         _tree: &Tree,
-        _target: &SymbolResolution,
+        target: &SymbolResolution,
     ) -> Vec<Range> {
-        vec![Range {
-            start_line: 1,
-            start_col: 1,
-            end_line: 1,
-            end_col: 5,
-        }]
+        if let SymbolResolution::Global(id) = target {
+            if id == "test::Callee" {
+                return vec![Range {
+                    start_line: 1,
+                    start_col: 1,
+                    end_line: 1,
+                    end_col: 5,
+                }];
+            }
+        }
+        vec![]
     }
 }
 
 fn setup_engine(temp_dir: &Path) -> (NaviscopeEngine, Arc<MockPlugin>) {
     let mut engine = NaviscopeEngine::new(temp_dir.to_path_buf());
-    let mock_resolver = Arc::new(MockResolver { res_at: None });
+    let mock_resolver = Arc::new(MockResolver {
+        res_at: std::sync::Mutex::new(None),
+    });
     let mock_parser = Arc::new(MockLspParser);
     let mock_lang_resolver = Arc::new(MockLangResolver {
         nodes: std::sync::Mutex::new(vec![]),
@@ -214,7 +243,6 @@ async fn test_symbol_navigator_queries() {
             metadata: serde_json::Value::Null,
         });
     }
-    // ...
 
     let test_file = temp_dir.join("test.mock");
     std::fs::write(&test_file, "mock content").unwrap();
@@ -268,9 +296,8 @@ async fn test_symbol_info_provider() {
     let lang = handle.get_language_for_document(&uri).await.unwrap();
     assert_eq!(lang, Some(Language::new("mock")));
 
-    let symbols = handle.get_document_symbols(&uri).await;
-    assert!(symbols.is_err());
-    assert!(symbols.unwrap_err().to_string().contains("Failed to parse"));
+    let symbols = handle.get_document_symbols(&uri).await.unwrap();
+    assert!(symbols.is_empty());
 }
 
 #[tokio::test]
@@ -278,12 +305,123 @@ async fn test_call_hierarchy_analyzer() {
     let temp_dir = std::env::temp_dir().join("naviscope_test_hierarchy");
     std::fs::create_dir_all(&temp_dir).ok();
 
-    let (engine, _) = setup_engine(&temp_dir);
+    let (engine, plugin) = setup_engine(&temp_dir);
+
+    let test_file = temp_dir.join("test.mock");
+    let test_file_path = test_file.to_string_lossy().to_string();
+
+    // Add caller and callee nodes
+    {
+        let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
+        // Callee
+        nodes.push(DisplayGraphNode {
+            id: "test::Callee".to_string(),
+            name: "Callee".to_string(),
+            kind: NodeKind::Method,
+            lang: "mock".to_string(),
+            location: Some(DisplaySymbolLocation {
+                path: test_file_path.clone(),
+                range: Range {
+                    start_line: 5,
+                    start_col: 0,
+                    end_line: 5,
+                    end_col: 10,
+                },
+                selection_range: None,
+            }),
+            metadata: serde_json::Value::Null,
+        });
+        // Caller
+        nodes.push(DisplayGraphNode {
+            id: "test::Caller".to_string(),
+            name: "Caller".to_string(),
+            kind: NodeKind::Method,
+            lang: "mock".to_string(),
+            location: Some(DisplaySymbolLocation {
+                path: test_file_path.clone(),
+                range: Range {
+                    start_line: 0,
+                    start_col: 0,
+                    end_line: 2,
+                    end_col: 10,
+                },
+                selection_range: None,
+            }),
+            metadata: serde_json::Value::Null,
+        });
+    }
+
+    std::fs::write(&test_file, "caller calls callee").unwrap();
+    engine.update_files(vec![test_file.clone()]).await.unwrap();
+
+    // Set mock resolution for verification (needed by scan_file)
+    *plugin.resolver.res_at.lock().unwrap() =
+        Some(SymbolResolution::Global("test::Callee".to_string()));
+
     let handle = EngineHandle::from_engine(Arc::new(engine));
 
-    let incoming = handle.find_incoming_calls("test::Symbol").await.unwrap();
-    assert!(incoming.is_empty());
+    // 1. Test Incoming Calls (Who calls Callee?)
+    let incoming = handle.find_incoming_calls("test::Callee").await.unwrap();
+    assert_eq!(incoming.len(), 1);
+    assert_eq!(incoming[0].from.id, "test::Caller");
+    assert_eq!(incoming[0].from_ranges.len(), 1);
+    assert_eq!(incoming[0].from_ranges[0].start_line, 1);
 
-    let outgoing = handle.find_outgoing_calls("test::Symbol").await.unwrap();
-    assert!(outgoing.is_empty());
+    // 2. Test Outgoing Calls (Who does Caller call?)
+    let outgoing = handle.find_outgoing_calls("test::Caller").await.unwrap();
+    assert!(!outgoing.is_empty());
+    assert_eq!(outgoing[0].to.id, "test::Callee");
+}
+
+#[tokio::test]
+async fn test_get_symbol_info() {
+    let temp_dir = std::env::temp_dir().join("naviscope_test_symbol_info_final");
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    let (engine, plugin) = setup_engine(&temp_dir);
+
+    // Add a node to the mock plugin's resolver
+    {
+        let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
+        nodes.push(DisplayGraphNode {
+            id: "test::Symbol".to_string(),
+            name: "Symbol".to_string(),
+            kind: NodeKind::Class,
+            lang: "mock".to_string(),
+            location: Some(DisplaySymbolLocation {
+                path: temp_dir.join("test.mock").to_string_lossy().to_string(),
+                range: Range {
+                    start_line: 0,
+                    start_col: 0,
+                    end_line: 0,
+                    end_col: 10,
+                },
+                selection_range: None,
+            }),
+            metadata: serde_json::Value::Null,
+        });
+    }
+
+    let test_file = temp_dir.join("test.mock");
+    std::fs::write(&test_file, "mock content").unwrap();
+
+    // Trigger update to populate graph
+    engine.update_files(vec![test_file.clone()]).await.unwrap();
+
+    let handle = EngineHandle::from_engine(Arc::new(engine));
+
+    // Test get_symbol_info
+    let info = handle.get_symbol_info("test::Symbol").await.unwrap();
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert_eq!(info.name, "Symbol");
+    assert_eq!(
+        info.detail,
+        Some("Mock detail for test::Symbol".to_string())
+    );
+    assert_eq!(
+        info.signature,
+        Some("Mock signature for test::Symbol".to_string())
+    );
+    assert_eq!(info.language.as_str(), "mock");
 }

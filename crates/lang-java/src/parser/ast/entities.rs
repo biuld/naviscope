@@ -112,19 +112,13 @@ impl JavaParser {
         relations: &mut Vec<JavaRelation>,
     ) -> JavaElement {
         match kind {
-            KIND_LABEL_CLASS => JavaElement::Class(JavaClass {
-                modifiers: vec![],
-            }),
-            KIND_LABEL_INTERFACE => JavaElement::Interface(JavaInterface {
-                modifiers: vec![],
-            }),
+            KIND_LABEL_CLASS => JavaElement::Class(JavaClass { modifiers: vec![] }),
+            KIND_LABEL_INTERFACE => JavaElement::Interface(JavaInterface { modifiers: vec![] }),
             KIND_LABEL_ENUM => JavaElement::Enum(JavaEnum {
                 modifiers: vec![],
                 constants: vec![],
             }),
-            KIND_LABEL_ANNOTATION => JavaElement::Annotation(JavaAnnotation {
-                modifiers: vec![],
-            }),
+            KIND_LABEL_ANNOTATION => JavaElement::Annotation(JavaAnnotation { modifiers: vec![] }),
             KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => {
                 let mut return_type = TypeRef::raw("void");
                 if let Some(ret_node) = captures

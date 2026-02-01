@@ -147,7 +147,12 @@ impl CodeGraph {
     }
 
     /// Find the smallest node whose full range contains the specific location
-    pub fn find_container_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
+    pub fn find_container_node_at(
+        &self,
+        path: &Path,
+        line: usize,
+        col: usize,
+    ) -> Option<NodeIndex> {
         let path_str = path.to_string_lossy();
         let key = self.inner.symbols.get(path_str.as_ref())?;
         let entry = self.inner.file_index.get(&Symbol(key))?;

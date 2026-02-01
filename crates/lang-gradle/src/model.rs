@@ -19,11 +19,13 @@ impl GradleElement {
     pub fn intern(&self, ctx: &mut dyn StorageContext) -> GradleStorageElement {
         match self {
             GradleElement::Module(_) => GradleStorageElement::Module(GradleModuleStorage {}),
-            GradleElement::Dependency(d) => GradleStorageElement::Dependency(GradleDependencyStorage {
-                group_sid: d.group.as_ref().map(|s| ctx.intern_str(s)),
-                version_sid: d.version.as_ref().map(|s| ctx.intern_str(s)),
-                is_project: d.is_project,
-            }),
+            GradleElement::Dependency(d) => {
+                GradleStorageElement::Dependency(GradleDependencyStorage {
+                    group_sid: d.group.as_ref().map(|s| ctx.intern_str(s)),
+                    version_sid: d.version.as_ref().map(|s| ctx.intern_str(s)),
+                    is_project: d.is_project,
+                })
+            }
         }
     }
 }
