@@ -268,6 +268,7 @@ pub fn from_storage(
         .collect();
 
     CodeGraphInner {
+        instance_id: 0, // Will be updated when wrapped in CodeGraph
         version: storage.version,
         topology,
         symbols: rodeo,

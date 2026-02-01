@@ -23,6 +23,7 @@ impl CodeGraphBuilder {
     pub fn new() -> Self {
         Self {
             inner: CodeGraphInner {
+                instance_id: 0, // Will be updated when built
                 version: crate::engine::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
                 symbols: lasso::Rodeo::default(),

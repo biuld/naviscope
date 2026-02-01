@@ -11,7 +11,14 @@ use naviscope_api::models::symbol::Symbol;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+static NEXT_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_instance_id() -> u64 {
+    NEXT_INSTANCE_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Immutable code graph (cheap to clone via Arc)
 #[derive(Clone)]
@@ -22,6 +29,9 @@ pub struct CodeGraph {
 /// Internal data structure (shared via Arc)
 #[derive(Clone)]
 pub struct CodeGraphInner {
+    /// Unique instance ID for concurrency control (not serialized)
+    pub instance_id: u64,
+
     pub version: u32,
     pub topology: StableDiGraph<GraphNode, GraphEdge>,
 
@@ -54,6 +64,7 @@ impl CodeGraph {
     pub fn empty() -> Self {
         Self {
             inner: std::sync::Arc::new(CodeGraphInner {
+                instance_id: next_instance_id(),
                 version: crate::engine::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
                 symbols: Rodeo::default(),
@@ -66,7 +77,8 @@ impl CodeGraph {
     }
 
     /// Create graph from internal data
-    pub(crate) fn from_inner(inner: CodeGraphInner) -> Self {
+    pub(crate) fn from_inner(mut inner: CodeGraphInner) -> Self {
+        inner.instance_id = next_instance_id();
         Self {
             inner: std::sync::Arc::new(inner),
         }
@@ -81,6 +93,11 @@ impl CodeGraph {
     }
 
     // ---- Read-only accessors ----
+
+    /// Get the unique instance ID for this graph version
+    pub fn instance_id(&self) -> u64 {
+        self.inner.instance_id
+    }
 
     /// Get the version number
     pub fn version(&self) -> u32 {
@@ -221,13 +238,13 @@ impl CodeGraph {
         bytes: &[u8],
         get_plugin: impl Fn(&str) -> Option<Arc<dyn crate::plugin::MetadataPlugin>>,
     ) -> Result<Self, NaviscopeError> {
-        use super::storage::{StorageGraph, from_storage};
+        use super::storage::{from_storage, StorageGraph};
 
-        // Decompress
-        let decompressed = zstd::decode_all(bytes)
-            .map_err(|e| NaviscopeError::Internal(format!("Zstd decompression failed: {}", e)))?;
+        // Decompress using streaming decoder to save memory
+        let decoder = zstd::stream::read::Decoder::new(bytes)
+            .map_err(|e| NaviscopeError::Internal(format!("Zstd decoder init failed: {}", e)))?;
 
-        let storage: StorageGraph = rmp_serde::from_slice(&decompressed)
+        let storage: StorageGraph = rmp_serde::from_read(decoder)
             .map_err(|e| NaviscopeError::Internal(format!("MSGPACK error: {}", e)))?;
 
         let inner = from_storage(storage, get_plugin);

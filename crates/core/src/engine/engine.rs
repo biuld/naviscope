@@ -3,7 +3,7 @@
 use super::{CodeGraph, CodeGraphBuilder};
 use crate::error::{NaviscopeError, Result};
 use crate::model::GraphOp;
-use crate::project::scanner::Scanner;
+use crate::project::scanner::{ParsedFile, Scanner};
 use crate::resolver::engine::IndexResolver;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -93,7 +93,7 @@ impl NaviscopeEngine {
     /// Get a snapshot of the current graph (cheap operation)
     pub async fn snapshot(&self) -> CodeGraph {
         let lock = self.current.read().await;
-        CodeGraph::clone(&*lock) // Arc clone, O(1)
+        (**lock).clone() // CodeGraph clone is Arc clone of inner
     }
 
     /// Load index from disk
@@ -160,21 +160,21 @@ impl NaviscopeEngine {
 
     /// Update specific files incrementally
     pub async fn update_files(&self, files: Vec<PathBuf>) -> Result<()> {
-        let graph = self.snapshot().await;
+        let base_graph = self.snapshot().await;
         let build_plugins = self.build_plugins.clone();
         let lang_plugins = self.lang_plugins.clone();
 
         // Prepare existing file metadata for change detection
         let mut existing_metadata = std::collections::HashMap::new();
-        for (path, entry) in graph.file_index() {
+        for (path, entry) in base_graph.file_index() {
             existing_metadata.insert(
-                PathBuf::from(graph.symbols().resolve(&path.0)),
+                PathBuf::from(base_graph.symbols().resolve(&path.0)),
                 entry.metadata.clone(),
             );
         }
 
         // Processing in blocking pool
-        let new_graph = tokio::task::spawn_blocking(move || -> Result<Option<CodeGraph>> {
+        let result = tokio::task::spawn_blocking(move || -> Result<Option<(Vec<GraphOp>, Vec<ParsedFile>)>> {
             let mut manual_ops = Vec::new();
             let mut to_scan = Vec::new();
 
@@ -198,23 +198,32 @@ impl NaviscopeEngine {
 
             let resolver =
                 IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
-            let mut ops = resolver.resolve(parse_results)?;
+            let mut ops = resolver.resolve(parse_results.clone())?;
 
             // Add manual deletion ops
             ops.extend(manual_ops);
 
-            let mut builder = graph.to_builder();
-            builder.apply_ops(ops)?;
-            Ok(Some(builder.build()))
+            Ok(Some((ops, parse_results)))
         })
         .await
         .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
 
-        if let Some(updated_graph) = new_graph {
-            // Atomically update current
+        if let Some((ops, _parse_results)) = result {
+            // Atomically update current, checking for concurrent updates
             {
                 let mut lock = self.current.write().await;
-                *lock = Arc::new(updated_graph);
+                let current_graph = &**lock;
+                
+                if current_graph.instance_id() != base_graph.instance_id() {
+                    tracing::info!("Concurrent update detected, re-applying changes to latest graph...");
+                    let mut builder = current_graph.to_builder();
+                    builder.apply_ops(ops)?;
+                    *lock = Arc::new(builder.build());
+                } else {
+                    let mut builder = base_graph.to_builder();
+                    builder.apply_ops(ops)?;
+                    *lock = Arc::new(builder.build());
+                }
             }
 
             // Save to disk
@@ -358,6 +367,16 @@ impl NaviscopeEngine {
 
         match CodeGraph::deserialize(&bytes, get_plugin) {
             Ok(graph) => {
+                if graph.version() != crate::engine::CURRENT_VERSION {
+                    tracing::warn!(
+                        "Index version mismatch at {} (found {}, expected {}). Will rebuild.",
+                        path.display(),
+                        graph.version(),
+                        crate::engine::CURRENT_VERSION
+                    );
+                    let _ = std::fs::remove_file(path);
+                    return Ok(None);
+                }
                 tracing::info!("Loaded index from {}", path.display());
                 Ok(Some(graph))
             }
