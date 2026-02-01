@@ -1,5 +1,70 @@
-use naviscope_core::engine::storage::model::StorageContext;
+use lasso::{Key, Reader, Spur};
+use naviscope_api::models::NodeMetadata;
+use naviscope_core::model::metadata::{IndexMetadata, SymbolInterner};
+use naviscope_core::model::storage::model::StorageContext;
 use serde::{Deserialize, Serialize};
+use std::any::Any;
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct GradleNodeMetadata {
+    pub element: GradleStorageElement,
+}
+
+impl GradleNodeMetadata {
+    pub fn new(element: GradleStorageElement) -> Self {
+        Self { element }
+    }
+
+    pub fn detail_view(&self, rodeo: &dyn Reader) -> Option<String> {
+        match &self.element {
+            GradleStorageElement::Dependency(d) => {
+                let mut detail = String::new();
+                if let Some(group_sid) = d.group_sid {
+                    detail.push_str(
+                        rodeo.resolve(&Spur::try_from_usize(group_sid as usize).unwrap()),
+                    );
+                }
+                if let Some(version_sid) = d.version_sid {
+                    if !detail.is_empty() {
+                        detail.push(':');
+                    }
+                    detail.push_str(
+                        rodeo.resolve(&Spur::try_from_usize(version_sid as usize).unwrap()),
+                    );
+                }
+                if d.is_project {
+                    detail.push_str(" (Project)");
+                }
+                if detail.is_empty() {
+                    None
+                } else {
+                    Some(detail)
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+impl NodeMetadata for GradleNodeMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl IndexMetadata for GradleNodeMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn intern(&self, _interner: &mut dyn SymbolInterner) -> Arc<dyn NodeMetadata> {
+        // GradleNodeMetadata is already interned (contains GradleStorageElement)
+        Arc::new(GradleNodeMetadata {
+            element: self.element.clone(),
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]

@@ -3,8 +3,8 @@ use super::super::constants::*;
 use super::{JavaEntity, JavaRelation};
 use crate::model::*;
 use naviscope_api::models::TypeRef;
+use naviscope_core::ingest::parser::utils::range_from_ts;
 use naviscope_core::model::{EdgeType, Range};
-use naviscope_core::parser::utils::range_from_ts;
 use std::collections::HashMap;
 use tree_sitter::QueryCapture;
 
@@ -110,15 +110,15 @@ impl JavaParser {
         captures: &[QueryCapture<'a>],
         source: &'a str,
         relations: &mut Vec<JavaRelation>,
-    ) -> JavaElement {
+    ) -> JavaIndexMetadata {
         match kind {
-            KIND_LABEL_CLASS => JavaElement::Class(JavaClass { modifiers: vec![] }),
-            KIND_LABEL_INTERFACE => JavaElement::Interface(JavaInterface { modifiers: vec![] }),
-            KIND_LABEL_ENUM => JavaElement::Enum(JavaEnum {
+            KIND_LABEL_CLASS => JavaIndexMetadata::Class { modifiers: vec![] },
+            KIND_LABEL_INTERFACE => JavaIndexMetadata::Interface { modifiers: vec![] },
+            KIND_LABEL_ENUM => JavaIndexMetadata::Enum {
                 modifiers: vec![],
                 constants: vec![],
-            }),
-            KIND_LABEL_ANNOTATION => JavaElement::Annotation(JavaAnnotation { modifiers: vec![] }),
+            },
+            KIND_LABEL_ANNOTATION => JavaIndexMetadata::Annotation { modifiers: vec![] },
             KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => {
                 let mut return_type = TypeRef::raw("void");
                 if let Some(ret_node) = captures
@@ -129,12 +129,12 @@ impl JavaParser {
                     return_type = self.parse_type_node(ret_node, source);
                     self.generate_typed_as_edges(ret_node, source, _fqn, relations);
                 }
-                JavaElement::Method(JavaMethod {
+                JavaIndexMetadata::Method {
                     return_type,
                     parameters: vec![],
                     modifiers: vec![],
                     is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
-                })
+                }
             }
             KIND_LABEL_FIELD => {
                 let anchor_node = captures
@@ -160,10 +160,10 @@ impl JavaParser {
                     TypeRef::Unknown
                 };
 
-                JavaElement::Field(JavaField {
+                JavaIndexMetadata::Field {
                     type_ref,
                     modifiers: vec![],
-                })
+                }
             }
             _ => unreachable!(),
         }

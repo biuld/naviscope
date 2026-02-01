@@ -2,7 +2,6 @@ pub mod graph;
 pub mod lifecycle;
 pub mod models;
 pub mod navigation;
-pub mod plugin;
 pub mod semantic;
 
 // Re-export commonly used types
@@ -10,7 +9,6 @@ pub use graph::GraphService;
 pub use lifecycle::EngineLifecycle;
 pub use models::*;
 pub use navigation::NavigationService;
-pub use plugin::LanguageFeatureProvider;
 pub use semantic::{CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolInfoProvider, SymbolNavigator};
 
 /// Composite trait representing the full Naviscope Engine API.

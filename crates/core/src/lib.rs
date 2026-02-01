@@ -1,11 +1,11 @@
-pub mod analysis;
-pub mod engine;
 pub mod error;
 pub mod logging;
-pub mod model;
-pub mod parser;
-pub mod plugin;
-pub mod project;
-pub mod query;
-pub mod resolver;
 pub mod util;
+
+pub mod facade;
+pub mod features;
+pub mod ingest;
+pub mod model;
+pub mod runtime;
+
+pub use error::Result;

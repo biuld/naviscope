@@ -105,7 +105,7 @@ pub struct InternedLocation {
 }
 
 impl InternedLocation {
-    pub fn to_display(&self, rodeo: &impl lasso::Reader) -> super::graph::DisplaySymbolLocation {
+    pub fn to_display(&self, rodeo: &dyn lasso::Reader) -> super::graph::DisplaySymbolLocation {
         super::graph::DisplaySymbolLocation {
             path: rodeo.resolve(&self.path.0).to_string(),
             range: self.range,

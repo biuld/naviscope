@@ -1,6 +1,6 @@
 mod common;
 use common::setup_java_test_graph;
-use naviscope_core::engine::CodeGraph;
+use naviscope_core::model::CodeGraph;
 use naviscope_core::model::EdgeType;
 
 /// Helper assertion: Verify that an edge of the specified type exists from source to target in the graph
@@ -59,7 +59,7 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
 
 fn assert_reference_scouted(graph: &CodeGraph, target_fqn: &str, expected_file: &str) {
     let target_idx = graph.find_node(target_fqn).expect("Target node not found");
-    let discovery = naviscope_core::analysis::discovery::DiscoveryEngine::new(graph);
+    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(graph);
     let candidate_files = discovery.scout_references(&[target_idx]);
     assert!(
         candidate_files.contains(&std::path::PathBuf::from(expected_file)),

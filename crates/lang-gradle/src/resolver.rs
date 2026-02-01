@@ -1,10 +1,9 @@
-use crate::model::{GradleElement, GradleModule};
 use naviscope_core::error::Result;
+use naviscope_core::ingest::resolver::{BuildResolver, ProjectContext};
+use naviscope_core::ingest::scanner::{ParsedContent, ParsedFile};
 use naviscope_core::model::{
-    DisplayGraphNode, DisplaySymbolLocation, EdgeType, GraphEdge, NodeKind, Range, ResolvedUnit,
+    DisplaySymbolLocation, EdgeType, GraphEdge, NodeKind, Range, ResolvedUnit,
 };
-use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
-use naviscope_core::resolver::{BuildResolver, ProjectContext};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -117,7 +116,7 @@ impl BuildResolver for GradleResolver {
         let project_id = format!("project:{}", project_name);
 
         // Add Project node
-        unit.add_node(DisplayGraphNode {
+        unit.add_node(naviscope_core::ingest::parser::IndexNode {
             id: project_id.clone(),
             name: project_name.clone(),
             kind: NodeKind::Project,
@@ -132,14 +131,7 @@ impl BuildResolver for GradleResolver {
                 },
                 selection_range: None,
             }),
-            metadata: serde_json::json!({
-                "build_system": "gradle",
-                "root_path": root_path.to_string_lossy()
-            }),
-            detail: None,
-            signature: None,
-            modifiers: vec![],
-            children: None,
+            metadata: Arc::new(naviscope_core::model::EmptyMetadata),
         });
 
         // --- Step 4: Assign Module IDs ---
@@ -179,7 +171,7 @@ impl BuildResolver for GradleResolver {
                 .nth(1)
                 .unwrap_or(&project_name);
 
-            unit.add_node(DisplayGraphNode {
+            unit.add_node(naviscope_core::ingest::parser::IndexNode {
                 id: root_module_id.clone(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
@@ -203,12 +195,7 @@ impl BuildResolver for GradleResolver {
                         },
                         selection_range: None,
                     }),
-                metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
-                    .unwrap_or(serde_json::Value::Null),
-                detail: None,
-                signature: None,
-                modifiers: vec![],
-                children: None,
+                metadata: Arc::new(naviscope_core::model::EmptyMetadata),
             });
 
             unit.add_edge(
@@ -232,7 +219,7 @@ impl BuildResolver for GradleResolver {
             let id = path_to_id.get(path).unwrap();
             let display_name = id.split("::module:").nth(1).unwrap_or(id);
 
-            unit.add_node(DisplayGraphNode {
+            unit.add_node(naviscope_core::ingest::parser::IndexNode {
                 id: id.clone(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
@@ -256,12 +243,7 @@ impl BuildResolver for GradleResolver {
                         },
                         selection_range: None,
                     }),
-                metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
-                    .unwrap_or(serde_json::Value::Null),
-                detail: None,
-                signature: None,
-                modifiers: vec![],
-                children: None,
+                metadata: Arc::new(naviscope_core::model::EmptyMetadata),
             });
 
             context.path_to_module.insert(path.clone(), id.clone());
@@ -316,12 +298,12 @@ impl BuildResolver for GradleResolver {
                     };
 
                     if !dep.is_project {
-                        let dep_node = crate::model::GradleDependency {
+                        let _dep_node = crate::model::GradleDependency {
                             group: dep.group.clone(),
                             version: dep.version.clone(),
                             is_project: dep.is_project,
                         };
-                        unit.add_node(DisplayGraphNode {
+                        unit.add_node(naviscope_core::ingest::parser::IndexNode {
                             id: target_id.clone(),
                             name: dep.name.clone(),
                             kind: NodeKind::Dependency,
@@ -344,12 +326,7 @@ impl BuildResolver for GradleResolver {
                                 },
                                 selection_range: None,
                             }),
-                            metadata: serde_json::to_value(GradleElement::Dependency(dep_node))
-                                .unwrap_or(serde_json::Value::Null),
-                            detail: None,
-                            signature: None,
-                            modifiers: vec![],
-                            children: None,
+                            metadata: Arc::new(naviscope_core::model::EmptyMetadata),
                         });
                     }
 
@@ -375,7 +352,7 @@ struct ModuleData<'a> {
 mod tests {
     use super::*;
     use naviscope_core::model::GraphOp;
-    use naviscope_core::project::source::SourceFile;
+    use naviscope_core::model::source::SourceFile;
 
     fn create_mock_file(path: &str, content: ParsedContent) -> ParsedFile {
         ParsedFile {

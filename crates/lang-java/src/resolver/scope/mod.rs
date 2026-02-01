@@ -1,5 +1,5 @@
 use super::context::ResolutionContext;
-use naviscope_core::resolver::scope::SemanticScope;
+use naviscope_core::ingest::resolver::scope::SemanticScope;
 
 pub trait Scope: for<'a> SemanticScope<ResolutionContext<'a>> {}
 impl<T: for<'a> SemanticScope<ResolutionContext<'a>>> Scope for T {}

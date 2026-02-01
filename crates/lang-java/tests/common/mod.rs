@@ -1,9 +1,9 @@
-use naviscope_core::engine::{CodeGraph, CodeGraphBuilder};
-use naviscope_core::model::GraphOp;
-use naviscope_core::parser::IndexParser;
-use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
-use naviscope_core::project::source::SourceFile;
-use naviscope_core::resolver::ProjectContext;
+use naviscope_core::ingest::builder::CodeGraphBuilder;
+use naviscope_core::ingest::parser::IndexParser;
+use naviscope_core::ingest::resolver::ProjectContext;
+use naviscope_core::ingest::scanner::{ParsedContent, ParsedFile};
+use naviscope_core::model::source::SourceFile;
+use naviscope_core::model::{CodeGraph, GraphOp};
 use naviscope_java::parser::JavaParser;
 use naviscope_java::resolver::JavaResolver;
 use std::path::PathBuf;
@@ -41,7 +41,7 @@ pub fn setup_java_test_graph(
         let tree = ts_parser.parse(&content, None).unwrap();
 
         // Use LangResolver to get graph operations
-        use naviscope_core::resolver::LangResolver;
+        use naviscope_core::ingest::resolver::LangResolver;
         let unit = resolver.resolve(&pf, &context).unwrap();
         all_ops.extend(unit.ops);
 

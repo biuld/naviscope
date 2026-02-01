@@ -1,5 +1,4 @@
 use super::JavaParser;
-use crate::model::JavaElement;
 use naviscope_core::model::{EdgeType, Range};
 use std::collections::HashMap;
 use tree_sitter::{Node, QueryCapture, StreamingIterator, Tree};
@@ -18,7 +17,7 @@ pub struct JavaFileModel<'a> {
 }
 
 pub struct JavaEntity<'a> {
-    pub element: JavaElement,
+    pub element: crate::model::JavaIndexMetadata,
     pub node: Node<'a>,
     pub fqn: String,
     pub name: String,

@@ -1,7 +1,7 @@
 use super::JavaParser;
+use naviscope_api::models::SymbolIntent;
+use naviscope_core::ingest::parser::utils::range_from_ts;
 use naviscope_core::model::Range;
-use naviscope_core::parser::SymbolIntent;
-use naviscope_core::parser::utils::range_from_ts;
 use tree_sitter::Node;
 
 impl JavaParser {

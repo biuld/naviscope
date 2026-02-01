@@ -1,8 +1,8 @@
 mod common;
 
 use common::setup_java_test_graph;
-use naviscope_core::parser::SymbolResolution;
-use naviscope_core::resolver::SemanticResolver;
+use naviscope_core::ingest::parser::SymbolResolution;
+use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
 
 fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {

@@ -1,204 +1,130 @@
-use naviscope_api::models::TypeRef;
-use naviscope_core::engine::storage::model::StorageContext;
+use lasso::Reader;
+use naviscope_api::models::{NodeMetadata, TypeRef};
+use naviscope_core::model::metadata::{IndexMetadata, SymbolInterner};
 use serde::{Deserialize, Serialize};
+use std::any::Any;
+use std::sync::Arc;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum JavaElement {
-    Class(JavaClass),
-    Interface(JavaInterface),
-    Enum(JavaEnum),
-    Annotation(JavaAnnotation),
-    Method(JavaMethod),
-    Field(JavaField),
-    Package(JavaPackage),
+/// Uninterned metadata used during parsing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum JavaIndexMetadata {
+    Class {
+        modifiers: Vec<String>,
+    },
+    Interface {
+        modifiers: Vec<String>,
+    },
+    Enum {
+        modifiers: Vec<String>,
+        constants: Vec<String>,
+    },
+    Annotation {
+        modifiers: Vec<String>,
+    },
+    Method {
+        modifiers: Vec<String>,
+        return_type: TypeRef,
+        parameters: Vec<JavaParameter>,
+        is_constructor: bool,
+    },
+    Field {
+        modifiers: Vec<String>,
+        type_ref: TypeRef,
+    },
+    Package,
 }
 
-/// Optimized storage version of JavaElement
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum JavaStorageElement {
-    Class(JavaClassStorage),
-    Interface(JavaInterfaceStorage),
-    Enum(JavaEnumStorage),
-    Annotation(JavaAnnotationStorage),
-    Method(JavaMethodStorage),
-    Field(JavaFieldStorage),
-    Package(JavaPackageStorage),
+impl IndexMetadata for JavaIndexMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn intern(&self, interner: &mut dyn SymbolInterner) -> Arc<dyn NodeMetadata> {
+        Arc::new(self.to_storage(interner))
+    }
 }
 
-impl JavaElement {
-    pub fn to_storage(&self, ctx: &mut dyn StorageContext) -> JavaStorageElement {
+/// Interned metadata stored in the graph
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum JavaNodeMetadata {
+    Class {
+        modifiers_sids: Vec<u32>,
+    },
+    Interface {
+        modifiers_sids: Vec<u32>,
+    },
+    Enum {
+        modifiers_sids: Vec<u32>,
+        constants_sids: Vec<u32>,
+    },
+    Annotation {
+        modifiers_sids: Vec<u32>,
+    },
+    Method {
+        modifiers_sids: Vec<u32>,
+        return_type: TypeRef,
+        parameters: Vec<JavaParameterStorage>,
+        is_constructor: bool,
+    },
+    Field {
+        modifiers_sids: Vec<u32>,
+        type_ref: TypeRef,
+    },
+    Package,
+}
+
+impl JavaIndexMetadata {
+    pub fn to_storage(&self, ctx: &mut dyn SymbolInterner) -> JavaNodeMetadata {
         match self {
-            JavaElement::Class(e) => JavaStorageElement::Class(JavaClassStorage {
-                modifiers_sids: e.modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
-            }),
-            JavaElement::Interface(e) => JavaStorageElement::Interface(JavaInterfaceStorage {
-                modifiers_sids: e.modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
-            }),
-            JavaElement::Enum(e) => JavaStorageElement::Enum(JavaEnumStorage {
-                modifiers_sids: e.modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
-                constants_sids: e.constants.iter().map(|s| ctx.intern_str(s)).collect(),
-            }),
-            JavaElement::Annotation(e) => JavaStorageElement::Annotation(JavaAnnotationStorage {
-                modifiers_sids: e.modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
-            }),
-            JavaElement::Method(e) => JavaStorageElement::Method(JavaMethodStorage {
-                return_type: e.return_type.clone(),
-                parameters: e
-                    .parameters
+            JavaIndexMetadata::Class { modifiers } => JavaNodeMetadata::Class {
+                modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+            },
+            JavaIndexMetadata::Interface { modifiers } => JavaNodeMetadata::Interface {
+                modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+            },
+            JavaIndexMetadata::Enum {
+                modifiers,
+                constants,
+            } => JavaNodeMetadata::Enum {
+                modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+                constants_sids: constants.iter().map(|s| ctx.intern_str(s)).collect(),
+            },
+            JavaIndexMetadata::Annotation { modifiers } => JavaNodeMetadata::Annotation {
+                modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+            },
+            JavaIndexMetadata::Method {
+                modifiers,
+                return_type,
+                parameters,
+                is_constructor,
+            } => JavaNodeMetadata::Method {
+                modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+                return_type: return_type.clone(),
+                parameters: parameters
                     .iter()
                     .map(|p| JavaParameterStorage {
                         name_sid: ctx.intern_str(&p.name),
                         type_ref: p.type_ref.clone(),
                     })
                     .collect(),
-                modifiers_sids: e.modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
-                is_constructor: e.is_constructor,
-            }),
-            JavaElement::Field(e) => JavaStorageElement::Field(JavaFieldStorage {
-                type_ref: e.type_ref.clone(),
-                modifiers_sids: e.modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
-            }),
-            JavaElement::Package(_) => JavaStorageElement::Package(JavaPackageStorage {}),
+                is_constructor: *is_constructor,
+            },
+            JavaIndexMetadata::Field {
+                modifiers,
+                type_ref,
+            } => JavaNodeMetadata::Field {
+                modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+                type_ref: type_ref.clone(),
+            },
+            JavaIndexMetadata::Package => JavaNodeMetadata::Package,
         }
     }
 }
 
-impl JavaStorageElement {
-    pub fn from_storage(&self, ctx: &dyn StorageContext) -> JavaElement {
-        match self {
-            JavaStorageElement::Class(e) => JavaElement::Class(JavaClass {
-                modifiers: e
-                    .modifiers_sids
-                    .iter()
-                    .map(|&sid| ctx.resolve_str(sid).to_string())
-                    .collect(),
-            }),
-            JavaStorageElement::Interface(e) => JavaElement::Interface(JavaInterface {
-                modifiers: e
-                    .modifiers_sids
-                    .iter()
-                    .map(|&sid| ctx.resolve_str(sid).to_string())
-                    .collect(),
-            }),
-            JavaStorageElement::Enum(e) => JavaElement::Enum(JavaEnum {
-                modifiers: e
-                    .modifiers_sids
-                    .iter()
-                    .map(|&sid| ctx.resolve_str(sid).to_string())
-                    .collect(),
-                constants: e
-                    .constants_sids
-                    .iter()
-                    .map(|&sid| ctx.resolve_str(sid).to_string())
-                    .collect(),
-            }),
-            JavaStorageElement::Annotation(e) => JavaElement::Annotation(JavaAnnotation {
-                modifiers: e
-                    .modifiers_sids
-                    .iter()
-                    .map(|&sid| ctx.resolve_str(sid).to_string())
-                    .collect(),
-            }),
-            JavaStorageElement::Method(e) => JavaElement::Method(JavaMethod {
-                return_type: e.return_type.clone(),
-                parameters: e
-                    .parameters
-                    .iter()
-                    .map(|p| JavaParameter {
-                        name: ctx.resolve_str(p.name_sid).to_string(),
-                        type_ref: p.type_ref.clone(),
-                    })
-                    .collect(),
-                modifiers: e
-                    .modifiers_sids
-                    .iter()
-                    .map(|&sid| ctx.resolve_str(sid).to_string())
-                    .collect(),
-                is_constructor: e.is_constructor,
-            }),
-            JavaStorageElement::Field(e) => JavaElement::Field(JavaField {
-                type_ref: e.type_ref.clone(),
-                modifiers: e
-                    .modifiers_sids
-                    .iter()
-                    .map(|&sid| ctx.resolve_str(sid).to_string())
-                    .collect(),
-            }),
-            JavaStorageElement::Package(_) => JavaElement::Package(JavaPackage {}),
-        }
+impl NodeMetadata for JavaNodeMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaClass {
-    pub modifiers: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaClassStorage {
-    pub modifiers_sids: Vec<u32>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaInterface {
-    pub modifiers: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaInterfaceStorage {
-    pub modifiers_sids: Vec<u32>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaEnum {
-    pub modifiers: Vec<String>,
-    pub constants: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaEnumStorage {
-    pub modifiers_sids: Vec<u32>,
-    pub constants_sids: Vec<u32>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaAnnotation {
-    pub modifiers: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaAnnotationStorage {
-    pub modifiers_sids: Vec<u32>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaField {
-    pub type_ref: TypeRef,
-    pub modifiers: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaFieldStorage {
-    pub type_ref: TypeRef,
-    pub modifiers_sids: Vec<u32>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaMethod {
-    pub return_type: TypeRef,
-    pub parameters: Vec<JavaParameter>,
-    pub modifiers: Vec<String>,
-    pub is_constructor: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaMethodStorage {
-    pub return_type: TypeRef,
-    pub parameters: Vec<JavaParameterStorage>,
-    pub modifiers_sids: Vec<u32>,
-    pub is_constructor: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -213,8 +139,50 @@ pub struct JavaParameterStorage {
     pub type_ref: TypeRef,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaPackage {}
+pub fn fmt_type(t: &TypeRef, rodeo: &dyn Reader) -> String {
+    match t {
+        TypeRef::Raw(s) => s.clone(),
+        TypeRef::Id(s) => s.split('.').last().unwrap_or(s).to_string(),
+        TypeRef::Generic { base, args } => {
+            let args_str = args
+                .iter()
+                .map(|a| fmt_type(a, rodeo))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}<{}>", fmt_type(base, rodeo), args_str)
+        }
+        TypeRef::Array {
+            element,
+            dimensions,
+        } => {
+            format!("{}{}", fmt_type(element, rodeo), "[]".repeat(*dimensions))
+        }
+        _ => "?".to_string(),
+    }
+}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JavaPackageStorage {}
+pub fn fmt_type_uninterned(t: &TypeRef) -> String {
+    match t {
+        TypeRef::Raw(s) => s.clone(),
+        TypeRef::Id(s) => s.split('.').last().unwrap_or(s).to_string(),
+        TypeRef::Generic { base, args } => {
+            let args_str = args
+                .iter()
+                .map(|a| fmt_type_uninterned(a))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}<{}>", fmt_type_uninterned(base), args_str)
+        }
+        TypeRef::Array {
+            element,
+            dimensions,
+        } => {
+            format!(
+                "{}{}",
+                fmt_type_uninterned(element),
+                "[]".repeat(*dimensions)
+            )
+        }
+        _ => "?".to_string(),
+    }
+}

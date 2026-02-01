@@ -1,5 +1,6 @@
 use naviscope_api::GraphService;
-use naviscope_core::engine::{EngineHandle, NaviscopeEngine as CoreEngine};
+use naviscope_core::facade::EngineHandle;
+use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -14,12 +15,12 @@ async fn test_engine_lifecycle() {
     let handle = EngineHandle::new(temp_dir.clone());
 
     // Get a snapshot using handle.graph()
-    let graph = handle.graph().await;
+    let graph: naviscope_core::model::CodeGraph = handle.graph().await;
     assert_eq!(graph.node_count(), 0);
 
     // Verify handle can be cloned easily
     let handle2 = handle.clone();
-    let graph2 = handle2.graph().await;
+    let graph2: naviscope_core::model::CodeGraph = handle2.graph().await;
     assert_eq!(graph2.node_count(), 0);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -42,7 +43,8 @@ async fn test_engine_handle_query() {
         limit: 5,
     };
 
-    let result = handle.query(&query).await;
+    let result: naviscope_api::graph::Result<naviscope_api::models::QueryResult> =
+        handle.query(&query).await;
     assert!(result.is_ok());
 
     let _ = std::fs::remove_dir_all(&temp_dir);

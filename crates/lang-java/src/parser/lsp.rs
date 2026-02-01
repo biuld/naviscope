@@ -1,7 +1,7 @@
 use super::JavaParser;
+use naviscope_core::ingest::parser::LspParser;
+use naviscope_core::ingest::parser::utils::{RawSymbol, build_symbol_hierarchy};
 use naviscope_core::model::NodeKind;
-use naviscope_core::parser::LspParser;
-use naviscope_core::parser::utils::{RawSymbol, build_symbol_hierarchy};
 use std::collections::HashMap;
 use tree_sitter::Tree;
 
@@ -13,6 +13,35 @@ impl LspParser for JavaParser {
     }
 
     fn extract_symbols(
+        &self,
+        tree: &Tree,
+        source: &str,
+    ) -> Vec<naviscope_core::model::DisplayGraphNode> {
+        self.extract_symbols(tree, source)
+    }
+
+    fn symbol_kind(&self, kind: &NodeKind) -> lsp_types::SymbolKind {
+        self.symbol_kind(kind)
+    }
+
+    fn find_occurrences(
+        &self,
+        source: &str,
+        tree: &Tree,
+        target: &naviscope_core::ingest::parser::SymbolResolution,
+    ) -> Vec<naviscope_core::model::Range> {
+        self.find_occurrences(source, tree, target)
+    }
+}
+
+impl JavaParser {
+    pub fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree> {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&self.language).ok()?;
+        parser.parse(source, old_tree)
+    }
+
+    pub fn extract_symbols(
         &self,
         tree: &Tree,
         source: &str,
@@ -41,31 +70,31 @@ impl LspParser for JavaParser {
             .into_iter()
             .map(|e| {
                 let kind = match e.element {
-                    crate::model::JavaElement::Class(_) => NodeKind::Class,
-                    crate::model::JavaElement::Interface(_) => NodeKind::Interface,
-                    crate::model::JavaElement::Enum(_) => NodeKind::Enum,
-                    crate::model::JavaElement::Annotation(_) => NodeKind::Annotation,
-                    crate::model::JavaElement::Method(ref m) => {
-                        if m.is_constructor {
+                    crate::model::JavaIndexMetadata::Class { .. } => NodeKind::Class,
+                    crate::model::JavaIndexMetadata::Interface { .. } => NodeKind::Interface,
+                    crate::model::JavaIndexMetadata::Enum { .. } => NodeKind::Enum,
+                    crate::model::JavaIndexMetadata::Annotation { .. } => NodeKind::Annotation,
+                    crate::model::JavaIndexMetadata::Method { is_constructor, .. } => {
+                        if is_constructor {
                             NodeKind::Constructor
                         } else {
                             NodeKind::Method
                         }
                     }
-                    crate::model::JavaElement::Field(_) => NodeKind::Field,
-                    crate::model::JavaElement::Package(_) => NodeKind::Package,
+                    crate::model::JavaIndexMetadata::Field { .. } => NodeKind::Field,
+                    crate::model::JavaIndexMetadata::Package => NodeKind::Package,
                 };
 
                 RawSymbol {
                     name: e.name,
                     kind,
-                    range: naviscope_core::parser::utils::range_from_ts(e.node.range()),
+                    range: naviscope_core::ingest::parser::utils::range_from_ts(e.node.range()),
                     selection_range: e
                         .node
                         .child_by_field_name("name")
-                        .map(|n| naviscope_core::parser::utils::range_from_ts(n.range()))
+                        .map(|n| naviscope_core::ingest::parser::utils::range_from_ts(n.range()))
                         .unwrap_or_else(|| {
-                            naviscope_core::parser::utils::range_from_ts(e.node.range())
+                            naviscope_core::ingest::parser::utils::range_from_ts(e.node.range())
                         }),
                     node: e.node,
                 }
@@ -75,7 +104,7 @@ impl LspParser for JavaParser {
         build_symbol_hierarchy(raw_symbols)
     }
 
-    fn symbol_kind(&self, kind: &NodeKind) -> lsp_types::SymbolKind {
+    pub fn symbol_kind(&self, kind: &NodeKind) -> lsp_types::SymbolKind {
         use lsp_types::SymbolKind;
         match kind {
             NodeKind::Class => SymbolKind::CLASS,
@@ -90,17 +119,17 @@ impl LspParser for JavaParser {
         }
     }
 
-    fn find_occurrences(
+    pub fn find_occurrences(
         &self,
         source: &str,
         tree: &Tree,
-        target: &naviscope_core::parser::SymbolResolution,
+        target: &naviscope_core::ingest::parser::SymbolResolution,
     ) -> Vec<naviscope_core::model::Range> {
         let mut ranges = Vec::new();
 
         // 1. Extract the identifier name and intent
         let (name, intent) = match target {
-            naviscope_core::parser::SymbolResolution::Local(range, _) => {
+            naviscope_core::ingest::parser::SymbolResolution::Local(range, _) => {
                 // For local symbols, we extract the name directly from the source at the declaration range
                 let start = naviscope_core::model::util::line_col_at_to_offset(
                     source,
@@ -126,10 +155,10 @@ impl LspParser for JavaParser {
                     return Vec::new();
                 }
             }
-            naviscope_core::parser::SymbolResolution::Precise(fqn, intent) => {
+            naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, intent) => {
                 (fqn.split('.').last().unwrap_or(fqn).to_string(), *intent)
             }
-            naviscope_core::parser::SymbolResolution::Global(fqn) => {
+            naviscope_core::ingest::parser::SymbolResolution::Global(fqn) => {
                 // Global resolution from graph usually implies a high-level symbol (Method/Type/Field)
                 // We'll try to guess intent if it's not provided, but mostly it will stay broad
                 (

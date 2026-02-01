@@ -1,17 +1,15 @@
-use crate::model::{JavaElement, JavaPackage};
+use crate::model::{JavaIndexMetadata, JavaNodeMetadata};
 use crate::parser::JavaParser;
+use naviscope_api::models::SymbolIntent;
 use naviscope_api::models::TypeRef;
-use naviscope_core::engine::CodeGraph;
+use naviscope_api::models::symbol::matches_intent;
 use naviscope_core::error::Result;
-use naviscope_core::model::{
-    DisplayGraphNode, EdgeType, GraphEdge, GraphOp, NodeKind, ResolvedUnit,
-};
-use naviscope_core::parser::SymbolIntent;
-use naviscope_core::parser::{SymbolResolution, matches_intent};
-use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
-use naviscope_core::query::CodeGraphLike;
-use naviscope_core::resolver::SemanticResolver;
-use naviscope_core::resolver::{LangResolver, ProjectContext};
+use naviscope_core::features::CodeGraphLike;
+use naviscope_core::ingest::parser::SymbolResolution;
+use naviscope_core::ingest::resolver::{LangResolver, ProjectContext, SemanticResolver};
+use naviscope_core::ingest::scanner::{ParsedContent, ParsedFile};
+use naviscope_core::model::CodeGraph;
+use naviscope_core::model::{EdgeType, GraphEdge, GraphOp, NodeKind, ResolvedUnit};
 use petgraph::stable_graph::NodeIndex;
 use std::ops::ControlFlow;
 use std::sync::Arc;
@@ -33,13 +31,6 @@ impl JavaResolver {
         Self {
             parser: JavaParser::new().expect("Failed to initialize JavaParser"),
         }
-    }
-
-    fn is_top_level_node(&self, node: &DisplayGraphNode) -> bool {
-        matches!(
-            node.kind,
-            NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
-        )
     }
 
     fn get_active_scopes<'a>(&'a self, ctx: &'a ResolutionContext) -> Vec<Box<dyn Scope + 'a>> {
@@ -228,11 +219,11 @@ impl SemanticResolver for JavaResolver {
                         .get(&naviscope_api::models::symbol::Symbol(key))
                     {
                         let node = &index.topology()[idx];
-                        if let Ok(element) =
-                            serde_json::from_value::<JavaElement>(node.metadata.clone())
+                        if let Some(java_meta) =
+                            node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
                         {
-                            match element {
-                                JavaElement::Field(f) => match &f.type_ref {
+                            match java_meta {
+                                JavaNodeMetadata::Field { type_ref, .. } => match type_ref {
                                     TypeRef::Raw(s) => type_resolutions.push(
                                         SymbolResolution::Precise(s.clone(), SymbolIntent::Type),
                                     ),
@@ -241,7 +232,7 @@ impl SemanticResolver for JavaResolver {
                                     ),
                                     _ => {}
                                 },
-                                JavaElement::Method(m) => match &m.return_type {
+                                JavaNodeMetadata::Method { return_type, .. } => match return_type {
                                     TypeRef::Raw(s) => type_resolutions.push(
                                         SymbolResolution::Precise(s.clone(), SymbolIntent::Type),
                                     ),
@@ -293,56 +284,59 @@ impl SemanticResolver for JavaResolver {
             let node = &index.topology()[node_idx];
 
             // Check if it's a method
-            if let Ok(element) = serde_json::from_value::<JavaElement>(node.metadata.clone()) {
-                if let JavaElement::Method(_m) = element {
-                    // 1. Find the enclosing class/interface
-                    let mut parent_incoming = index
-                        .topology()
-                        .neighbors_directed(node_idx, petgraph::Direction::Incoming)
-                        .detach();
-                    while let Some((edge_idx, parent_idx)) = parent_incoming.next(index.topology())
-                    {
-                        if index.topology()[edge_idx].edge_type == EdgeType::Contains {
-                            // 2. Find all implementations of this parent
-                            let parent_fqn = index.topology()[parent_idx]
-                                .fqn(index.symbols())
-                                .to_string();
-                            let parent_res =
-                                SymbolResolution::Precise(parent_fqn, SymbolIntent::Type);
-                            let impl_classes = self.find_implementations(index, &parent_res);
+            let is_method = if let Some(java_meta) =
+                node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
+            {
+                matches!(java_meta, JavaNodeMetadata::Method { .. })
+            } else {
+                false
+            };
 
-                            // 3. For each impl class, find a method with same name
-                            for impl_class_idx in impl_classes {
-                                let mut children = index
-                                    .topology()
-                                    .neighbors_directed(
-                                        impl_class_idx,
-                                        petgraph::Direction::Outgoing,
-                                    )
-                                    .detach();
-                                while let Some((c_edge_idx, child_idx)) =
-                                    children.next(index.topology())
-                                {
-                                    if index.topology()[c_edge_idx].edge_type == EdgeType::Contains
+            if is_method {
+                // 1. Find the enclosing class/interface
+                let mut parent_incoming = index
+                    .topology()
+                    .neighbors_directed(node_idx, petgraph::Direction::Incoming)
+                    .detach();
+                while let Some((edge_idx, parent_idx)) = parent_incoming.next(index.topology()) {
+                    if index.topology()[edge_idx].edge_type == EdgeType::Contains {
+                        // 2. Find all implementations of this parent
+                        let parent_fqn = index.topology()[parent_idx]
+                            .fqn(index.symbols())
+                            .to_string();
+                        let parent_res = SymbolResolution::Precise(parent_fqn, SymbolIntent::Type);
+                        let impl_classes = self.find_implementations(index, &parent_res);
+
+                        // 3. For each impl class, find a method with same name
+                        for impl_class_idx in impl_classes {
+                            let mut children = index
+                                .topology()
+                                .neighbors_directed(impl_class_idx, petgraph::Direction::Outgoing)
+                                .detach();
+                            while let Some((c_edge_idx, child_idx)) =
+                                children.next(index.topology())
+                            {
+                                if index.topology()[c_edge_idx].edge_type == EdgeType::Contains {
+                                    let child_node = &index.topology()[child_idx];
+                                    let is_child_method = if let Some(java_meta) = child_node
+                                        .metadata
+                                        .as_any()
+                                        .downcast_ref::<JavaNodeMetadata>()
                                     {
-                                        if let Ok(child_element) =
-                                            serde_json::from_value::<JavaElement>(
-                                                index.topology()[child_idx].metadata.clone(),
-                                            )
-                                        {
-                                            if let JavaElement::Method(_) = child_element {
-                                                if index.topology()[child_idx].name == node.name {
-                                                    results.push(child_idx);
-                                                }
-                                            }
-                                        }
+                                        matches!(java_meta, JavaNodeMetadata::Method { .. })
+                                    } else {
+                                        false
+                                    };
+
+                                    if is_child_method && child_node.name == node.name {
+                                        results.push(child_idx);
                                     }
                                 }
                             }
                         }
                     }
-                    continue;
                 }
+                continue;
             }
 
             let mut incoming = index
@@ -372,7 +366,7 @@ impl LangResolver for JavaResolver {
             ParsedContent::Language(res) => res,
             ParsedContent::Unparsed(src) => {
                 if file.path().extension().map_or(false, |e| e == "java") {
-                    use naviscope_core::parser::IndexParser;
+                    use naviscope_core::ingest::parser::IndexParser;
                     parse_result_owned = self.parser.parse_file(src, Some(&file.file.path))?;
                     &parse_result_owned
                 } else {
@@ -384,7 +378,7 @@ impl LangResolver for JavaResolver {
 
         {
             // Scope for usage of parse_result
-            unit.identifiers = parse_result.identifiers.iter().cloned().collect();
+            unit.identifiers = parse_result.output.identifiers.clone();
             unit.ops.push(GraphOp::UpdateIdentifiers {
                 path: Arc::from(file.file.path.as_path()),
                 identifiers: unit.identifiers.clone(),
@@ -401,18 +395,13 @@ impl LangResolver for JavaResolver {
                     format!("{}::{}", module_id, pkg_name)
                 };
 
-                let package_node = DisplayGraphNode {
+                let package_node = naviscope_core::ingest::parser::IndexNode {
                     id: package_id.clone(),
                     name: pkg_name.to_string(),
                     kind: NodeKind::Package,
                     lang: "java".to_string(),
                     location: None,
-                    metadata: serde_json::to_value(JavaElement::Package(JavaPackage {}))
-                        .unwrap_or(serde_json::Value::Null),
-                    detail: None,
-                    signature: None,
-                    modifiers: vec![],
-                    children: None,
+                    metadata: Arc::new(crate::model::JavaIndexMetadata::Package),
                 };
 
                 unit.add_node(package_node);
@@ -430,29 +419,39 @@ impl LangResolver for JavaResolver {
 
             let mut known_types = std::collections::HashSet::<String>::new();
             let mut local_type_map = std::collections::HashMap::<String, String>::new();
-            let _dummy_index = CodeGraph::empty();
 
-            for node in &parse_result.nodes {
-                if self.is_top_level_node(node) {
+            for node in &parse_result.output.nodes {
+                if matches!(
+                    node.kind,
+                    NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
+                ) {
                     known_types.insert(node.id.clone());
                 }
             }
 
-            for node in &parse_result.nodes {
+            for node in &parse_result.output.nodes {
                 let mut node = node.clone();
 
-                if let Ok(mut element) =
-                    serde_json::from_value::<JavaElement>(node.metadata.clone())
+                if let Some(java_idx_meta) = node
+                    .metadata
+                    .as_any()
+                    .downcast_ref::<crate::model::JavaIndexMetadata>()
                 {
+                    let mut element = java_idx_meta.clone();
+
                     match &mut element {
-                        JavaElement::Method(m) => {
-                            m.return_type = self.resolve_type_ref(
-                                &m.return_type,
+                        JavaIndexMetadata::Method {
+                            return_type,
+                            parameters,
+                            ..
+                        } => {
+                            *return_type = self.resolve_type_ref(
+                                return_type,
                                 parse_result.package_name.as_deref(),
                                 &parse_result.imports,
                                 &known_types,
                             );
-                            for param in &mut m.parameters {
+                            for param in parameters {
                                 param.type_ref = self.resolve_type_ref(
                                     &param.type_ref,
                                     parse_result.package_name.as_deref(),
@@ -464,25 +463,29 @@ impl LangResolver for JavaResolver {
                                 }
                             }
                         }
-                        JavaElement::Field(f) => {
-                            f.type_ref = self.resolve_type_ref(
-                                &f.type_ref,
+                        JavaIndexMetadata::Field { type_ref, .. } => {
+                            *type_ref = self.resolve_type_ref(
+                                type_ref,
                                 parse_result.package_name.as_deref(),
                                 &parse_result.imports,
                                 &known_types,
                             );
-                            if let TypeRef::Id(type_fqn) = &f.type_ref {
+                            if let TypeRef::Id(type_fqn) = &type_ref {
                                 local_type_map.insert(node.name.clone(), type_fqn.clone());
                             }
                         }
                         _ => {}
                     }
-                    node.metadata =
-                        serde_json::to_value(element).unwrap_or(serde_json::Value::Null);
+                    node.metadata = Arc::new(element);
                 }
 
+                let is_top = matches!(
+                    node.kind,
+                    NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
+                );
+
                 unit.add_node(node.clone());
-                if self.is_top_level_node(&node) {
+                if is_top {
                     unit.add_edge(
                         Arc::from(container_id.as_str()),
                         Arc::from(node.id.as_str()),
@@ -491,11 +494,11 @@ impl LangResolver for JavaResolver {
                 }
             }
 
-            for (source_fqn, target_fqn, edge_type, range) in &parse_result.relations {
-                let mut resolved_target = target_fqn.clone();
+            for rel in &parse_result.output.relations {
+                let mut resolved_target = rel.target_id.clone();
 
                 if let (Some(tree), Some(source)) = (&parse_result.tree, &parse_result.source) {
-                    if let Some(r) = range {
+                    if let Some(r) = &rel.range {
                         let point = tree_sitter::Point::new(r.start_line, r.start_col);
                         if let Some(node) = tree
                             .root_node()
@@ -503,7 +506,7 @@ impl LangResolver for JavaResolver {
                         {
                             let context = ResolutionContext::new_with_unit(
                                 node,
-                                target_fqn.clone(),
+                                rel.target_id.clone(),
                                 &dummy_index,
                                 Some(&unit),
                                 source,
@@ -516,8 +519,8 @@ impl LangResolver for JavaResolver {
                             {
                                 resolved_target = fqn;
                             } else {
-                                if target_fqn.contains('.') {
-                                    let parts: Vec<&str> = target_fqn.split('.').collect();
+                                if rel.target_id.contains('.') {
+                                    let parts: Vec<&str> = rel.target_id.split('.').collect();
                                     if parts.len() >= 2 {
                                         let obj_name = parts[0];
                                         if let Some(type_fqn) = local_type_map.get(obj_name) {
@@ -545,9 +548,9 @@ impl LangResolver for JavaResolver {
                     }
                 }
 
-                let edge = GraphEdge::new(edge_type.clone());
+                let edge = GraphEdge::new(rel.edge_type.clone());
                 unit.add_edge(
-                    Arc::from(source_fqn.as_str()),
+                    Arc::from(rel.source_id.as_str()),
                     Arc::from(resolved_target.as_str()),
                     edge,
                 );

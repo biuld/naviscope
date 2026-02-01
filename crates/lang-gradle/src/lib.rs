@@ -1,17 +1,54 @@
-pub mod feature;
 pub mod model;
 pub mod parser;
 pub mod queries;
 pub mod resolver;
 
+use naviscope_api::models::DisplayGraphNode;
 use naviscope_core::error::Result;
-use naviscope_core::plugin::{BuildParseResult, BuildToolPlugin, MetadataPlugin};
-use naviscope_core::project::source::BuildTool;
-use naviscope_core::resolver::BuildResolver;
+use naviscope_core::ingest::resolver::BuildResolver;
+use naviscope_core::ingest::scanner::ParsedContent;
+use naviscope_core::model::source::BuildTool;
+use naviscope_core::runtime::plugin::{
+    BuildParseResult, BuildToolPlugin, MetadataPlugin, NodeRenderer,
+};
 use std::sync::Arc;
 
 pub struct GradlePlugin {
     resolver: Arc<resolver::GradleResolver>,
+}
+
+impl NodeRenderer for GradlePlugin {
+    fn render_display_node(
+        &self,
+        node: &naviscope_core::model::GraphNode,
+        rodeo: &dyn lasso::Reader,
+    ) -> DisplayGraphNode {
+        let mut display = DisplayGraphNode {
+            id: node.fqn(rodeo).to_string(),
+            name: node.name(rodeo).to_string(),
+            kind: node.kind.clone(),
+            lang: "buildfile".to_string(),
+            location: node.location.as_ref().map(|l| l.to_display(rodeo)),
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
+        };
+
+        if let Some(gradle_meta) = node
+            .metadata
+            .as_any()
+            .downcast_ref::<crate::model::GradleNodeMetadata>()
+        {
+            display.detail = gradle_meta.detail_view(rodeo);
+        }
+
+        display
+    }
+
+    fn hydrate_display_node(&self, _node: &mut DisplayGraphNode) {
+        // Hydration logic is currently disabled as DisplayGraphNode no longer carries raw metadata.
+    }
 }
 
 impl GradlePlugin {
@@ -25,29 +62,28 @@ impl GradlePlugin {
 impl MetadataPlugin for GradlePlugin {
     fn intern(
         &self,
-        value: serde_json::Value,
-        ctx: &mut dyn naviscope_core::engine::storage::model::StorageContext,
-    ) -> serde_json::Value {
-        if let Ok(element) = serde_json::from_value::<crate::model::GradleElement>(value) {
-            let storage_element = element.intern(ctx);
-            serde_json::to_value(&storage_element).unwrap_or(serde_json::Value::Null)
+        metadata: &dyn naviscope_core::model::NodeMetadata,
+        _ctx: &mut dyn naviscope_core::model::storage::model::StorageContext,
+    ) -> Vec<u8> {
+        if let Some(gradle_meta) = metadata
+            .as_any()
+            .downcast_ref::<crate::model::GradleNodeMetadata>()
+        {
+            rmp_serde::to_vec(&gradle_meta.element).unwrap_or_default()
         } else {
-            serde_json::Value::Null
+            Vec::new()
         }
     }
 
     fn resolve(
         &self,
-        value: serde_json::Value,
-        ctx: &dyn naviscope_core::engine::storage::model::StorageContext,
-    ) -> serde_json::Value {
-        if let Ok(storage_element) =
-            serde_json::from_value::<crate::model::GradleStorageElement>(value)
-        {
-            let element = storage_element.resolve(ctx);
-            serde_json::to_value(element).unwrap_or(serde_json::Value::Null)
+        bytes: &[u8],
+        _ctx: &dyn naviscope_core::model::storage::model::StorageContext,
+    ) -> Arc<dyn naviscope_core::model::NodeMetadata> {
+        if let Ok(element) = rmp_serde::from_slice::<crate::model::GradleStorageElement>(bytes) {
+            Arc::new(crate::model::GradleNodeMetadata::new(element))
         } else {
-            serde_json::Value::Null
+            Arc::new(naviscope_core::model::EmptyMetadata)
         }
     }
 }
@@ -79,14 +115,14 @@ impl BuildToolPlugin for GradlePlugin {
                     included_projects: Vec::new(),
                 });
             Ok(BuildParseResult {
-                content: naviscope_core::project::scanner::ParsedContent::MetaData(
+                content: ParsedContent::MetaData(
                     serde_json::to_value(settings).unwrap_or(serde_json::Value::Null),
                 ),
             })
         } else {
             let deps = parser::parse_dependencies(source).unwrap_or_default();
             Ok(BuildParseResult {
-                content: naviscope_core::project::scanner::ParsedContent::MetaData(
+                content: ParsedContent::MetaData(
                     serde_json::to_value(model::GradleParseResult { dependencies: deps })
                         .unwrap_or(serde_json::Value::Null),
                 ),

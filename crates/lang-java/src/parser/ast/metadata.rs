@@ -1,8 +1,8 @@
 use super::super::JavaParser;
 use super::{JavaEntity, JavaRelation};
-use crate::model::{JavaElement, JavaParameter};
+use crate::model::{JavaIndexMetadata, JavaParameter};
+use naviscope_core::ingest::parser::utils::range_from_ts;
 use naviscope_core::model::EdgeType;
-use naviscope_core::parser::utils::range_from_ts;
 use std::collections::HashMap;
 use tree_sitter::QueryCapture;
 
@@ -55,7 +55,7 @@ impl JavaParser {
         captures: &[QueryCapture<'a>],
         source: &'a str,
         fqn: String,
-        element: &mut JavaElement,
+        element: &mut JavaIndexMetadata,
         relations: &mut Vec<JavaRelation>,
     ) {
         // Modifiers & Annotations
@@ -91,7 +91,7 @@ impl JavaParser {
         }
 
         match element {
-            JavaElement::Class(_) => {
+            JavaIndexMetadata::Class { modifiers: _ } => {
                 if let Some(s) = captures
                     .iter()
                     .find(|c| c.index == self.indices.class_super)
@@ -138,7 +138,7 @@ impl JavaParser {
                     });
                 }
             }
-            JavaElement::Interface(_) => {
+            JavaIndexMetadata::Interface { modifiers: _ } => {
                 for cc in captures
                     .iter()
                     .filter(|c| c.index == self.indices.inter_ext)
@@ -156,7 +156,10 @@ impl JavaParser {
                     });
                 }
             }
-            JavaElement::Enum(_) => {
+            JavaIndexMetadata::Enum {
+                modifiers: _,
+                constants: _,
+            } => {
                 for cc in captures
                     .iter()
                     .filter(|c| c.index == self.indices.enum_interface)
@@ -174,9 +177,14 @@ impl JavaParser {
                     });
                 }
             }
-            JavaElement::Method(m) => {
+            JavaIndexMetadata::Method {
+                modifiers: _,
+                return_type,
+                parameters,
+                is_constructor: _,
+            } => {
                 if let Some(ret) = captures.iter().find(|c| c.index == self.indices.method_ret) {
-                    m.return_type = self.parse_type_node(ret.node, source);
+                    *return_type = self.parse_type_node(ret.node, source);
                     self.generate_typed_as_edges(ret.node, source, &fqn, relations);
                 }
                 if let (Some(t_node), Some(n_node)) = (
@@ -194,12 +202,11 @@ impl JavaParser {
                         .utf8_text(source.as_bytes())
                         .unwrap_or_default()
                         .to_string();
-                    if !m
-                        .parameters
+                    if !parameters
                         .iter()
                         .any(|p| p.name == n && p.type_ref == t_ref)
                     {
-                        m.parameters.push(JavaParameter {
+                        parameters.push(JavaParameter {
                             type_ref: t_ref,
                             name: n,
                         });
@@ -207,9 +214,12 @@ impl JavaParser {
                     self.generate_typed_as_edges(t_node, source, &fqn, relations);
                 }
             }
-            JavaElement::Field(f) => {
+            JavaIndexMetadata::Field {
+                modifiers: _,
+                type_ref,
+            } => {
                 if let Some(t) = captures.iter().find(|c| c.index == self.indices.field_type) {
-                    f.type_ref = self.parse_type_node(t.node, source);
+                    *type_ref = self.parse_type_node(t.node, source);
                     self.generate_typed_as_edges(t.node, source, &fqn, relations);
                 }
             }
@@ -217,39 +227,50 @@ impl JavaParser {
         }
     }
 
-    fn add_modifier(&self, element: &mut JavaElement, m_str: String) {
+    fn add_modifier(&self, element: &mut JavaIndexMetadata, m_str: String) {
         match element {
-            JavaElement::Class(c) => {
-                if !c.modifiers.contains(&m_str) {
-                    c.modifiers.push(m_str);
+            JavaIndexMetadata::Class { modifiers } => {
+                if !modifiers.contains(&m_str) {
+                    modifiers.push(m_str);
                 }
             }
-            JavaElement::Interface(i) => {
-                if !i.modifiers.contains(&m_str) {
-                    i.modifiers.push(m_str);
+            JavaIndexMetadata::Interface { modifiers } => {
+                if !modifiers.contains(&m_str) {
+                    modifiers.push(m_str);
                 }
             }
-            JavaElement::Enum(e) => {
-                if !e.modifiers.contains(&m_str) {
-                    e.modifiers.push(m_str);
+            JavaIndexMetadata::Enum {
+                modifiers,
+                constants: _,
+            } => {
+                if !modifiers.contains(&m_str) {
+                    modifiers.push(m_str);
                 }
             }
-            JavaElement::Annotation(a) => {
-                if !a.modifiers.contains(&m_str) {
-                    a.modifiers.push(m_str);
+            JavaIndexMetadata::Annotation { modifiers } => {
+                if !modifiers.contains(&m_str) {
+                    modifiers.push(m_str);
                 }
             }
-            JavaElement::Method(m) => {
-                if !m.modifiers.contains(&m_str) {
-                    m.modifiers.push(m_str);
+            JavaIndexMetadata::Method {
+                modifiers,
+                return_type: _,
+                parameters: _,
+                is_constructor: _,
+            } => {
+                if !modifiers.contains(&m_str) {
+                    modifiers.push(m_str);
                 }
             }
-            JavaElement::Field(f) => {
-                if !f.modifiers.contains(&m_str) {
-                    f.modifiers.push(m_str);
+            JavaIndexMetadata::Field {
+                modifiers,
+                type_ref: _,
+            } => {
+                if !modifiers.contains(&m_str) {
+                    modifiers.push(m_str);
                 }
             }
-            JavaElement::Package(_) => {}
+            JavaIndexMetadata::Package => {}
         }
     }
 }

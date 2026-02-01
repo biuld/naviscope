@@ -97,8 +97,26 @@ impl GraphEdge {
 
 use super::symbol::Symbol;
 use lasso::Reader;
+use std::any::Any;
+use std::fmt::Debug;
 
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+/// Trait for language-specific metadata.
+pub trait NodeMetadata: Send + Sync + Debug {
+    /// Cast to Any for downcasting to concrete types.
+    fn as_any(&self) -> &dyn Any;
+}
+
+/// Default empty metadata implementation.
+#[derive(Debug, Clone)]
+pub struct EmptyMetadata;
+
+impl NodeMetadata for EmptyMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct GraphNode {
     /// Unique Identifier (Symbol)
     pub id: Symbol,
@@ -111,35 +129,32 @@ pub struct GraphNode {
     /// Physical Location
     pub location: Option<super::symbol::InternedLocation>,
     /// Extension metadata
-    #[serde(default)]
-    pub metadata: serde_json::Value,
+    pub metadata: Arc<dyn NodeMetadata>,
+}
+
+impl Default for GraphNode {
+    fn default() -> Self {
+        Self {
+            id: Symbol(lasso::Spur::default()),
+            name: Symbol(lasso::Spur::default()),
+            kind: NodeKind::Custom("unknown".to_string()),
+            lang: Symbol(lasso::Spur::default()),
+            location: None,
+            metadata: Arc::new(EmptyMetadata),
+        }
+    }
 }
 
 impl GraphNode {
-    pub fn to_display(&self, rodeo: &impl Reader) -> DisplayGraphNode {
-        DisplayGraphNode {
-            id: self.fqn(rodeo).to_string(),
-            name: self.name(rodeo).to_string(),
-            kind: self.kind.clone(),
-            lang: self.language(rodeo).as_str().to_string(),
-            location: self.location.as_ref().map(|l| l.to_display(rodeo)),
-            metadata: self.metadata.clone(),
-            detail: None,
-            signature: None,
-            modifiers: vec![],
-            children: None,
-        }
-    }
-
-    pub fn language<'a>(&self, rodeo: &'a impl Reader) -> Language {
+    pub fn language<'a>(&self, rodeo: &'a dyn Reader) -> Language {
         Language::new(rodeo.resolve(&self.lang.0).to_string())
     }
 
-    pub fn fqn<'a>(&self, rodeo: &'a impl Reader) -> &'a str {
+    pub fn fqn<'a>(&self, rodeo: &'a dyn Reader) -> &'a str {
         rodeo.resolve(&self.id.0)
     }
 
-    pub fn name<'a>(&self, rodeo: &'a impl Reader) -> &'a str {
+    pub fn name<'a>(&self, rodeo: &'a dyn Reader) -> &'a str {
         rodeo.resolve(&self.name.0)
     }
 
@@ -187,8 +202,6 @@ pub struct DisplayGraphNode {
     pub kind: NodeKind,
     pub lang: String,
     pub location: Option<DisplaySymbolLocation>,
-    #[serde(default)]
-    pub metadata: serde_json::Value,
 
     // Rendering fields
     pub detail: Option<String>,
@@ -208,7 +221,7 @@ impl DisplayGraphNode {
             kind: self.kind.clone(),
             lang: Symbol(rodeo.get_or_intern(&self.lang)),
             location: self.location.as_ref().map(|l| l.to_internal(rodeo)),
-            metadata: self.metadata.clone(),
+            metadata: Arc::new(EmptyMetadata),
         }
     }
 }

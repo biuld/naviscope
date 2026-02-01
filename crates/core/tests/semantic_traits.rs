@@ -5,17 +5,45 @@ use naviscope_api::models::{
 use naviscope_api::semantic::{
     CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolInfoProvider, SymbolNavigator,
 };
-use naviscope_core::engine::{EngineHandle, NaviscopeEngine};
+use naviscope_core::facade::EngineHandle;
+use naviscope_core::features::CodeGraphLike;
+use naviscope_core::ingest::parser::{GlobalParseResult, LspParser};
+use naviscope_core::ingest::resolver::{LangResolver, ProjectContext, SemanticResolver};
+use naviscope_core::ingest::scanner::ParsedFile;
 use naviscope_core::model::ResolvedUnit;
-use naviscope_core::parser::{GlobalParseResult, LspParser};
-use naviscope_core::plugin::{LanguageFeatureProvider, LanguagePlugin, MetadataPlugin};
-use naviscope_core::project::scanner::ParsedFile;
-use naviscope_core::query::CodeGraphLike;
-use naviscope_core::resolver::{LangResolver, ProjectContext, SemanticResolver};
+use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
+use naviscope_core::runtime::plugin::{LanguagePlugin, MetadataPlugin, NodeRenderer};
 use petgraph::stable_graph::NodeIndex;
+use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
 use tree_sitter::Tree;
+
+#[derive(Debug)]
+struct MockMetadata {
+    id: String,
+}
+
+impl naviscope_api::models::NodeMetadata for MockMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl naviscope_core::model::IndexMetadata for MockMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn intern(
+        &self,
+        _interner: &mut dyn naviscope_core::model::SymbolInterner,
+    ) -> Arc<dyn naviscope_api::models::NodeMetadata> {
+        Arc::new(MockMetadata {
+            id: self.id.clone(),
+        })
+    }
+}
 
 struct MockPlugin {
     resolver: Arc<MockResolver>,
@@ -23,7 +51,62 @@ struct MockPlugin {
     lang_resolver: Arc<MockLangResolver>,
 }
 
-impl MetadataPlugin for MockPlugin {}
+impl MetadataPlugin for MockPlugin {
+    fn intern(
+        &self,
+        metadata: &dyn naviscope_core::model::NodeMetadata,
+        _ctx: &mut dyn naviscope_core::model::storage::model::StorageContext,
+    ) -> Vec<u8> {
+        if let Some(m) = metadata.as_any().downcast_ref::<MockMetadata>() {
+            m.id.as_bytes().to_vec()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn resolve(
+        &self,
+        bytes: &[u8],
+        _ctx: &dyn naviscope_core::model::storage::model::StorageContext,
+    ) -> Arc<dyn naviscope_core::model::NodeMetadata> {
+        let id = String::from_utf8_lossy(bytes).to_string();
+        Arc::new(MockMetadata { id })
+    }
+}
+
+impl NodeRenderer for MockPlugin {
+    fn render_display_node(
+        &self,
+        node: &naviscope_core::model::GraphNode,
+        rodeo: &dyn lasso::Reader,
+    ) -> DisplayGraphNode {
+        let mut display = DisplayGraphNode {
+            id: node.fqn(rodeo).to_string(),
+            name: node.name(rodeo).to_string(),
+            kind: node.kind.clone(),
+            lang: node.language(rodeo).to_string(),
+            location: node.location.as_ref().map(|l| l.to_display(rodeo)),
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
+        };
+
+        if let Some(m) = node.metadata.as_any().downcast_ref::<MockMetadata>() {
+            display.detail = Some(format!("Mock detail for {}", m.id));
+            display.signature = Some(format!("Mock signature for {}", m.id));
+            display.modifiers = vec!["mock".to_string()];
+        }
+
+        display
+    }
+
+    fn hydrate_display_node(&self, node: &mut DisplayGraphNode) {
+        node.detail = Some(format!("Mock detail for {}", node.id));
+        node.signature = Some(format!("Mock signature for {}", node.id));
+        node.modifiers = vec!["mock".to_string()];
+    }
+}
 
 impl LanguagePlugin for MockPlugin {
     fn name(&self) -> Language {
@@ -40,11 +123,14 @@ impl LanguagePlugin for MockPlugin {
         Ok(GlobalParseResult {
             package_name: None,
             imports: vec![],
-            nodes: vec![],
-            relations: vec![],
+            output: naviscope_core::ingest::parser::ParseOutput {
+                nodes: vec![],
+                relations: vec![],
+                identifiers: vec!["Callee".to_string()],
+                ..Default::default()
+            },
             source: Some(_source.to_string()),
             tree: None,
-            identifiers: vec!["Callee".to_string()],
         })
     }
     fn resolver(&self) -> Arc<dyn SemanticResolver> {
@@ -54,15 +140,57 @@ impl LanguagePlugin for MockPlugin {
         self.lang_resolver.clone()
     }
     fn lsp_parser(&self) -> Arc<dyn LspParser> {
-        self.lsp_parser.clone()
+        Arc::new(MockLspParserWrapper {
+            parser: self.lsp_parser.clone(),
+            plugin: Arc::new(self.clone_internal()),
+        })
     }
-    fn feature_provider(&self) -> Arc<dyn LanguageFeatureProvider> {
-        Arc::new(MockFeatureProvider)
+}
+
+impl MockPlugin {
+    fn clone_internal(&self) -> Self {
+        Self {
+            resolver: self.resolver.clone(),
+            lsp_parser: self.lsp_parser.clone(),
+            lang_resolver: self.lang_resolver.clone(),
+        }
+    }
+}
+
+struct MockLspParserWrapper {
+    parser: Arc<MockLspParser>,
+    plugin: Arc<MockPlugin>,
+}
+
+impl LspParser for MockLspParserWrapper {
+    fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree> {
+        self.parser.parse(source, old_tree)
+    }
+
+    fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DisplayGraphNode> {
+        let mut symbols = self.parser.extract_symbols(tree, source);
+        for sym in &mut symbols {
+            self.plugin.hydrate_display_node(sym);
+        }
+        symbols
+    }
+
+    fn symbol_kind(&self, kind: &naviscope_core::model::NodeKind) -> lsp_types::SymbolKind {
+        self.parser.symbol_kind(kind)
+    }
+
+    fn find_occurrences(
+        &self,
+        source: &str,
+        tree: &Tree,
+        target: &naviscope_core::ingest::parser::SymbolResolution,
+    ) -> Vec<Range> {
+        self.parser.find_occurrences(source, tree, target)
     }
 }
 
 struct MockLangResolver {
-    nodes: std::sync::Mutex<Vec<DisplayGraphNode>>,
+    nodes: std::sync::Mutex<Vec<naviscope_core::ingest::parser::IndexNode>>,
 }
 
 impl LangResolver for MockLangResolver {
@@ -74,10 +202,10 @@ impl LangResolver for MockLangResolver {
         let mut unit = ResolvedUnit::new();
 
         let identifiers = match &file.content {
-            naviscope_core::project::scanner::ParsedContent::Language(res) => {
-                res.identifiers.clone()
+            naviscope_core::ingest::scanner::ParsedContent::Language(res) => {
+                res.output.identifiers.clone()
             }
-            naviscope_core::project::scanner::ParsedContent::Unparsed(_src) => {
+            naviscope_core::ingest::scanner::ParsedContent::Unparsed(_src) => {
                 vec!["Callee".to_string()]
             }
             _ => vec![],
@@ -97,19 +225,6 @@ impl LangResolver for MockLangResolver {
             unit.add_node(node.clone());
         }
         Ok(unit)
-    }
-}
-
-struct MockFeatureProvider;
-impl LanguageFeatureProvider for MockFeatureProvider {
-    fn detail_view(&self, node: &DisplayGraphNode) -> Option<String> {
-        Some(format!("Mock detail for {}", node.id))
-    }
-    fn signature(&self, node: &DisplayGraphNode) -> Option<String> {
-        Some(format!("Mock signature for {}", node.id))
-    }
-    fn modifiers(&self, _node: &DisplayGraphNode) -> Vec<String> {
-        vec!["mock".to_string()]
     }
 }
 
@@ -167,11 +282,7 @@ impl LspParser for MockLspParser {
             .ok()?;
         parser.parse(source, None)
     }
-    fn extract_symbols(
-        &self,
-        _tree: &Tree,
-        _source: &str,
-    ) -> Vec<DisplayGraphNode> {
+    fn extract_symbols(&self, _tree: &Tree, _source: &str) -> Vec<DisplayGraphNode> {
         vec![]
     }
     fn symbol_kind(&self, _kind: &naviscope_core::model::NodeKind) -> lsp_types::SymbolKind {
@@ -197,8 +308,8 @@ impl LspParser for MockLspParser {
     }
 }
 
-fn setup_engine(temp_dir: &Path) -> (NaviscopeEngine, Arc<MockPlugin>) {
-    let mut engine = NaviscopeEngine::new(temp_dir.to_path_buf());
+fn setup_engine(temp_dir: &Path) -> (CoreEngine, Arc<MockPlugin>) {
+    let mut engine = CoreEngine::new(temp_dir.to_path_buf());
     let mock_resolver = Arc::new(MockResolver {
         res_at: std::sync::Mutex::new(None),
     });
@@ -225,7 +336,7 @@ async fn test_symbol_navigator_queries() {
     // Add a node to the mock plugin's resolver
     {
         let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
-        nodes.push(DisplayGraphNode {
+        nodes.push(naviscope_core::ingest::parser::IndexNode {
             id: "test::Symbol".to_string(),
             name: "Symbol".to_string(),
             kind: NodeKind::Class,
@@ -240,11 +351,9 @@ async fn test_symbol_navigator_queries() {
                 },
                 selection_range: None,
             }),
-            metadata: serde_json::Value::Null,
-            detail: None,
-            signature: None,
-            modifiers: vec![],
-            children: None,
+            metadata: Arc::new(MockMetadata {
+                id: "test::Symbol".to_string(),
+            }),
         });
     }
 
@@ -318,7 +427,7 @@ async fn test_call_hierarchy_analyzer() {
     {
         let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
         // Callee
-        nodes.push(DisplayGraphNode {
+        nodes.push(naviscope_core::ingest::parser::IndexNode {
             id: "test::Callee".to_string(),
             name: "Callee".to_string(),
             kind: NodeKind::Method,
@@ -333,14 +442,12 @@ async fn test_call_hierarchy_analyzer() {
                 },
                 selection_range: None,
             }),
-            metadata: serde_json::Value::Null,
-            detail: None,
-            signature: None,
-            modifiers: vec![],
-            children: None,
+            metadata: Arc::new(MockMetadata {
+                id: "test::Callee".to_string(),
+            }),
         });
         // Caller
-        nodes.push(DisplayGraphNode {
+        nodes.push(naviscope_core::ingest::parser::IndexNode {
             id: "test::Caller".to_string(),
             name: "Caller".to_string(),
             kind: NodeKind::Method,
@@ -355,11 +462,9 @@ async fn test_call_hierarchy_analyzer() {
                 },
                 selection_range: None,
             }),
-            metadata: serde_json::Value::Null,
-            detail: None,
-            signature: None,
-            modifiers: vec![],
-            children: None,
+            metadata: Arc::new(MockMetadata {
+                id: "test::Caller".to_string(),
+            }),
         });
     }
 
@@ -395,7 +500,7 @@ async fn test_get_symbol_info() {
     // Add a node to the mock plugin's resolver
     {
         let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
-        nodes.push(DisplayGraphNode {
+        nodes.push(naviscope_core::ingest::parser::IndexNode {
             id: "test::Symbol".to_string(),
             name: "Symbol".to_string(),
             kind: NodeKind::Class,
@@ -410,11 +515,9 @@ async fn test_get_symbol_info() {
                 },
                 selection_range: None,
             }),
-            metadata: serde_json::Value::Null,
-            detail: None,
-            signature: None,
-            modifiers: vec![],
-            children: None,
+            metadata: Arc::new(MockMetadata {
+                id: "test::Symbol".to_string(),
+            }),
         });
     }
 

@@ -1334,10 +1334,12 @@ dependencies = [
 name = "naviscope-gradle"
 version = "0.2.1"
 dependencies = [
+ "lasso",
  "naviscope-api",
  "naviscope-core",
  "once_cell",
  "petgraph",
+ "rmp-serde",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -1349,10 +1351,12 @@ dependencies = [
 name = "naviscope-java"
 version = "0.2.1"
 dependencies = [
+ "lasso",
  "lsp-types",
  "naviscope-api",
  "naviscope-core",
  "petgraph",
+ "rmp-serde",
  "serde",
  "serde_json",
  "thiserror 2.0.17",

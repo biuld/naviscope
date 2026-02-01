@@ -1,8 +1,8 @@
 use crate::parser::JavaParser;
 use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
-use naviscope_core::parser::SymbolIntent;
-use naviscope_core::parser::SymbolResolution;
+use naviscope_api::models::SymbolIntent;
+use naviscope_core::ingest::parser::SymbolResolution;
 
 pub struct BuiltinScope<'a> {
     pub parser: &'a JavaParser,
@@ -48,7 +48,7 @@ impl SemanticScope<ResolutionContext<'_>> for BuiltinScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_core::engine::CodeGraph;
+    use naviscope_core::model::CodeGraph;
     use tree_sitter::Parser;
 
     #[test]

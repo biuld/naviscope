@@ -1,7 +1,8 @@
 use super::JavaParser;
 use naviscope_core::error::{NaviscopeError, Result};
-use naviscope_core::model::{DisplayGraphNode, DisplaySymbolLocation};
-use naviscope_core::parser::{GlobalParseResult, IndexParser};
+use naviscope_core::ingest::parser::{GlobalParseResult, IndexNode, IndexParser, ParseOutput};
+use naviscope_core::model::DisplaySymbolLocation;
+use std::sync::Arc;
 use tree_sitter::Parser;
 
 impl IndexParser for JavaParser {
@@ -27,47 +28,49 @@ impl IndexParser for JavaParser {
             .into_iter()
             .map(|e| {
                 let kind = match &e.element {
-                    crate::model::JavaElement::Class(_) => naviscope_core::model::NodeKind::Class,
-                    crate::model::JavaElement::Interface(_) => {
+                    crate::model::JavaIndexMetadata::Class { .. } => {
+                        naviscope_core::model::NodeKind::Class
+                    }
+                    crate::model::JavaIndexMetadata::Interface { .. } => {
                         naviscope_core::model::NodeKind::Interface
                     }
-                    crate::model::JavaElement::Enum(_) => naviscope_core::model::NodeKind::Enum,
-                    crate::model::JavaElement::Annotation(_) => {
+                    crate::model::JavaIndexMetadata::Enum { .. } => {
+                        naviscope_core::model::NodeKind::Enum
+                    }
+                    crate::model::JavaIndexMetadata::Annotation { .. } => {
                         naviscope_core::model::NodeKind::Annotation
                     }
-                    crate::model::JavaElement::Method(m) => {
-                        if m.is_constructor {
+                    crate::model::JavaIndexMetadata::Method { is_constructor, .. } => {
+                        if *is_constructor {
                             naviscope_core::model::NodeKind::Constructor
                         } else {
                             naviscope_core::model::NodeKind::Method
                         }
                     }
-                    crate::model::JavaElement::Field(_) => naviscope_core::model::NodeKind::Field,
-                    crate::model::JavaElement::Package(_) => {
+                    crate::model::JavaIndexMetadata::Field { .. } => {
+                        naviscope_core::model::NodeKind::Field
+                    }
+                    crate::model::JavaIndexMetadata::Package => {
                         naviscope_core::model::NodeKind::Package
                     }
                 };
 
                 let location = file_path.map(|p| DisplaySymbolLocation {
                     path: p.to_string_lossy().to_string(),
-                    range: naviscope_core::parser::utils::range_from_ts(e.node.range()),
+                    range: naviscope_core::ingest::parser::utils::range_from_ts(e.node.range()),
                     selection_range: e
                         .node
                         .child_by_field_name("name")
-                        .map(|n| naviscope_core::parser::utils::range_from_ts(n.range())),
+                        .map(|n| naviscope_core::ingest::parser::utils::range_from_ts(n.range())),
                 });
 
-                DisplayGraphNode {
+                IndexNode {
                     id: e.fqn.clone(),
                     name: e.name.clone(),
                     kind,
                     lang: "java".to_string(),
                     location,
-                    metadata: serde_json::to_value(&e.element).unwrap_or(serde_json::Value::Null),
-                    detail: None,
-                    signature: None,
-                    modifiers: vec![],
-                    children: None,
+                    metadata: Arc::new(e.element),
                 }
             })
             .collect();
@@ -75,21 +78,24 @@ impl IndexParser for JavaParser {
         let relations = model
             .relations
             .into_iter()
-            .map(|r| (r.source_fqn, r.target_name, r.rel_type, r.range))
+            .map(|r| naviscope_core::ingest::parser::IndexRelation {
+                source_id: r.source_fqn,
+                target_id: r.target_name,
+                edge_type: r.rel_type,
+                range: r.range,
+            })
             .collect();
 
-        let package_name = model.package;
-        let imports = model.imports;
-        let identifiers = model.identifiers;
-
         Ok(GlobalParseResult {
-            package_name,
-            imports,
-            nodes,
-            relations,
+            package_name: model.package,
+            imports: model.imports,
+            output: ParseOutput {
+                nodes,
+                relations,
+                identifiers: model.identifiers,
+            },
             source: Some(source_code.to_string()),
             tree: Some(tree),
-            identifiers,
         })
     }
 }

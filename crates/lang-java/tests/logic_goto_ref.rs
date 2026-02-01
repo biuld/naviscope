@@ -1,7 +1,7 @@
 mod common;
 
 use common::setup_java_test_graph;
-use naviscope_core::resolver::SemanticResolver;
+use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
 
 fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
@@ -35,7 +35,7 @@ fn test_goto_references_method() {
     let target_idx = matches[0];
 
     // Check for candidate files via DiscoveryEngine (Meso-scouting)
-    let discovery = naviscope_core::analysis::discovery::DiscoveryEngine::new(&index);
+    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(&index);
     let candidate_files = discovery.scout_references(&[target_idx]);
 
     assert_eq!(candidate_files.len(), 3);

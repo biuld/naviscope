@@ -54,21 +54,9 @@ impl ShellNodeView {
 
         // Use pre-filled signature in DisplayGraphNode
         let signature = node.signature.clone().unwrap_or_else(|| {
-            // Fallback for nodes without specific signature (like Project)
+            // Fallback for nodes without specific signature
             match node.kind {
-                NodeKind::Project => {
-                    let build_system = node
-                        .metadata
-                        .get("build_system")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-                    let root_path = node
-                        .metadata
-                        .get("root_path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("-");
-                    format!("{} project at {}", build_system, root_path)
-                }
+                NodeKind::Project => "Project".to_string(),
                 _ => "-".to_string(),
             }
         });

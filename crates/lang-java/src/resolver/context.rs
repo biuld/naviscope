@@ -1,7 +1,7 @@
 use crate::parser::JavaParser;
+use naviscope_api::models::SymbolIntent;
+use naviscope_core::features::CodeGraphLike;
 use naviscope_core::model::ResolvedUnit;
-use naviscope_core::parser::SymbolIntent;
-use naviscope_core::query::CodeGraphLike; // Updated
 use tree_sitter::{Node, Tree};
 
 pub struct ResolutionContext<'a> {

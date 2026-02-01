@@ -1,9 +1,9 @@
-use crate::model::JavaElement;
+use crate::model::{JavaIndexMetadata, JavaNodeMetadata};
 use crate::parser::JavaParser;
 use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
 use naviscope_api::models::TypeRef;
-use naviscope_core::parser::SymbolResolution;
+use naviscope_core::ingest::parser::SymbolResolution;
 
 pub struct MemberScope<'a> {
     pub parser: &'a JavaParser,
@@ -140,10 +140,12 @@ impl MemberScope<'_> {
 
                     // Check index
                     if let Some(node) = get_index_node(&candidate) {
-                        if let Ok(JavaElement::Field(f)) =
-                            serde_json::from_value::<JavaElement>(node.metadata.clone())
+                        if let Some(java_meta) =
+                            node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
                         {
-                            return Some(f.type_ref.clone());
+                            if let JavaNodeMetadata::Field { type_ref, .. } = java_meta {
+                                return Some(type_ref.clone());
+                            }
                         }
                         return Some(TypeRef::Id(candidate));
                     }
@@ -151,10 +153,12 @@ impl MemberScope<'_> {
                     // Check current unit (indexing phase)
                     if let Some(unit) = context.unit {
                         if let Some(node) = unit.nodes.get(candidate.as_str()) {
-                            if let Ok(JavaElement::Field(f)) =
-                                serde_json::from_value::<JavaElement>(node.metadata.clone())
+                            if let Some(java_meta) =
+                                node.metadata.as_any().downcast_ref::<JavaIndexMetadata>()
                             {
-                                return Some(f.type_ref.clone());
+                                if let JavaIndexMetadata::Field { type_ref, .. } = java_meta {
+                                    return Some(type_ref.clone());
+                                }
                             }
                             return Some(TypeRef::Id(candidate));
                         }
@@ -203,20 +207,24 @@ impl MemberScope<'_> {
 
                 // Check index
                 if let Some(node) = get_index_node(&field_fqn) {
-                    if let Ok(JavaElement::Field(f)) =
-                        serde_json::from_value::<JavaElement>(node.metadata.clone())
+                    if let Some(java_meta) =
+                        node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
                     {
-                        return Some(f.type_ref.clone());
+                        if let JavaNodeMetadata::Field { type_ref, .. } = java_meta {
+                            return Some(type_ref.clone());
+                        }
                     }
                 }
 
                 // Check unit
                 if let Some(unit) = context.unit {
                     if let Some(node) = unit.nodes.get(field_fqn.as_str()) {
-                        if let Ok(JavaElement::Field(f)) =
-                            serde_json::from_value::<JavaElement>(node.metadata.clone())
+                        if let Some(java_meta) =
+                            node.metadata.as_any().downcast_ref::<JavaIndexMetadata>()
                         {
-                            return Some(f.type_ref.clone());
+                            if let JavaIndexMetadata::Field { type_ref, .. } = java_meta {
+                                return Some(type_ref.clone());
+                            }
                         }
                     }
                 }
@@ -236,20 +244,24 @@ impl MemberScope<'_> {
 
                 // Check index
                 if let Some(node) = get_index_node(&method_fqn) {
-                    if let Ok(JavaElement::Method(m)) =
-                        serde_json::from_value::<JavaElement>(node.metadata.clone())
+                    if let Some(java_meta) =
+                        node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
                     {
-                        return Some(m.return_type.clone());
+                        if let JavaNodeMetadata::Method { return_type, .. } = java_meta {
+                            return Some(return_type.clone());
+                        }
                     }
                 }
 
                 // Check unit
                 if let Some(unit) = context.unit {
                     if let Some(node) = unit.nodes.get(method_fqn.as_str()) {
-                        if let Ok(JavaElement::Method(m)) =
-                            serde_json::from_value::<JavaElement>(node.metadata.clone())
+                        if let Some(java_meta) =
+                            node.metadata.as_any().downcast_ref::<JavaIndexMetadata>()
                         {
-                            return Some(m.return_type.clone());
+                            if let JavaIndexMetadata::Method { return_type, .. } = java_meta {
+                                return Some(return_type.clone());
+                            }
                         }
                     }
                 }
@@ -394,8 +406,8 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_core::engine::CodeGraphBuilder;
-    use naviscope_core::model::DisplayGraphNode;
+    use naviscope_core::ingest::builder::CodeGraphBuilder;
+
     use tree_sitter::Parser;
 
     #[test]
@@ -420,21 +432,16 @@ mod tests {
 
         // Build graph with Test.field
         let mut builder = CodeGraphBuilder::new();
-        let node = DisplayGraphNode {
+        let node = naviscope_core::ingest::parser::IndexNode {
             id: "Test.field".to_string(),
             name: "field".to_string(),
             kind: naviscope_core::model::NodeKind::Field,
             lang: "java".to_string(),
             location: None,
-            metadata: serde_json::to_value(JavaElement::Field(crate::model::JavaField {
+            metadata: std::sync::Arc::new(JavaIndexMetadata::Field {
                 type_ref: naviscope_api::models::TypeRef::Raw("int".to_string()),
                 modifiers: vec![],
-            }))
-            .unwrap(),
-            detail: None,
-            signature: None,
-            modifiers: vec![],
-            children: None,
+            }),
         };
         builder.add_node(node);
         let index = builder.build();

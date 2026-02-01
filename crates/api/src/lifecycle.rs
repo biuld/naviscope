@@ -1,7 +1,4 @@
-use crate::models::Language;
-use crate::plugin::LanguageFeatureProvider;
 use async_trait::async_trait;
-use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -30,7 +27,4 @@ pub trait EngineLifecycle: Send + Sync {
 
     /// Clear the index for the current project
     async fn clear_index(&self) -> EngineResult<()>;
-
-    /// Get a feature provider for a specific language
-    fn get_feature_provider(&self, language: Language) -> Option<Arc<dyn LanguageFeatureProvider>>;
 }
