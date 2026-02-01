@@ -10,7 +10,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::engine::storage::GLOBAL_POOL;
 use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
 /// Naviscope indexing engine
@@ -184,7 +183,7 @@ impl NaviscopeEngine {
                 } else {
                     // File was deleted
                     manual_ops.push(GraphOp::RemovePath {
-                        path: GLOBAL_POOL.intern_path(&path),
+                        path: Arc::from(path.as_path()),
                     });
                 }
             }

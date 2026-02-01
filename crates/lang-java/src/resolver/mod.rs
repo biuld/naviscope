@@ -2,7 +2,6 @@ use crate::model::{JavaElement, JavaPackage};
 use crate::parser::JavaParser;
 use naviscope_api::models::TypeRef;
 use naviscope_core::engine::CodeGraph;
-use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::Result;
 use naviscope_core::model::{
     DisplayGraphNode, EdgeType, GraphEdge, GraphOp, NodeKind, ResolvedUnit,
@@ -387,7 +386,7 @@ impl LangResolver for JavaResolver {
             // Scope for usage of parse_result
             unit.identifiers = parse_result.identifiers.iter().cloned().collect();
             unit.ops.push(GraphOp::UpdateIdentifiers {
-                path: GLOBAL_POOL.intern_path(&file.file.path),
+                path: Arc::from(file.file.path.as_path()),
                 identifiers: unit.identifiers.clone(),
             });
 
