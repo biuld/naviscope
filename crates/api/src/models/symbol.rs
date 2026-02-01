@@ -1,4 +1,4 @@
-use super::graph::NodeKind;
+use super::graph::{DisplayGraphNode, NodeKind};
 use super::language::Language;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -69,15 +69,6 @@ pub enum SymbolResolution {
     Global(String),
 }
 
-#[derive(Debug, Clone)]
-pub struct DocumentSymbol {
-    pub name: String,
-    pub kind: NodeKind,
-    pub range: Range,
-    pub selection_range: Range,
-    pub children: Vec<DocumentSymbol>,
-}
-
 // --- New Core API Types ---
 
 #[derive(Debug, Clone)]
@@ -124,16 +115,6 @@ impl InternedLocation {
 }
 
 #[derive(Debug, Clone)]
-pub struct SymbolInfo {
-    pub name: String,
-    pub kind: NodeKind,
-    pub detail: Option<String>,
-    pub location: SymbolLocation,
-    pub signature: Option<String>,
-    pub language: Language,
-}
-
-#[derive(Debug, Clone)]
 pub struct ReferenceQuery {
     pub resolution: SymbolResolution,
     pub language: Language,
@@ -141,25 +122,14 @@ pub struct ReferenceQuery {
 }
 
 #[derive(Debug, Clone)]
-pub struct CallHierarchyItem {
-    pub name: String,
-    pub kind: NodeKind,
-    pub detail: Option<String>,
-    pub uri: String,
-    pub range: Range,
-    pub selection_range: Range,
-    pub id: String, // Added id for cross-request tracking (e.g. FQN)
-}
-
-#[derive(Debug, Clone)]
 pub struct CallHierarchyIncomingCall {
-    pub from: CallHierarchyItem,
+    pub from: DisplayGraphNode,
     pub from_ranges: Vec<Range>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CallHierarchyOutgoingCall {
-    pub to: CallHierarchyItem,
+    pub to: DisplayGraphNode,
     pub from_ranges: Vec<Range>,
 }
 

@@ -47,7 +47,7 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
             // Fetch detailed info for FQN
             if let Ok(Some(info)) = engine.get_symbol_info(&fqn).await {
                 if let Some(sig) = info.signature {
-                    let lang_tag = info.language.as_str();
+                    let lang_tag = info.lang;
                     hover_text.push_str(&format!("```{}\n{}\n```\n", lang_tag, sig));
                 } else {
                     hover_text.push_str(&format!(

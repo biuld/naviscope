@@ -1,6 +1,4 @@
 use naviscope_api::models::{DisplayGraphNode, NodeKind};
-use naviscope_api::plugin::LanguageFeatureProvider;
-use std::sync::Arc;
 use tabled::Tabled;
 
 /// A terminal-optimized view of a GraphNode (Detailed)
@@ -25,7 +23,6 @@ impl ShellNodeView {
     pub fn from_node(
         node: &DisplayGraphNode,
         relation: Option<String>,
-        feature_provider: &Arc<dyn LanguageFeatureProvider>,
     ) -> Self {
         let location = node
             .location
@@ -55,8 +52,8 @@ impl ShellNodeView {
             node.name.clone()
         };
 
-        // Use feature provider to get signature
-        let signature = feature_provider.signature(node).unwrap_or_else(|| {
+        // Use pre-filled signature in DisplayGraphNode
+        let signature = node.signature.clone().unwrap_or_else(|| {
             // Fallback for nodes without specific signature (like Project)
             match node.kind {
                 NodeKind::Project => {

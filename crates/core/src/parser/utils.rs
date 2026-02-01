@@ -34,21 +34,30 @@ pub struct RawSymbol<'a> {
     pub node: tree_sitter::Node<'a>,
 }
 
-/// Builds a hierarchical DocumentSymbol tree from flat raw symbols using AST parent-child relationships.
-pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<crate::parser::DocumentSymbol> {
+/// Builds a hierarchical DisplayGraphNode tree from flat raw symbols using AST parent-child relationships.
+pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<crate::model::DisplayGraphNode> {
     use std::collections::HashMap;
     let mut symbols_map: HashMap<usize, usize> = HashMap::new(); // node_id -> flat_index
-    let mut flat_symbols: Vec<crate::parser::DocumentSymbol> = Vec::new();
+    let mut flat_symbols: Vec<crate::model::DisplayGraphNode> = Vec::new();
     let mut parent_child_rels: Vec<(usize, usize)> = Vec::new();
 
     // 1. Create flat list and map nodes to indices
     for (i, raw) in raw_symbols.iter().enumerate() {
-        flat_symbols.push(crate::parser::DocumentSymbol {
+        flat_symbols.push(crate::model::DisplayGraphNode {
+            id: raw.name.clone(), // For document symbols, FQN might not be available, use name as fallback id
             name: raw.name.clone(),
             kind: raw.kind.clone(),
-            range: raw.range,
-            selection_range: raw.selection_range,
-            children: Vec::new(),
+            lang: String::new(), // To be filled by caller if needed
+            location: Some(crate::model::DisplaySymbolLocation {
+                path: String::new(), // To be filled by caller
+                range: raw.range,
+                selection_range: Some(raw.selection_range),
+            }),
+            metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: Some(Vec::new()),
         });
         symbols_map.insert(raw.node.id(), i);
     }
@@ -82,18 +91,24 @@ pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<crate::parser:
 
     fn build_node(
         idx: usize,
-        flat: &mut Vec<crate::parser::DocumentSymbol>,
+        flat: &mut Vec<crate::model::DisplayGraphNode>,
         rels: &[(usize, usize)],
-    ) -> crate::parser::DocumentSymbol {
+    ) -> crate::model::DisplayGraphNode {
         let mut sym = flat[idx].clone();
         let children: Vec<usize> = rels
             .iter()
             .filter(|(p, _)| *p == idx)
             .map(|(_, c)| *c)
             .collect();
+        let mut child_nodes = Vec::new();
         for c_idx in children {
-            sym.children.push(build_node(c_idx, flat, rels));
+            child_nodes.push(build_node(c_idx, flat, rels));
         }
+        sym.children = if child_nodes.is_empty() {
+            None
+        } else {
+            Some(child_nodes)
+        };
         sym
     }
 

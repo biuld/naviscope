@@ -1,5 +1,5 @@
 use crate::LspServer;
-use naviscope_api::models::NodeKind;
+use naviscope_api::models::{DisplayGraphNode, NodeKind};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
@@ -24,40 +24,31 @@ pub async fn document_symbol(
     Ok(Some(DocumentSymbolResponse::Nested(lsp_symbols)))
 }
 
-fn convert_api_symbols(symbols: Vec<naviscope_api::models::DocumentSymbol>) -> Vec<DocumentSymbol> {
+fn convert_api_symbols(symbols: Vec<DisplayGraphNode>) -> Vec<DocumentSymbol> {
     symbols.into_iter().map(convert_api_symbol).collect()
 }
 
-fn convert_api_symbol(sym: naviscope_api::models::DocumentSymbol) -> DocumentSymbol {
+fn convert_api_symbol(sym: DisplayGraphNode) -> DocumentSymbol {
+    let loc = sym.location.as_ref().expect("Symbol must have location");
     let range = Range {
-        start: Position::new(sym.range.start_line as u32, sym.range.start_col as u32),
-        end: Position::new(sym.range.end_line as u32, sym.range.end_col as u32),
+        start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+        end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
     };
-    let selection_range = Range {
-        start: Position::new(
-            sym.selection_range.start_line as u32,
-            sym.selection_range.start_col as u32,
-        ),
-        end: Position::new(
-            sym.selection_range.end_line as u32,
-            sym.selection_range.end_col as u32,
-        ),
-    };
+    let selection_range = loc.selection_range.map(|sr| Range {
+        start: Position::new(sr.start_line as u32, sr.start_col as u32),
+        end: Position::new(sr.end_line as u32, sr.end_col as u32),
+    }).unwrap_or(range);
 
     #[allow(deprecated)]
     DocumentSymbol {
         name: sym.name,
-        detail: None,
+        detail: sym.detail,
         kind: node_kind_to_symbol_kind(&sym.kind),
         tags: None,
         deprecated: None,
         range,
         selection_range,
-        children: if sym.children.is_empty() {
-            None
-        } else {
-            Some(convert_api_symbols(sym.children))
-        },
+        children: sym.children.map(convert_api_symbols),
     }
 }
 
@@ -112,7 +103,7 @@ pub async fn workspace_symbol(
         .nodes
         .into_iter()
         .filter_map(|node| {
-            let loc = node.location?;
+            let loc = node.location.as_ref()?;
             Some(SymbolInformation {
                 name: node.name.to_string(),
                 kind: node_kind_to_symbol_kind(&node.kind),
@@ -120,7 +111,7 @@ pub async fn workspace_symbol(
                 #[allow(deprecated)]
                 deprecated: None,
                 location: Location {
-                    uri: Url::from_file_path(&*loc.path).ok()?,
+                    uri: Url::from_file_path(&loc.path).ok()?,
                     range: Range {
                         start: Position::new(
                             loc.range.start_line as u32,

@@ -4,7 +4,7 @@ use std::path::Path;
 use tree_sitter::Tree;
 
 // Re-export from API
-pub use naviscope_api::models::{DocumentSymbol, SymbolIntent, SymbolResolution, matches_intent};
+pub use naviscope_api::models::{SymbolIntent, SymbolResolution, matches_intent};
 
 pub trait LspParser: Send + Sync {
     fn parse(
@@ -12,7 +12,7 @@ pub trait LspParser: Send + Sync {
         source: &str,
         old_tree: Option<&tree_sitter::Tree>,
     ) -> Option<tree_sitter::Tree>;
-    fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DocumentSymbol>;
+    fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DisplayGraphNode>;
     /// Maps a language-specific symbol kind string to an LSP SymbolKind
     fn symbol_kind(&self, kind: &NodeKind) -> lsp_types::SymbolKind;
 

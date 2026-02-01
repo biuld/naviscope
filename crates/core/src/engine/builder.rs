@@ -238,6 +238,10 @@ mod tests {
             lang: "buildfile".to_string(),
             location: None,
             metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         };
 
         let _idx = builder.add_node(node);
@@ -261,6 +265,10 @@ mod tests {
             lang: "buildfile".to_string(),
             location: None,
             metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         };
 
         builder.add_node(node);

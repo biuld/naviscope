@@ -3,9 +3,8 @@ use crate::engine::EngineHandle;
 use crate::util::utf16_col_to_byte_col;
 use async_trait::async_trait;
 use naviscope_api::models::{
-    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, DocumentSymbol,
-    Language, NodeKind, PositionContext, Range, ReferenceQuery, SymbolInfo, SymbolLocation,
-    SymbolQuery, SymbolResolution,
+    CallHierarchyIncomingCall, CallHierarchyOutgoingCall, DisplayGraphNode, Language, NodeKind,
+    PositionContext, Range, ReferenceQuery, SymbolLocation, SymbolQuery, SymbolResolution,
 };
 use naviscope_api::semantic::{
     CallHierarchyAnalyzer, ReferenceAnalyzer, SemanticError, SemanticResult, SymbolInfoProvider,
@@ -17,34 +16,44 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 impl EngineHandle {
-    fn node_to_call_item(
+    fn node_to_display_node(
         &self,
         graph: &crate::engine::graph::CodeGraph,
         idx: petgraph::stable_graph::NodeIndex,
-    ) -> CallHierarchyItem {
+    ) -> DisplayGraphNode {
         let node = &graph.topology()[idx];
         let symbols = graph.symbols();
-        let fqn = node.fqn(symbols).to_string();
-        let name = node.name(symbols).to_string();
-        let path_str = node.path(symbols).unwrap_or("");
+        let mut display_node = node.to_display(symbols);
 
-        let range = node.range().cloned().unwrap_or(Range {
-            start_line: 0,
-            start_col: 0,
-            end_line: 0,
-            end_col: 0,
-        });
-        let selection_range = node.name_range().cloned().unwrap_or(range);
-
-        CallHierarchyItem {
-            name,
-            kind: node.kind.clone(),
-            detail: Some(fqn.clone()),
-            uri: format!("file://{}", path_str),
-            range,
-            selection_range,
-            id: fqn,
+        // Hydrate with language features if available
+        let lang = node.language(symbols);
+        if let Some(fp) = self.get_feature_provider(lang) {
+            display_node.detail = fp.detail_view(&display_node);
+            display_node.signature = fp.signature(&display_node);
+            display_node.modifiers = fp.modifiers(&display_node);
         }
+
+        display_node
+    }
+
+    pub(crate) fn hydrate_node(&self, mut node: DisplayGraphNode) -> DisplayGraphNode {
+        let lang = Language::from(node.lang.as_str());
+        if let Some(fp) = self.get_feature_provider(lang) {
+            node.detail = fp.detail_view(&node);
+            node.signature = fp.signature(&node);
+            node.modifiers = fp.modifiers(&node);
+        }
+
+        if let Some(children) = node.children.take() {
+            node.children = Some(
+                children
+                    .into_iter()
+                    .map(|c| self.hydrate_node(c))
+                    .collect(),
+            );
+        }
+
+        node
     }
 }
 
@@ -394,7 +403,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
         let results = caller_map
             .into_iter()
             .map(|(idx, ranges)| CallHierarchyIncomingCall {
-                from: self.node_to_call_item(&graph, idx),
+                from: self.node_to_display_node(&graph, idx),
                 from_ranges: ranges,
             })
             .collect();
@@ -494,7 +503,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
         let results = outgoing_calls
             .into_iter()
             .map(|(idx, ranges)| CallHierarchyOutgoingCall {
-                to: self.node_to_call_item(&graph, idx),
+                to: self.node_to_display_node(&graph, idx),
                 from_ranges: ranges,
             })
             .collect();
@@ -505,51 +514,24 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
 #[async_trait]
 impl SymbolInfoProvider for EngineHandle {
-    async fn get_symbol_info(&self, fqn: &str) -> SemanticResult<Option<SymbolInfo>> {
+    async fn get_symbol_info(&self, fqn: &str) -> SemanticResult<Option<DisplayGraphNode>> {
         let graph = self.graph().await;
         let node_idx = match graph.find_node(fqn) {
             Some(idx) => idx,
             None => return Ok(None),
         };
 
-        let node = graph.get_node(node_idx).unwrap();
-        let symbols = graph.symbols();
-        let display_node = node.to_display(symbols);
-        let lang = node.language(symbols);
-
-        let feature_provider = self.get_feature_provider(lang.clone());
-
-        let mut info = SymbolInfo {
-            name: display_node.name.clone(),
-            kind: display_node.kind.clone(),
-            detail: None,
-            signature: None,
-            location: naviscope_api::models::SymbolLocation {
-                path: std::sync::Arc::from(std::path::PathBuf::from(
-                    &display_node.location.as_ref().unwrap().path,
-                )),
-                range: display_node.location.as_ref().unwrap().range,
-                selection_range: display_node.location.as_ref().unwrap().selection_range,
-            },
-            language: lang,
-        };
-
-        if let Some(fp) = feature_provider {
-            info.detail = fp.detail_view(&display_node);
-            info.signature = fp.signature(&display_node);
-        }
-
-        Ok(Some(info))
+        Ok(Some(self.node_to_display_node(&graph, node_idx)))
     }
 
-    async fn get_document_symbols(&self, uri: &str) -> SemanticResult<Vec<DocumentSymbol>> {
+    async fn get_document_symbols(&self, uri: &str) -> SemanticResult<Vec<DisplayGraphNode>> {
         let path = if uri.starts_with("file://") {
             PathBuf::from(uri.strip_prefix("file://").unwrap())
         } else {
             PathBuf::from(uri)
         };
 
-        let (parser, _) = match self.get_parser_and_lang_for_path(&path) {
+        let (parser, lang) = match self.get_parser_and_lang_for_path(&path) {
             Some(x) => x,
             None => return Ok(vec![]),
         };
@@ -561,7 +543,21 @@ impl SymbolInfoProvider for EngineHandle {
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
-        Ok(parser.extract_symbols(&tree, &content))
+        let mut symbols = parser.extract_symbols(&tree, &content);
+
+        // Hydrate symbols with path and language features
+        let lang_str = lang.as_str().to_string();
+        for sym in &mut symbols {
+            sym.lang = lang_str.clone();
+            if let Some(loc) = &mut sym.location {
+                loc.path = path.to_string_lossy().to_string();
+            }
+        }
+
+        Ok(symbols
+            .into_iter()
+            .map(|s| self.hydrate_node(s))
+            .collect())
     }
 
     async fn get_language_for_document(&self, uri: &str) -> SemanticResult<Option<Language>> {

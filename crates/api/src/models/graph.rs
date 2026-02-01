@@ -124,6 +124,10 @@ impl GraphNode {
             lang: self.language(rodeo).as_str().to_string(),
             location: self.location.as_ref().map(|l| l.to_display(rodeo)),
             metadata: self.metadata.clone(),
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         }
     }
 
@@ -185,6 +189,15 @@ pub struct DisplayGraphNode {
     pub location: Option<DisplaySymbolLocation>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+
+    // Rendering fields
+    pub detail: Option<String>,
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub modifiers: Vec<String>,
+
+    // Hierarchy support
+    pub children: Option<Vec<DisplayGraphNode>>,
 }
 
 impl DisplayGraphNode {

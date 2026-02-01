@@ -294,6 +294,10 @@ mod tests {
             lang: "java".to_string(),
             location: None,
             metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         };
         builder.add_node(node);
         let graph = builder.build();

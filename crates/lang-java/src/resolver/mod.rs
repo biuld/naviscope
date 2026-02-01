@@ -410,6 +410,10 @@ impl LangResolver for JavaResolver {
                     location: None,
                     metadata: serde_json::to_value(JavaElement::Package(JavaPackage {}))
                         .unwrap_or(serde_json::Value::Null),
+                    detail: None,
+                    signature: None,
+                    modifiers: vec![],
+                    children: None,
                 };
 
                 unit.add_node(package_node);

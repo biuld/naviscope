@@ -41,15 +41,10 @@ pub async fn prepare_call_hierarchy(
         _ => return Ok(None),
     };
 
+    let loc = info.location.as_ref().expect("Symbol must have location");
     let lsp_range = Range {
-        start: Position::new(
-            info.location.range.start_line as u32,
-            info.location.range.start_col as u32,
-        ),
-        end: Position::new(
-            info.location.range.end_line as u32,
-            info.location.range.end_col as u32,
-        ),
+        start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+        end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
     };
 
     let item = CallHierarchyItem {
@@ -57,7 +52,7 @@ pub async fn prepare_call_hierarchy(
         kind: SymbolKind::METHOD, // Default for call hierarchy
         tags: None,
         detail: Some(fqn.clone()),
-        uri: Url::from_file_path(info.location.path).unwrap(),
+        uri: Url::from_file_path(&loc.path).unwrap(),
         range: lsp_range,
         selection_range: lsp_range,
         data: Some(serde_json::to_value(fqn).unwrap()),
@@ -90,15 +85,10 @@ pub async fn incoming_calls(
     let lsp_calls: Vec<CallHierarchyIncomingCall> = calls
         .into_iter()
         .map(|item| {
+            let loc = item.from.location.as_ref().expect("Caller must have location");
             let lsp_range = Range {
-                start: Position::new(
-                    item.from.range.start_line as u32,
-                    item.from.range.start_col as u32,
-                ),
-                end: Position::new(
-                    item.from.range.end_line as u32,
-                    item.from.range.end_col as u32,
-                ),
+                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
             };
             CallHierarchyIncomingCall {
                 from: CallHierarchyItem {
@@ -106,7 +96,7 @@ pub async fn incoming_calls(
                     kind: SymbolKind::METHOD,
                     tags: None,
                     detail: Some(item.from.id.clone()),
-                    uri: Url::from_file_path(item.from.uri.clone()).unwrap(),
+                    uri: Url::from_file_path(&loc.path).unwrap(),
                     range: lsp_range,
                     selection_range: lsp_range,
                     data: Some(serde_json::to_value(item.from.id).unwrap()),
@@ -150,12 +140,10 @@ pub async fn outgoing_calls(
     let lsp_calls: Vec<CallHierarchyOutgoingCall> = calls
         .into_iter()
         .map(|item| {
+            let loc = item.to.location.as_ref().expect("Callee must have location");
             let lsp_range = Range {
-                start: Position::new(
-                    item.to.range.start_line as u32,
-                    item.to.range.start_col as u32,
-                ),
-                end: Position::new(item.to.range.end_line as u32, item.to.range.end_col as u32),
+                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
             };
             CallHierarchyOutgoingCall {
                 to: CallHierarchyItem {
@@ -163,7 +151,7 @@ pub async fn outgoing_calls(
                     kind: SymbolKind::METHOD,
                     tags: None,
                     detail: Some(item.to.id.clone()),
-                    uri: Url::from_file_path(item.to.uri.clone()).unwrap(),
+                    uri: Url::from_file_path(&loc.path).unwrap(),
                     range: lsp_range,
                     selection_range: lsp_range,
                     data: Some(serde_json::to_value(item.to.id).unwrap()),

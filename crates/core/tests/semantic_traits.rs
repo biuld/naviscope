@@ -171,7 +171,7 @@ impl LspParser for MockLspParser {
         &self,
         _tree: &Tree,
         _source: &str,
-    ) -> Vec<naviscope_api::models::DocumentSymbol> {
+    ) -> Vec<DisplayGraphNode> {
         vec![]
     }
     fn symbol_kind(&self, _kind: &naviscope_core::model::NodeKind) -> lsp_types::SymbolKind {
@@ -241,6 +241,10 @@ async fn test_symbol_navigator_queries() {
                 selection_range: None,
             }),
             metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         });
     }
 
@@ -330,6 +334,10 @@ async fn test_call_hierarchy_analyzer() {
                 selection_range: None,
             }),
             metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         });
         // Caller
         nodes.push(DisplayGraphNode {
@@ -348,6 +356,10 @@ async fn test_call_hierarchy_analyzer() {
                 selection_range: None,
             }),
             metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         });
     }
 
@@ -399,6 +411,10 @@ async fn test_get_symbol_info() {
                 selection_range: None,
             }),
             metadata: serde_json::Value::Null,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         });
     }
 
@@ -423,5 +439,5 @@ async fn test_get_symbol_info() {
         info.signature,
         Some("Mock signature for test::Symbol".to_string())
     );
-    assert_eq!(info.language.as_str(), "mock");
+    assert_eq!(info.lang, "mock");
 }

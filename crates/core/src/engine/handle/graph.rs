@@ -7,21 +7,27 @@ use naviscope_api::{graph, models};
 impl graph::GraphService for EngineHandle {
     async fn query(&self, query: &models::GraphQuery) -> graph::Result<models::QueryResult> {
         let graph = self.graph().await;
-        let query = query.clone(); // Clone for 'static lifetime in spawn_blocking
+        let query_clone = query.clone(); // Clone for 'static lifetime in spawn_blocking
 
         let result = tokio::task::spawn_blocking(
             move || -> Result<crate::query::QueryResult, NaviscopeError> {
                 let engine = crate::query::QueryEngine::new(graph);
-                engine.execute(&query)
+                engine.execute(&query_clone)
             },
         )
         .await
         .map_err(|e| graph::GraphError::Internal(e.to_string()))?
         .map_err(|e| graph::GraphError::Internal(e.to_string()))?;
 
-        // Now that core models are aligned with API models, we can direct convert
+        // Hydrate nodes before returning to provide rich information to upper layers
+        let hydrated_nodes = result
+            .nodes
+            .into_iter()
+            .map(|node| self.hydrate_node(node))
+            .collect();
+
         Ok(models::QueryResult {
-            nodes: result.nodes,
+            nodes: hydrated_nodes,
             edges: result.edges,
         })
     }

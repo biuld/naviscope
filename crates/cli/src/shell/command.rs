@@ -2,7 +2,6 @@ use super::view::{ShellNodeView, ShellNodeViewShort, get_kind_weight};
 use clap::{Parser, ValueEnum};
 use naviscope_api::models::{EdgeType, GraphQuery, NodeKind, QueryResult};
 use shlex;
-use std::sync::Arc;
 use tabled::{Table, settings::Style};
 
 /// Default limit for search results
@@ -216,7 +215,7 @@ impl ShellCommand {
     pub fn render(
         &self,
         result: QueryResult,
-        context: &super::context::ShellContext,
+        _context: &super::context::ShellContext,
     ) -> Result<String, Box<dyn std::error::Error>> {
         if result.nodes.is_empty() {
             return Ok("NO RECORDS FOUND".to_string());
@@ -266,38 +265,6 @@ impl ShellCommand {
                             .collect::<Vec<_>>()
                             .join(", ");
 
-                        // Get feature provider based on node's language
-                        use naviscope_api::models::Language;
-                        let lang = Language::from(node.lang.as_str());
-
-                        let feature_provider =
-                            context.get_feature_provider(lang).unwrap_or_else(|| {
-                                // Create a dummy feature provider that returns None for everything
-                                use naviscope_api::plugin::LanguageFeatureProvider;
-                                struct DummyProvider;
-                                impl LanguageFeatureProvider for DummyProvider {
-                                    fn detail_view(
-                                        &self,
-                                        _node: &naviscope_api::models::DisplayGraphNode,
-                                    ) -> Option<String> {
-                                        None
-                                    }
-                                    fn signature(
-                                        &self,
-                                        _node: &naviscope_api::models::DisplayGraphNode,
-                                    ) -> Option<String> {
-                                        None
-                                    }
-                                    fn modifiers(
-                                        &self,
-                                        _node: &naviscope_api::models::DisplayGraphNode,
-                                    ) -> Vec<String> {
-                                        vec![]
-                                    }
-                                }
-                                Arc::new(DummyProvider)
-                            });
-
                         ShellNodeView::from_node(
                             node,
                             if relation.is_empty() {
@@ -305,7 +272,6 @@ impl ShellCommand {
                             } else {
                                 Some(relation)
                             },
-                            &feature_provider,
                         )
                     })
                     .collect();

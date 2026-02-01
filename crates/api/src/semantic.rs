@@ -1,6 +1,6 @@
 use crate::models::{
-    CallHierarchyIncomingCall, CallHierarchyOutgoingCall, PositionContext, ReferenceQuery,
-    SymbolInfo, SymbolLocation, SymbolQuery, SymbolResolution,
+    CallHierarchyIncomingCall, CallHierarchyOutgoingCall, DisplayGraphNode, PositionContext,
+    ReferenceQuery, SymbolLocation, SymbolQuery, SymbolResolution,
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -80,13 +80,10 @@ pub trait CallHierarchyAnalyzer: Send + Sync {
 #[async_trait]
 pub trait SymbolInfoProvider: Send + Sync {
     /// Get detailed information about a symbol by its FQN.
-    async fn get_symbol_info(&self, fqn: &str) -> SemanticResult<Option<SymbolInfo>>;
+    async fn get_symbol_info(&self, fqn: &str) -> SemanticResult<Option<DisplayGraphNode>>;
 
     /// Get all symbols defined in a specific document.
-    async fn get_document_symbols(
-        &self,
-        uri: &str,
-    ) -> SemanticResult<Vec<crate::models::DocumentSymbol>>;
+    async fn get_document_symbols(&self, uri: &str) -> SemanticResult<Vec<DisplayGraphNode>>;
 
     /// Get the language of a specific document.
     async fn get_language_for_document(

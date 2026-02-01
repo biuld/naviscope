@@ -136,6 +136,10 @@ impl BuildResolver for GradleResolver {
                 "build_system": "gradle",
                 "root_path": root_path.to_string_lossy()
             }),
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         });
 
         // --- Step 4: Assign Module IDs ---
@@ -201,6 +205,10 @@ impl BuildResolver for GradleResolver {
                     }),
                 metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
                     .unwrap_or(serde_json::Value::Null),
+                detail: None,
+                signature: None,
+                modifiers: vec![],
+                children: None,
             });
 
             unit.add_edge(
@@ -250,6 +258,10 @@ impl BuildResolver for GradleResolver {
                     }),
                 metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
                     .unwrap_or(serde_json::Value::Null),
+                detail: None,
+                signature: None,
+                modifiers: vec![],
+                children: None,
             });
 
             context.path_to_module.insert(path.clone(), id.clone());
@@ -334,6 +346,10 @@ impl BuildResolver for GradleResolver {
                             }),
                             metadata: serde_json::to_value(GradleElement::Dependency(dep_node))
                                 .unwrap_or(serde_json::Value::Null),
+                            detail: None,
+                            signature: None,
+                            modifiers: vec![],
+                            children: None,
                         });
                     }
 

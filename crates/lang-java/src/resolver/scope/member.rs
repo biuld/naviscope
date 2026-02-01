@@ -431,6 +431,10 @@ mod tests {
                 modifiers: vec![],
             }))
             .unwrap(),
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
         };
         builder.add_node(node);
         let index = builder.build();

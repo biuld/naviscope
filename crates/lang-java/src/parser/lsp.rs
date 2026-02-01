@@ -16,7 +16,7 @@ impl LspParser for JavaParser {
         &self,
         tree: &Tree,
         source: &str,
-    ) -> Vec<naviscope_core::parser::DocumentSymbol> {
+    ) -> Vec<naviscope_core::model::DisplayGraphNode> {
         // Only run Stage 1: Identification of entities.
         // We don't need full FQN resolution (naming) or relation resolution (Stage 3)
         // for building the local document symbol tree.

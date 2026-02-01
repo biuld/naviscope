@@ -64,6 +64,10 @@ impl IndexParser for JavaParser {
                     lang: "java".to_string(),
                     location,
                     metadata: serde_json::to_value(&e.element).unwrap_or(serde_json::Value::Null),
+                    detail: None,
+                    signature: None,
+                    modifiers: vec![],
+                    children: None,
                 }
             })
             .collect();
