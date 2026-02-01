@@ -3,20 +3,17 @@ use naviscope_core::error::{NaviscopeError, Result};
 use once_cell::sync::Lazy;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
-unsafe extern "C" {
-    fn tree_sitter_groovy() -> tree_sitter::Language;
-}
-
 use crate::queries::gradle_definitions::GradleIndices;
 
 /// Cached Gradle query to avoid re-parsing the SCM file on every parse call.
 static GRADLE_QUERY: Lazy<Query> = Lazy::new(|| {
-    let language = unsafe { tree_sitter_groovy() };
-    naviscope_core::parser::utils::load_query(
-        &language,
-        include_str!("queries/gradle_definitions.scm"),
-    )
-    .expect("Failed to load Gradle query - this is a fatal error")
+    let language: tree_sitter::Language = tree_sitter_groovy::LANGUAGE.into();
+    match Query::new(&language, include_str!("queries/gradle_definitions.scm")) {
+        Ok(q) => q,
+        Err(e) => {
+            panic!("Failed to load Gradle query: {}. Error message: {}", e, e.message);
+        }
+    }
 });
 
 /// Gets the cached Gradle query.
@@ -26,7 +23,7 @@ fn get_gradle_query() -> &'static Query {
 
 pub fn parse_dependencies(source_code: &str) -> Result<Vec<RawGradleDependency>> {
     let mut parser = Parser::new();
-    let language = unsafe { tree_sitter_groovy() };
+    let language: tree_sitter::Language = tree_sitter_groovy::LANGUAGE.into();
     parser
         .set_language(&language)
         .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
@@ -96,7 +93,7 @@ pub fn parse_dependencies(source_code: &str) -> Result<Vec<RawGradleDependency>>
 
 pub fn parse_settings(source_code: &str) -> Result<GradleSettings> {
     let mut parser = Parser::new();
-    let language = unsafe { tree_sitter_groovy() };
+    let language: tree_sitter::Language = tree_sitter_groovy::LANGUAGE.into();
     parser
         .set_language(&language)
         .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;

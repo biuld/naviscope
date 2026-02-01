@@ -8,10 +8,8 @@ naviscope-core = { workspace = true }
 naviscope-api = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true }
+tree-sitter-groovy = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 petgraph = { workspace = true }
 once_cell = { workspace = true }
-
-[build-dependencies]
-cc = { workspace = true }

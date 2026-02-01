@@ -10,10 +10,6 @@ mod naming;
 mod scope;
 mod types;
 
-unsafe extern "C" {
-    fn tree_sitter_java() -> tree_sitter::Language;
-}
-
 use crate::queries::java_definitions::JavaIndices;
 use crate::queries::java_occurrences::OccurrenceIndices;
 
@@ -39,7 +35,7 @@ impl Clone for JavaParser {
 
 impl JavaParser {
     pub fn new() -> Result<Self> {
-        let language = unsafe { tree_sitter_java() };
+        let language: tree_sitter::Language = tree_sitter_java::LANGUAGE.into();
 
         let definition_query = naviscope_core::parser::utils::load_query(
             &language,

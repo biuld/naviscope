@@ -1302,7 +1302,6 @@ name = "naviscope-core"
 version = "0.2.1"
 dependencies = [
  "async-trait",
- "cc",
  "ignore",
  "lasso",
  "log",
@@ -1335,7 +1334,6 @@ dependencies = [
 name = "naviscope-gradle"
 version = "0.2.1"
 dependencies = [
- "cc",
  "naviscope-api",
  "naviscope-core",
  "once_cell",
@@ -1344,13 +1342,13 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tree-sitter",
+ "tree-sitter-groovy",
 ]
 
 [[package]]
 name = "naviscope-java"
 version = "0.2.1"
 dependencies = [
- "cc",
  "lsp-types",
  "naviscope-api",
  "naviscope-core",
@@ -1359,6 +1357,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tree-sitter",
+ "tree-sitter-java",
 ]
 
 [[package]]
@@ -2536,6 +2535,16 @@ dependencies = [
  "regex-syntax",
  "serde_json",
  "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-groovy"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a20016017f0865ba902ca50354f92429de5de8df994e64ab7fae087a13c40ed"
+dependencies = [
+ "cc",
  "tree-sitter-language",
 ]
 

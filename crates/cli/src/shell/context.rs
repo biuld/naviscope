@@ -1,8 +1,7 @@
 use naviscope_api::NaviscopeEngine;
 use naviscope_api::graph::GraphService;
-use naviscope_api::models::{GraphQuery, Language, QueryResult};
+use naviscope_api::models::{GraphQuery, QueryResult};
 use naviscope_api::navigation::NavigationService;
-use naviscope_api::plugin::LanguageFeatureProvider;
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
@@ -26,10 +25,6 @@ impl ShellContext {
             rt_handle,
             current_node,
         }
-    }
-
-    pub fn get_feature_provider(&self, lang: Language) -> Option<Arc<dyn LanguageFeatureProvider>> {
-        self.engine.get_feature_provider(lang)
     }
 
     pub fn current_fqn(&self) -> Option<String> {
