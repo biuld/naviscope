@@ -1,6 +1,6 @@
 [package]
 name = "naviscope-gradle"
-version = "0.2.1"
+version = "0.5.0"
 edition = "2024"
 
 [dependencies]
@@ -13,5 +13,5 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 petgraph = { workspace = true }
 once_cell = { workspace = true }
-rmp-serde.workspace = true
-lasso.workspace = true
+rmp-serde = { workspace = true }
+lasso = { workspace = true }

@@ -20,6 +20,7 @@ Unlike traditional tools that maintain separate indexes for different purposes, 
 ### 🤖 For AI Agents (MCP Support)
 Naviscope implements the [Model Context Protocol](https://modelcontextprotocol.io/), giving LLMs "X-ray vision" into your code structure.
 
+- **`get_guide`**: Call this first! Get a comprehensive guide on how to use Naviscope tools.
 - **`ls`**: Hierarchical exploration of packages, modules, and fields.
 - **`find`**: Precise symbol search (find "Class definitions", not just string matches).
 - **`cat`**: Retrieve definition, source code, and metadata for any symbol.
@@ -127,7 +128,7 @@ cd naviscope
 git submodule update --init --recursive
 
 # 2. Install the Naviscope CLI
-cargo install --path .
+cargo install --path crates/cli
 
 # 3. (Optional) Build the VS Code Extension
 cd editors/vscode
@@ -142,6 +143,10 @@ npm run package
 - `naviscope index <PATH>`: Build a persistent index for a project.
 - `naviscope shell [PATH]`: Start an interactive shell to query the graph.
 - `naviscope watch <PATH>`: Start a background service to keep the index updated.
+- `naviscope clear [PATH]`: Clear built indices (or all indices if path omitted).
+- `naviscope mcp`: Start the MCP server.
+- `naviscope lsp`: Start the LSP server.
+
 #### Configure in Cursor (for AI Agents)
 1.  Open **Cursor Settings** (Cmd + Shift + J) -> **Features** -> **MCP**.
 2.  Click **+ Add New MCP Server**.
@@ -154,25 +159,34 @@ npm run package
 - **VS Code**: Install the extension built in step 3.
 - **Other Clients**: Point your LSP client to run `naviscope lsp`.
 
-## 🛠️ Query DSL Examples
+## 🛠️ Query DSL (Interactive Shell)
 
-Whether using the CLI shell or MCP tools, the query logic is consistent:
+The `naviscope shell` provides a Unix-like experience for exploring the Code Knowledge Graph:
 
 ```bash
+# Change current context to a package or class
+cd "com.example.service"
+
+# List members in current context
+ls
+
+# List with detailed information
+ls -l
+
 # Find all classes named 'UserService'
 find "UserService" --kind class
 
-# List contents of a package
-ls "com.example.service"
-
 # Inspect full details of a symbol (source code, metadata)
-cat "com.example.service.UserService"
+cat "UserService"
 
-# Find who references 'login'? (Incoming dependencies / Reverse lookups)
-deps --rev "com.example.auth.AuthService.login"
+# Find who references current symbol?
+deps --rev
 
-# Filter dependencies by edge type
-deps "com.example.User" --edge-types TypedAs,InheritsFrom
+# Print current FQN context
+pwd
+
+# Clear screen
+clear
 ```
 
 ## 🔗 Graph Relationships
