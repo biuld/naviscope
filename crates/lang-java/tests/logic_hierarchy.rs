@@ -65,7 +65,7 @@ fn test_call_hierarchy_incoming() {
                     }
                 }
                 let node = &index.topology()[container_idx];
-                let fqn = node.fqn().to_string();
+                let fqn = node.fqn(index.symbols()).to_string();
                 if !callers.contains(&fqn) {
                     callers.push(fqn);
                 }
@@ -191,7 +191,7 @@ fn test_call_hierarchy_recursion() {
                 }
             }
             let node = &index.topology()[c_idx];
-            let fqn = node.fqn().to_string();
+            let fqn = node.fqn(index.symbols()).to_string();
             if !callers.contains(&fqn) {
                 callers.push(fqn);
             }

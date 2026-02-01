@@ -168,7 +168,7 @@ impl NaviscopeEngine {
         let mut existing_metadata = std::collections::HashMap::new();
         for (path, entry) in graph.file_index() {
             existing_metadata.insert(
-                PathBuf::from(path.to_string_lossy().to_string()),
+                PathBuf::from(graph.symbols().resolve(&path.0)),
                 entry.metadata.clone(),
             );
         }

@@ -4,6 +4,18 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Symbol(pub lasso::Spur);
+
+impl JsonSchema for Symbol {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("Symbol")
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        u32::json_schema(generator)
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
 pub struct Range {
@@ -91,6 +103,24 @@ pub struct SymbolLocation {
     /// Range of the identifier/name (for precise navigation)
     #[serde(default)]
     pub selection_range: Option<Range>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct InternedLocation {
+    pub path: Symbol,
+    pub range: Range,
+    #[serde(default)]
+    pub selection_range: Option<Range>,
+}
+
+impl InternedLocation {
+    pub fn to_display(&self, rodeo: &impl lasso::Reader) -> super::graph::DisplaySymbolLocation {
+        super::graph::DisplaySymbolLocation {
+            path: rodeo.resolve(&self.path.0).to_string(),
+            range: self.range,
+            selection_range: self.selection_range,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

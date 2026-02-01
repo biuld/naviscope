@@ -88,7 +88,7 @@ fn test_inheritance_and_implementations() {
     assert_eq!(impls.len(), 1);
 
     let node = &index.topology()[impls[0]];
-    assert_eq!(node.fqn(), "C");
+    assert_eq!(node.fqn(index.symbols()), "C");
 }
 
 #[test]
@@ -434,7 +434,7 @@ public class DefaultApplicationArguments {
         println!("Graph nodes:");
         for (fqn, idx) in index.fqn_map() {
             let node = &index.topology()[*idx];
-            println!(" - {} ({:?})", fqn, node.kind());
+            println!(" - {} ({:?})", index.symbols().resolve(&fqn.0), node.kind());
         }
         panic!("Failed to resolve Spring Boot scenario, got {:?}", res);
     }

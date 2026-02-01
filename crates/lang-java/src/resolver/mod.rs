@@ -4,7 +4,9 @@ use naviscope_api::models::TypeRef;
 use naviscope_core::engine::CodeGraph;
 use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::Result;
-use naviscope_core::model::{EdgeType, GraphEdge, GraphNode, GraphOp, NodeKind, ResolvedUnit};
+use naviscope_core::model::{
+    DisplayGraphNode, EdgeType, GraphEdge, GraphOp, NodeKind, ResolvedUnit,
+};
 use naviscope_core::parser::SymbolIntent;
 use naviscope_core::parser::{SymbolResolution, matches_intent};
 use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
@@ -12,7 +14,6 @@ use naviscope_core::query::CodeGraphLike;
 use naviscope_core::resolver::SemanticResolver;
 use naviscope_core::resolver::{LangResolver, ProjectContext};
 use petgraph::stable_graph::NodeIndex;
-use smol_str::SmolStr;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use tree_sitter::Tree;
@@ -35,10 +36,9 @@ impl JavaResolver {
         }
     }
 
-    fn is_top_level_node(&self, node: &GraphNode) -> bool {
-        let kind = node.kind();
+    fn is_top_level_node(&self, node: &DisplayGraphNode) -> bool {
         matches!(
-            kind,
+            node.kind,
             NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
         )
     }
@@ -171,22 +171,34 @@ impl SemanticResolver for JavaResolver {
         index: &dyn CodeGraphLike,
         resolution: &SymbolResolution,
     ) -> Vec<NodeIndex> {
+        let symbols = index.symbols();
         match resolution {
             SymbolResolution::Local(_, _) => vec![],
             SymbolResolution::Precise(fqn, intent) => {
-                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
-                    if let Some(node) = index.topology().node_weight(idx) {
-                        if *intent == SymbolIntent::Unknown || matches_intent(&node.kind(), *intent)
-                        {
-                            return vec![idx];
+                if let Some(key) = symbols.get(fqn.as_str()) {
+                    if let Some(&idx) = index
+                        .fqn_map()
+                        .get(&naviscope_api::models::symbol::Symbol(key))
+                    {
+                        if let Some(node) = index.topology().node_weight(idx) {
+                            if *intent == SymbolIntent::Unknown
+                                || matches_intent(&node.kind, *intent)
+                            {
+                                return vec![idx];
+                            }
                         }
                     }
                 }
                 vec![]
             }
             SymbolResolution::Global(fqn) => {
-                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
-                    return vec![idx];
+                if let Some(key) = symbols.get(fqn.as_str()) {
+                    if let Some(&idx) = index
+                        .fqn_map()
+                        .get(&naviscope_api::models::symbol::Symbol(key))
+                    {
+                        return vec![idx];
+                    }
                 }
                 vec![]
             }
@@ -200,6 +212,8 @@ impl SemanticResolver for JavaResolver {
     ) -> Vec<SymbolResolution> {
         // Reuse original logic
         let mut type_resolutions = Vec::new();
+        let symbols = index.symbols();
+
         match resolution {
             SymbolResolution::Local(_, type_name) => {
                 if let Some(tn) = type_name {
@@ -209,44 +223,58 @@ impl SemanticResolver for JavaResolver {
                 }
             }
             SymbolResolution::Precise(fqn, intent) => {
-                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
-                    let node = &index.topology()[idx];
-                    if let Ok(element) =
-                        serde_json::from_value::<JavaElement>(node.metadata.clone())
+                if let Some(key) = symbols.get(fqn.as_str()) {
+                    if let Some(&idx) = index
+                        .fqn_map()
+                        .get(&naviscope_api::models::symbol::Symbol(key))
                     {
-                        match element {
-                            JavaElement::Field(f) => match &f.type_ref {
-                                TypeRef::Raw(s) => type_resolutions
-                                    .push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type)),
-                                TypeRef::Id(id) => type_resolutions.push(
-                                    SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
-                                ),
-                                _ => {}
-                            },
-                            JavaElement::Method(m) => match &m.return_type {
-                                TypeRef::Raw(s) => type_resolutions
-                                    .push(SymbolResolution::Precise(s.clone(), SymbolIntent::Type)),
-                                TypeRef::Id(id) => type_resolutions.push(
-                                    SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
-                                ),
-                                _ => {}
-                            },
-                            _ => {
-                                if matches_intent(&node.kind(), SymbolIntent::Type) {
-                                    type_resolutions.push(resolution.clone());
+                        let node = &index.topology()[idx];
+                        if let Ok(element) =
+                            serde_json::from_value::<JavaElement>(node.metadata.clone())
+                        {
+                            match element {
+                                JavaElement::Field(f) => match &f.type_ref {
+                                    TypeRef::Raw(s) => type_resolutions.push(
+                                        SymbolResolution::Precise(s.clone(), SymbolIntent::Type),
+                                    ),
+                                    TypeRef::Id(id) => type_resolutions.push(
+                                        SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
+                                    ),
+                                    _ => {}
+                                },
+                                JavaElement::Method(m) => match &m.return_type {
+                                    TypeRef::Raw(s) => type_resolutions.push(
+                                        SymbolResolution::Precise(s.clone(), SymbolIntent::Type),
+                                    ),
+                                    TypeRef::Id(id) => type_resolutions.push(
+                                        SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
+                                    ),
+                                    _ => {}
+                                },
+                                _ => {
+                                    if matches_intent(&node.kind, SymbolIntent::Type) {
+                                        type_resolutions.push(resolution.clone());
+                                    }
                                 }
                             }
                         }
+                    } else if *intent == SymbolIntent::Type {
+                        type_resolutions.push(resolution.clone());
                     }
                 } else if *intent == SymbolIntent::Type {
                     type_resolutions.push(resolution.clone());
                 }
             }
             SymbolResolution::Global(fqn) => {
-                if let Some(&idx) = index.fqn_map().get(fqn.as_str()) {
-                    let node = &index.topology()[idx];
-                    if matches_intent(&node.kind(), SymbolIntent::Type) {
-                        type_resolutions.push(resolution.clone());
+                if let Some(key) = symbols.get(fqn.as_str()) {
+                    if let Some(&idx) = index
+                        .fqn_map()
+                        .get(&naviscope_api::models::symbol::Symbol(key))
+                    {
+                        let node = &index.topology()[idx];
+                        if matches_intent(&node.kind, SymbolIntent::Type) {
+                            type_resolutions.push(resolution.clone());
+                        }
                     }
                 }
             }
@@ -277,7 +305,9 @@ impl SemanticResolver for JavaResolver {
                     {
                         if index.topology()[edge_idx].edge_type == EdgeType::Contains {
                             // 2. Find all implementations of this parent
-                            let parent_fqn = index.topology()[parent_idx].fqn().to_string();
+                            let parent_fqn = index.topology()[parent_idx]
+                                .fqn(index.symbols())
+                                .to_string();
                             let parent_res =
                                 SymbolResolution::Precise(parent_fqn, SymbolIntent::Type);
                             let impl_classes = self.find_implementations(index, &parent_res);
@@ -358,7 +388,7 @@ impl LangResolver for JavaResolver {
             unit.identifiers = parse_result
                 .identifiers
                 .iter()
-                .map(|s| SmolStr::from(s))
+                .cloned()
                 .collect();
             unit.ops.push(GraphOp::UpdateIdentifiers {
                 path: GLOBAL_POOL.intern_path(&file.file.path),
@@ -376,17 +406,17 @@ impl LangResolver for JavaResolver {
                     format!("{}::{}", module_id, pkg_name)
                 };
 
-                let package_node = GraphNode {
-                    id: Arc::from(package_id.as_str()),
-                    name: SmolStr::from(pkg_name.as_str()),
+                let package_node = DisplayGraphNode {
+                    id: package_id.clone(),
+                    name: pkg_name.to_string(),
                     kind: NodeKind::Package,
-                    lang: Arc::from("java"),
+                    lang: "java".to_string(),
                     location: None,
                     metadata: serde_json::to_value(JavaElement::Package(JavaPackage {}))
                         .unwrap_or(serde_json::Value::Null),
                 };
 
-                unit.add_node(Arc::from(package_id.as_str()), package_node);
+                unit.add_node(package_node);
 
                 unit.add_edge(
                     Arc::from(module_id.as_str()),
@@ -405,12 +435,11 @@ impl LangResolver for JavaResolver {
 
             for node in &parse_result.nodes {
                 if self.is_top_level_node(node) {
-                    known_types.insert(node.fqn().to_string());
+                    known_types.insert(node.id.clone());
                 }
             }
 
             for node in &parse_result.nodes {
-                let fqn = node.fqn();
                 let mut node = node.clone();
 
                 if let Ok(mut element) =
@@ -432,7 +461,7 @@ impl LangResolver for JavaResolver {
                                     &known_types,
                                 );
                                 if let TypeRef::Id(type_fqn) = &param.type_ref {
-                                    local_type_map.insert(node.name.to_string(), type_fqn.clone());
+                                    local_type_map.insert(node.name.clone(), type_fqn.clone());
                                 }
                             }
                         }
@@ -444,7 +473,7 @@ impl LangResolver for JavaResolver {
                                 &known_types,
                             );
                             if let TypeRef::Id(type_fqn) = &f.type_ref {
-                                local_type_map.insert(node.name.to_string(), type_fqn.clone());
+                                local_type_map.insert(node.name.clone(), type_fqn.clone());
                             }
                         }
                         _ => {}
@@ -453,11 +482,11 @@ impl LangResolver for JavaResolver {
                         serde_json::to_value(element).unwrap_or(serde_json::Value::Null);
                 }
 
-                unit.add_node(Arc::from(fqn), node.clone());
+                unit.add_node(node.clone());
                 if self.is_top_level_node(&node) {
                     unit.add_edge(
                         Arc::from(container_id.as_str()),
-                        Arc::from(fqn),
+                        Arc::from(node.id.as_str()),
                         GraphEdge::new(EdgeType::Contains),
                     );
                 }

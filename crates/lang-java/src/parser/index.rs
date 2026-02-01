@@ -1,10 +1,7 @@
 use super::JavaParser;
-use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::{NaviscopeError, Result};
-use naviscope_core::model::{GraphNode, NodeLocation};
+use naviscope_core::model::{DisplayGraphNode, DisplaySymbolLocation};
 use naviscope_core::parser::{GlobalParseResult, IndexParser};
-use smol_str::SmolStr;
-use std::sync::Arc;
 use tree_sitter::Parser;
 
 impl IndexParser for JavaParser {
@@ -51,17 +48,20 @@ impl IndexParser for JavaParser {
                     }
                 };
 
-                let location = file_path.map(|p| NodeLocation {
-                    path: GLOBAL_POOL.intern_path(p),
+                let location = file_path.map(|p| DisplaySymbolLocation {
+                    path: p.to_string_lossy().to_string(),
                     range: naviscope_core::parser::utils::range_from_ts(e.node.range()),
-                    selection_range: e.node.child_by_field_name("name").map(|n| naviscope_core::parser::utils::range_from_ts(n.range())),
+                    selection_range: e
+                        .node
+                        .child_by_field_name("name")
+                        .map(|n| naviscope_core::parser::utils::range_from_ts(n.range())),
                 });
 
-                GraphNode {
-                    id: Arc::from(e.fqn.as_str()),
-                    name: SmolStr::from(e.name.as_str()),
+                DisplayGraphNode {
+                    id: e.fqn.clone(),
+                    name: e.name.clone(),
                     kind,
-                    lang: Arc::from("java"),
+                    lang: "java".to_string(),
                     location,
                     metadata: serde_json::to_value(&e.element).unwrap_or(serde_json::Value::Null),
                 }

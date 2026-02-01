@@ -29,6 +29,13 @@ impl<'a> DiscoveryEngine<'a> {
     /// 1. Extract "primary" (name) and "context" (parent) tokens.
     /// 2. If context exists, use INTERSECTION of file sets to reduce candidates.
     /// 3. Fallback to primary token union if context is missing or not found.
+    /// Meso-level: Scout for candidate files that likely contain references to the given nodes.
+    /// Returns a set of unique file paths.
+    ///
+    /// Strategy:
+    /// 1. Extract "primary" (name) and "context" (parent) tokens.
+    /// 2. If context exists, use INTERSECTION of file sets to reduce candidates.
+    /// 3. Fallback to primary token union if context is missing or not found.
     pub fn scout_references(
         &self,
         matches: &[petgraph::prelude::NodeIndex],
@@ -36,24 +43,38 @@ impl<'a> DiscoveryEngine<'a> {
         let mut unique_paths = HashSet::new();
         let topology = self.index.topology();
         let ref_index = self.index.reference_index();
+        let symbols = self.index.symbols();
 
         for &node_idx in matches {
             let node = &topology[node_idx];
 
-            let (primary, context) = Self::extract_smart_tokens(node);
+            let (primary, context) = Self::extract_smart_tokens(node, self.index);
 
-            if let Some(primary_paths) = ref_index.get(primary.as_str()) {
+            // Helper to get paths for a token string
+            let get_paths = |token: &str| -> Option<Vec<std::path::PathBuf>> {
+                let sym = symbols.get(token)?;
+                ref_index
+                    .get(&naviscope_api::models::symbol::Symbol(sym))
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .map(|p_sym| std::path::PathBuf::from(symbols.resolve(&p_sym.0)))
+                            .collect()
+                    })
+            };
+
+            if let Some(primary_paths) = get_paths(&primary) {
                 if let Some(ctx_str) = context {
                     // Optimization: INTERSECTION
                     // Only candidate files that contain BOTH the context (e.g. Class) and name (e.g. Method).
-                    if let Some(ctx_paths) = ref_index.get(ctx_str.as_str()) {
+                    if let Some(ctx_paths) = get_paths(&ctx_str) {
                         // SPARSITY CHECK: If context is too generic (e.g. "com", "org", "java"),
                         // intersection is expensive and useless. Skip if it hits > 1000 files.
                         if ctx_paths.len() < 1000 {
                             let ctx_set: HashSet<_> = ctx_paths.iter().collect();
                             for p in primary_paths {
-                                if ctx_set.contains(p) {
-                                    unique_paths.insert(p.to_path_buf());
+                                if ctx_set.contains(&p) {
+                                    unique_paths.insert(p.clone());
                                 }
                             }
                             continue; // Optimization applied, skip fallback
@@ -63,7 +84,7 @@ impl<'a> DiscoveryEngine<'a> {
 
                 // Fallback: Add all files containing the primary token
                 for p in primary_paths {
-                    unique_paths.insert(p.to_path_buf());
+                    unique_paths.insert(p);
                 }
             }
         }
@@ -72,9 +93,13 @@ impl<'a> DiscoveryEngine<'a> {
 
     /// Smartly extract tokens for "bag of words" intersection.
     /// Returns (Primary Token, Optional Context Token)
-    fn extract_smart_tokens(node: &crate::model::GraphNode) -> (String, Option<String>) {
-        let name = node.name().to_string();
-        let fqn = node.fqn();
+    fn extract_smart_tokens(
+        node: &crate::model::GraphNode,
+        index: &dyn CodeGraphLike,
+    ) -> (String, Option<String>) {
+        let symbols = index.symbols();
+        let name = node.name(symbols).to_string();
+        let fqn = node.fqn(symbols);
 
         // Split by ANY non-alphanumeric character (except underscore)
         // This is much more language-agnostic than hardcoding '.', ':', etc.
@@ -85,6 +110,7 @@ impl<'a> DiscoveryEngine<'a> {
 
         // Context is usually the immediate parent of the name in the FQN.
         // e.g. "com.example.UserService.login" -> context is "UserService"
+        // Also check if last part matches name to ensure alignment
         let context = if parts.len() >= 2 {
             // Check if last part is indeed the name
             if parts.last() == Some(&name.as_str()) {

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::model::{GraphNode, NodeKind, Range};
+use crate::model::{DisplayGraphNode, NodeKind, Range};
 use std::path::Path;
 use tree_sitter::Tree;
 
@@ -26,7 +26,7 @@ pub trait LspParser: Send + Sync {
 pub struct GlobalParseResult {
     pub package_name: Option<String>,
     pub imports: Vec<String>,
-    pub nodes: Vec<GraphNode>,
+    pub nodes: Vec<DisplayGraphNode>,
     pub relations: Vec<(String, String, crate::model::EdgeType, Option<Range>)>,
     pub source: Option<String>,
     pub tree: Option<Tree>,

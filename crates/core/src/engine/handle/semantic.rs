@@ -101,7 +101,12 @@ impl SymbolNavigator for EngineHandle {
         for idx in matches {
             let node = &topology[idx];
             if let Some(loc) = &node.location {
-                locations.push(loc.clone());
+                let path_str = graph.symbols().resolve(&loc.path.0);
+                locations.push(SymbolLocation {
+                    path: Arc::from(PathBuf::from(path_str)),
+                    range: loc.range,
+                    selection_range: loc.selection_range,
+                });
             }
         }
         Ok(locations)
@@ -126,7 +131,12 @@ impl SymbolNavigator for EngineHandle {
             for idx in matches {
                 let node = &topology[idx];
                 if let Some(loc) = &node.location {
-                    locations.push(loc.clone());
+                    let path_str = graph.symbols().resolve(&loc.path.0);
+                    locations.push(SymbolLocation {
+                        path: Arc::from(PathBuf::from(path_str)),
+                        range: loc.range,
+                        selection_range: loc.selection_range,
+                    });
                 }
             }
         }
@@ -150,7 +160,12 @@ impl SymbolNavigator for EngineHandle {
         for idx in matches {
             let node = &topology[idx];
             if let Some(loc) = &node.location {
-                locations.push(loc.clone());
+                let path_str = graph.symbols().resolve(&loc.path.0);
+                locations.push(SymbolLocation {
+                    path: Arc::from(PathBuf::from(path_str)),
+                    range: loc.range,
+                    selection_range: loc.selection_range,
+                });
             }
         }
         Ok(locations)

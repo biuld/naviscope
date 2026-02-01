@@ -1,4 +1,5 @@
 use crate::model::{GraphEdge, NodeKind, Range};
+use lasso::Rodeo;
 use serde::{Deserialize, Serialize};
 
 /// Context for interning and resolving symbols during storage conversion.
@@ -9,22 +10,16 @@ pub trait StorageContext {
     fn resolve_path(&self, pid: u32) -> &std::path::Path;
 }
 
-#[derive(Serialize, Deserialize, Default)]
-pub struct StoragePools {
-    pub strings: Vec<String>,
-    pub paths: Vec<String>,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct StorageGraph {
     pub version: u32,
-    pub pools: StoragePools,
+    pub rodeo: Rodeo,
     pub nodes: Vec<StorageNode>,
     pub edges: Vec<StorageEdge>,
-    pub fqn_index: Vec<(u32, u32)>,       // (StringID, NodeIdx)
-    pub name_index: Vec<(u32, Vec<u32>)>, // (StringID, Vec<NodeIdx>)
-    pub file_index: Vec<(u32, StorageFileEntry)>, // (PathID, Entry)
-    pub reference_index: Vec<(u32, Vec<u32>)>, // (StringID, Vec<PathID>)
+    pub fqn_index: Vec<(u32, u32)>,               // (Symbol, NodeIdx)
+    pub name_index: Vec<(u32, Vec<u32>)>,         // (Symbol, Vec<NodeIdx>)
+    pub file_index: Vec<(u32, StorageFileEntry)>, // (Symbol, Entry)
+    pub reference_index: Vec<(u32, Vec<u32>)>,    // (Symbol, Vec<Symbol>)
 }
 
 #[derive(Serialize, Deserialize)]

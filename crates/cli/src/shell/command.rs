@@ -261,14 +261,14 @@ impl ShellCommand {
                         let relation = result
                             .edges
                             .iter()
-                            .filter(|e| e.to == node.id || e.from == node.id)
+                            .filter(|e| e.to.as_ref() == node.id || e.from.as_ref() == node.id)
                             .map(|e| format!("{:?}", e.data.edge_type))
                             .collect::<Vec<_>>()
                             .join(", ");
 
                         // Get feature provider based on node's language
                         use naviscope_api::models::Language;
-                        let lang = Language::new(node.lang.as_ref());
+                        let lang = Language::from(node.lang.as_str());
 
                         let feature_provider =
                             context.get_feature_provider(lang).unwrap_or_else(|| {
@@ -278,19 +278,19 @@ impl ShellCommand {
                                 impl LanguageFeatureProvider for DummyProvider {
                                     fn detail_view(
                                         &self,
-                                        _node: &naviscope_api::models::GraphNode,
+                                        _node: &naviscope_api::models::DisplayGraphNode,
                                     ) -> Option<String> {
                                         None
                                     }
                                     fn signature(
                                         &self,
-                                        _node: &naviscope_api::models::GraphNode,
+                                        _node: &naviscope_api::models::DisplayGraphNode,
                                     ) -> Option<String> {
                                         None
                                     }
                                     fn modifiers(
                                         &self,
-                                        _node: &naviscope_api::models::GraphNode,
+                                        _node: &naviscope_api::models::DisplayGraphNode,
                                     ) -> Vec<String> {
                                         vec![]
                                     }

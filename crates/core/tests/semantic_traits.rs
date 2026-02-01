@@ -1,18 +1,19 @@
 use naviscope_api::models::{
-    Language, NodeKind, Range, ReferenceQuery, SymbolLocation, SymbolQuery, SymbolResolution,
+    DisplayGraphNode, DisplaySymbolLocation, Language, NodeKind, Range, ReferenceQuery,
+    SymbolQuery, SymbolResolution,
 };
 use naviscope_api::semantic::{
     CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolInfoProvider, SymbolNavigator,
 };
 use naviscope_core::engine::{EngineHandle, NaviscopeEngine};
-use naviscope_core::model::{GraphNode, ResolvedUnit};
+use naviscope_core::model::ResolvedUnit;
 use naviscope_core::parser::{GlobalParseResult, LspParser};
 use naviscope_core::plugin::{LanguageFeatureProvider, LanguagePlugin, MetadataPlugin};
 use naviscope_core::project::scanner::ParsedFile;
 use naviscope_core::query::CodeGraphLike;
 use naviscope_core::resolver::{LangResolver, ProjectContext, SemanticResolver};
 use petgraph::stable_graph::NodeIndex;
-use smol_str::SmolStr;
+// use smol_str::SmolStr;
 use std::path::Path;
 use std::sync::Arc;
 use tree_sitter::Tree;
@@ -29,6 +30,7 @@ impl LanguagePlugin for MockPlugin {
     fn name(&self) -> Language {
         Language::new("mock")
     }
+    // ... (lines 32-59 mostly same)
     fn supported_extensions(&self) -> &[&str] {
         &["mock"]
     }
@@ -62,7 +64,7 @@ impl LanguagePlugin for MockPlugin {
 }
 
 struct MockLangResolver {
-    nodes: std::sync::Mutex<Vec<GraphNode>>,
+    nodes: std::sync::Mutex<Vec<DisplayGraphNode>>,
 }
 
 impl LangResolver for MockLangResolver {
@@ -74,7 +76,7 @@ impl LangResolver for MockLangResolver {
         let mut unit = ResolvedUnit::new();
         let nodes = self.nodes.lock().unwrap();
         for node in nodes.iter() {
-            unit.add_node(node.id.clone(), node.clone());
+            unit.add_node(node.clone());
         }
         Ok(unit)
     }
@@ -82,17 +84,17 @@ impl LangResolver for MockLangResolver {
 
 struct MockFeatureProvider;
 impl LanguageFeatureProvider for MockFeatureProvider {
-    fn detail_view(&self, _node: &GraphNode) -> Option<String> {
+    fn detail_view(&self, _node: &DisplayGraphNode) -> Option<String> {
         None
     }
-    fn signature(&self, _node: &GraphNode) -> Option<String> {
+    fn signature(&self, _node: &DisplayGraphNode) -> Option<String> {
         None
     }
-    fn modifiers(&self, _node: &GraphNode) -> Vec<String> {
+    fn modifiers(&self, _node: &DisplayGraphNode) -> Vec<String> {
         vec![]
     }
 }
-
+// ... (MockResolver struct and impl - lines 96-139 same)
 struct MockResolver {
     res_at: Option<SymbolResolution>,
 }
@@ -111,7 +113,7 @@ impl SemanticResolver for MockResolver {
 
     fn find_matches(&self, index: &dyn CodeGraphLike, res: &SymbolResolution) -> Vec<NodeIndex> {
         if let SymbolResolution::Global(id) = res {
-            if let Some(&idx) = index.fqn_map().get(id.as_str()) {
+            if let Some(idx) = index.find_node(id.as_str()) {
                 return vec![idx];
             }
         }
@@ -131,7 +133,7 @@ impl SemanticResolver for MockResolver {
         index: &dyn CodeGraphLike,
         _res: &SymbolResolution,
     ) -> Vec<NodeIndex> {
-        if let Some(&idx) = index.fqn_map().get("test::Impl") {
+        if let Some(idx) = index.find_node("test::Impl") {
             return vec![idx];
         }
         vec![]
@@ -194,13 +196,13 @@ async fn test_symbol_navigator_queries() {
     // Add a node to the mock plugin's resolver
     {
         let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
-        nodes.push(GraphNode {
-            id: Arc::from("test::Symbol"),
-            name: SmolStr::new("Symbol"),
+        nodes.push(DisplayGraphNode {
+            id: "test::Symbol".to_string(),
+            name: "Symbol".to_string(),
             kind: NodeKind::Class,
-            lang: Arc::from("mock"),
-            location: Some(SymbolLocation {
-                path: Arc::from(temp_dir.join("test.mock")),
+            lang: "mock".to_string(),
+            location: Some(DisplaySymbolLocation {
+                path: temp_dir.join("test.mock").to_string_lossy().to_string(),
                 range: Range {
                     start_line: 0,
                     start_col: 0,
@@ -212,6 +214,7 @@ async fn test_symbol_navigator_queries() {
             metadata: serde_json::Value::Null,
         });
     }
+    // ...
 
     let test_file = temp_dir.join("test.mock");
     std::fs::write(&test_file, "mock content").unwrap();

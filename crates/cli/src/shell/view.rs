@@ -1,4 +1,4 @@
-use naviscope_api::models::{GraphNode, NodeKind};
+use naviscope_api::models::{DisplayGraphNode, NodeKind};
 use naviscope_api::plugin::LanguageFeatureProvider;
 use std::sync::Arc;
 use tabled::Tabled;
@@ -23,7 +23,7 @@ pub struct ShellNodeViewShort {
 
 impl ShellNodeView {
     pub fn from_node(
-        node: &GraphNode,
+        node: &DisplayGraphNode,
         relation: Option<String>,
         feature_provider: &Arc<dyn LanguageFeatureProvider>,
     ) -> Self {
@@ -31,7 +31,9 @@ impl ShellNodeView {
             .location
             .as_ref()
             .map(|loc| {
-                let filename = loc.path.file_name().and_then(|n| n.to_str()).unwrap_or("-");
+                // DisplaySymbolLocation has String path
+                let path = std::path::Path::new(&loc.path);
+                let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("-");
                 format!("{}:{}", filename, loc.range.start_line + 1)
             })
             .unwrap_or_else(|| "-".to_string());
@@ -50,7 +52,7 @@ impl ShellNodeView {
         let name = if is_container {
             format!("{}/", node.name)
         } else {
-            node.name.to_string()
+            node.name.clone()
         };
 
         // Use feature provider to get signature

@@ -1,12 +1,10 @@
 use crate::model::{GradleElement, GradleModule};
-use naviscope_core::engine::storage::GLOBAL_POOL;
 use naviscope_core::error::Result;
 use naviscope_core::model::{
-    EdgeType, GraphEdge, GraphNode, NodeKind, NodeLocation, Range, ResolvedUnit,
+    DisplayGraphNode, DisplaySymbolLocation, EdgeType, GraphEdge, NodeKind, Range, ResolvedUnit,
 };
 use naviscope_core::project::scanner::{ParsedContent, ParsedFile};
 use naviscope_core::resolver::{BuildResolver, ProjectContext};
-use smol_str::SmolStr;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -119,29 +117,26 @@ impl BuildResolver for GradleResolver {
         let project_id = format!("project:{}", project_name);
 
         // Add Project node
-        unit.add_node(
-            Arc::from(project_id.as_str()),
-            GraphNode {
-                id: Arc::from(project_id.as_str()),
-                name: SmolStr::from(project_name.as_str()),
-                kind: NodeKind::Project,
-                lang: Arc::from("buildfile"),
-                location: Some(NodeLocation {
-                    path: GLOBAL_POOL.intern_path(&root_path),
-                    range: Range {
-                        start_line: 0,
-                        start_col: 0,
-                        end_line: 0,
-                        end_col: 0,
-                    },
-                    selection_range: None,
-                }),
-                metadata: serde_json::json!({
-                    "build_system": "gradle",
-                    "root_path": root_path.to_string_lossy()
-                }),
-            },
-        );
+        unit.add_node(DisplayGraphNode {
+            id: project_id.clone(),
+            name: project_name.clone(),
+            kind: NodeKind::Project,
+            lang: "buildfile".to_string(),
+            location: Some(DisplaySymbolLocation {
+                path: root_path.to_string_lossy().to_string(),
+                range: Range {
+                    start_line: 0,
+                    start_col: 0,
+                    end_line: 0,
+                    end_col: 0,
+                },
+                selection_range: None,
+            }),
+            metadata: serde_json::json!({
+                "build_system": "gradle",
+                "root_path": root_path.to_string_lossy()
+            }),
+        });
 
         // --- Step 4: Assign Module IDs ---
         let mut path_to_id: HashMap<PathBuf, String> = HashMap::new();
@@ -180,36 +175,33 @@ impl BuildResolver for GradleResolver {
                 .nth(1)
                 .unwrap_or(&project_name);
 
-            unit.add_node(
-                Arc::from(root_module_id.as_str()),
-                GraphNode {
-                    id: Arc::from(root_module_id.as_str()),
-                    name: SmolStr::from(display_name),
-                    kind: NodeKind::Module,
-                    lang: Arc::from("buildfile"),
-                    location: data
-                        .build_file
-                        .as_ref()
-                        .map(|(f, _)| f.file.path.clone())
-                        .or_else(|| {
-                            data.settings_file
-                                .as_ref()
-                                .map(|(f, _)| f.file.path.clone())
-                        })
-                        .map(|path| NodeLocation {
-                            path: GLOBAL_POOL.intern_path(&path),
-                            range: Range {
-                                start_line: 0,
-                                start_col: 0,
-                                end_line: 0,
-                                end_col: 0,
-                            },
-                            selection_range: None,
-                        }),
-                    metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
-                        .unwrap_or(serde_json::Value::Null),
-                },
-            );
+            unit.add_node(DisplayGraphNode {
+                id: root_module_id.clone(),
+                name: display_name.to_string(),
+                kind: NodeKind::Module,
+                lang: "buildfile".to_string(),
+                location: data
+                    .build_file
+                    .as_ref()
+                    .map(|(f, _)| f.file.path.clone())
+                    .or_else(|| {
+                        data.settings_file
+                            .as_ref()
+                            .map(|(f, _)| f.file.path.clone())
+                    })
+                    .map(|path| DisplaySymbolLocation {
+                        path: path.to_string_lossy().to_string(),
+                        range: Range {
+                            start_line: 0,
+                            start_col: 0,
+                            end_line: 0,
+                            end_col: 0,
+                        },
+                        selection_range: None,
+                    }),
+                metadata: serde_json::to_value(GradleElement::Module(GradleModule {}))
+                    .unwrap_or(serde_json::Value::Null),
+            });
 
             unit.add_edge(
                 Arc::from(project_id.as_str()),
@@ -233,12 +225,11 @@ impl BuildResolver for GradleResolver {
             let display_name = id.split("::module:").nth(1).unwrap_or(id);
 
             unit.add_node(
-                Arc::from(id.as_str()),
-                GraphNode {
-                    id: Arc::from(id.as_str()),
-                    name: SmolStr::from(display_name),
+                DisplayGraphNode {
+                    id: id.clone(),
+                    name: display_name.to_string(),
                     kind: NodeKind::Module,
-                    lang: Arc::from("buildfile"),
+                    lang: "buildfile".to_string(),
                     location: data
                         .build_file
                         .as_ref()
@@ -248,8 +239,8 @@ impl BuildResolver for GradleResolver {
                                 .as_ref()
                                 .map(|(f, _)| f.file.path.clone())
                         })
-                        .map(|path| NodeLocation {
-                            path: GLOBAL_POOL.intern_path(&path),
+                        .map(|path| DisplaySymbolLocation {
+                            path: path.to_string_lossy().to_string(),
                             range: Range {
                                 start_line: 0,
                                 start_col: 0,
@@ -321,16 +312,21 @@ impl BuildResolver for GradleResolver {
                             is_project: dep.is_project,
                         };
                         unit.add_node(
-                            Arc::from(target_id.as_str()),
-                            GraphNode {
-                                id: Arc::from(target_id.as_str()),
-                                name: SmolStr::from(dep.name.as_str()),
+                            DisplayGraphNode {
+                                id: target_id.clone(),
+                                name: dep.name.clone(),
                                 kind: NodeKind::Dependency,
-                                lang: Arc::from("buildfile"),
-                                location: Some(NodeLocation {
-                                    path: GLOBAL_POOL.intern_path(
-                                        &data.build_file.as_ref().unwrap().0.file.path,
-                                    ),
+                                lang: "buildfile".to_string(),
+                                location: Some(DisplaySymbolLocation {
+                                    path: data
+                                        .build_file
+                                        .as_ref()
+                                        .unwrap()
+                                        .0
+                                        .file
+                                        .path
+                                        .to_string_lossy()
+                                        .to_string(),
                                     range: Range {
                                         start_line: 0,
                                         start_col: 0,

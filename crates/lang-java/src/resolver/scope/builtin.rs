@@ -22,10 +22,18 @@ impl SemanticScope<ResolutionContext<'_>> for BuiltinScope<'_> {
             .resolve_type_name_to_fqn_data(name, context.package.as_deref(), &context.imports)
             .and_then(|fqn| {
                 // Only return if it's a known FQN or a primitive or java.lang
-                if context.index.fqn_map().contains_key(fqn.as_str())
-                    || fqn.starts_with("java.lang.")
-                    || !fqn.contains('.')
-                {
+                let known = context
+                    .index
+                    .symbols()
+                    .get(fqn.as_str())
+                    .map_or(false, |k| {
+                        context
+                            .index
+                            .fqn_map()
+                            .contains_key(&naviscope_api::models::symbol::Symbol(k))
+                    });
+
+                if known || fqn.starts_with("java.lang.") || !fqn.contains('.') {
                     Some(Ok(SymbolResolution::Precise(fqn, SymbolIntent::Type)))
                 } else {
                     None

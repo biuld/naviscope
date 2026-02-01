@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
 use std::path::Path;
 use std::sync::Arc;
 
 // Re-export core models from API layer for internal use
 pub use naviscope_api::models::{
-    EdgeType, GraphEdge, GraphNode, Language, NodeKind, QueryResultEdge, Range, SymbolLocation,
+    DisplayGraphNode, DisplaySymbolLocation, EdgeType, GraphEdge, GraphNode, InternedLocation,
+    Language, NodeKind, QueryResultEdge, Range, SymbolLocation,
 };
 
 pub type NodeLocation = SymbolLocation;
@@ -14,9 +14,7 @@ pub type NodeLocation = SymbolLocation;
 pub enum GraphOp {
     /// Add or update a node
     AddNode {
-        #[serde(with = "naviscope_api::models::util::serde_arc_str")]
-        id: Arc<str>,
-        data: GraphNode,
+        data: DisplayGraphNode,
     },
     /// Add an edge between two nodes (referenced by their IDs)
     AddEdge {
@@ -35,7 +33,7 @@ pub enum GraphOp {
     UpdateIdentifiers {
         #[serde(with = "naviscope_api::models::util::serde_arc_path")]
         path: Arc<Path>,
-        identifiers: Vec<SmolStr>,
+        identifiers: Vec<String>,
     },
     /// Update file metadata (hash, mtime)
     UpdateFile {
@@ -49,9 +47,9 @@ pub struct ResolvedUnit {
     /// The operations needed to integrate this file into the graph
     pub ops: Vec<GraphOp>,
     /// Fast access to nodes being added in this unit
-    pub nodes: std::collections::HashMap<Arc<str>, GraphNode>,
+    pub nodes: std::collections::HashMap<Arc<str>, DisplayGraphNode>,
     /// All unique identifier tokens in this file
-    pub identifiers: Vec<SmolStr>,
+    pub identifiers: Vec<String>,
 }
 
 impl ResolvedUnit {
@@ -63,9 +61,9 @@ impl ResolvedUnit {
         }
     }
 
-    pub fn add_node(&mut self, id: Arc<str>, data: GraphNode) {
-        self.nodes.insert(id.clone(), data.clone());
-        self.ops.push(GraphOp::AddNode { id, data });
+    pub fn add_node(&mut self, data: DisplayGraphNode) {
+        self.nodes.insert(Arc::from(data.id.as_str()), data.clone());
+        self.ops.push(GraphOp::AddNode { data });
     }
 
     pub fn add_edge(&mut self, from_id: Arc<str>, to_id: Arc<str>, edge: GraphEdge) {

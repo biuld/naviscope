@@ -1,5 +1,5 @@
 use crate::model::JavaElement;
-use naviscope_api::models::GraphNode;
+use naviscope_api::models::DisplayGraphNode;
 use naviscope_api::models::TypeRef;
 use naviscope_core::plugin::LanguageFeatureProvider;
 
@@ -34,8 +34,8 @@ impl JavaFeatureProvider {
 }
 
 impl LanguageFeatureProvider for JavaFeatureProvider {
-    fn detail_view(&self, node: &GraphNode) -> Option<String> {
-        if &*node.lang != "java" {
+    fn detail_view(&self, node: &DisplayGraphNode) -> Option<String> {
+        if node.lang != "java" {
             return None;
         }
 
@@ -64,7 +64,8 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_type_str = self.fmt_type(&m.return_type);
-                let mut detail = format!("**{}**({}) -> {}", node.name, params_str, return_type_str);
+                let mut detail =
+                    format!("**{}**({}) -> {}", node.name, params_str, return_type_str);
                 if !m.modifiers.is_empty() {
                     detail = format!("{} {}", m.modifiers.join(" "), detail);
                 }
@@ -81,8 +82,8 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
         }
     }
 
-    fn signature(&self, node: &GraphNode) -> Option<String> {
-        if &*node.lang != "java" {
+    fn signature(&self, node: &DisplayGraphNode) -> Option<String> {
+        if node.lang != "java" {
             return None;
         }
 
@@ -104,8 +105,8 @@ impl LanguageFeatureProvider for JavaFeatureProvider {
         }
     }
 
-    fn modifiers(&self, node: &GraphNode) -> Vec<String> {
-        if &*node.lang != "java" {
+    fn modifiers(&self, node: &DisplayGraphNode) -> Vec<String> {
+        if node.lang != "java" {
             return vec![];
         }
 

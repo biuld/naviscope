@@ -28,9 +28,11 @@ impl SemanticScope<ResolutionContext<'_>> for ImportScope<'_> {
                     .and_then(|candidate| {
                         context
                             .index
-                            .fqn_map()
-                            .contains_key(candidate.as_str())
-                            .then_some(candidate)
+                            .symbols()
+                            .get(candidate.as_str())
+                            .map(|k| naviscope_api::models::symbol::Symbol(k))
+                            .filter(|sym| context.index.fqn_map().contains_key(sym))
+                            .map(|_| candidate)
                     })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
             })

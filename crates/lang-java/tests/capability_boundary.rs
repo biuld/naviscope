@@ -16,19 +16,19 @@ fn cap_structural_nesting() {
 
     // Assert FQNs exist
     // Note: JavaResolver prepends "module::root." to packages when no specific module is found
-    assert!(index.fqn_map().contains_key("module::root.com.example"));
-    assert!(index.fqn_map().contains_key("com.example.MyClass"));
-    assert!(index.fqn_map().contains_key("com.example.MyClass.field"));
-    assert!(index.fqn_map().contains_key("com.example.MyClass.method"));
+    assert!(index.find_node("module::root.com.example").is_some());
+    assert!(index.find_node("com.example.MyClass").is_some());
+    assert!(index.find_node("com.example.MyClass.field").is_some());
+    assert!(index.find_node("com.example.MyClass.method").is_some());
 
     // Assert nesting via 'Contains' edges
-    let class_idx = index.fqn_map()["com.example.MyClass"];
-    let pkg_idx = index.fqn_map()["module::root.com.example"];
+    let class_idx = index.find_node("com.example.MyClass").unwrap();
+    let pkg_idx = index.find_node("module::root.com.example").unwrap();
 
     assert!(index.topology().contains_edge(pkg_idx, class_idx));
 
-    let field_idx = index.fqn_map()["com.example.MyClass.field"];
-    let method_idx = index.fqn_map()["com.example.MyClass.method"];
+    let field_idx = index.find_node("com.example.MyClass.field").unwrap();
+    let method_idx = index.find_node("com.example.MyClass.method").unwrap();
     assert!(index.topology().contains_edge(class_idx, field_idx));
     assert!(index.topology().contains_edge(class_idx, method_idx));
 }
@@ -43,8 +43,8 @@ fn cap_inheritance_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let base_idx = index.fqn_map()["Base"];
-    let impl_idx = index.fqn_map()["Impl"];
+    let base_idx = index.find_node("Base").unwrap();
+    let impl_idx = index.find_node("Impl").unwrap();
 
     let has_implements = index
         .topology()
@@ -73,8 +73,8 @@ fn cap_cross_file_typing() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let field_idx = index.fqn_map()["com.app.Main.field"];
-    let type_a_idx = index.fqn_map()["com.lib.TypeA"];
+    let field_idx = index.find_node("com.app.Main.field").unwrap();
+    let type_a_idx = index.find_node("com.lib.TypeA").unwrap();
 
     let has_typed_as = index
         .topology()
@@ -97,7 +97,7 @@ fn cap_instantiation_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let a_idx = index.fqn_map()["A"];
+    let a_idx = index.find_node("A").unwrap();
 
     // Check DiscoveryEngine "Scouting" (uses Reference Index)
     let discovery = DiscoveryEngine::new(&index);
@@ -118,7 +118,7 @@ fn cap_method_call_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let a_target_idx = index.fqn_map()["A.target"];
+    let a_target_idx = index.find_node("A.target").unwrap();
 
     // Check DiscoveryEngine "Scouting" (uses Reference Index)
     let discovery = DiscoveryEngine::new(&index);
@@ -139,8 +139,8 @@ fn cap_interface_extension() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let super_idx = index.fqn_map()["Super"];
-    let sub_idx = index.fqn_map()["Sub"];
+    let super_idx = index.find_node("Super").unwrap();
+    let sub_idx = index.find_node("Sub").unwrap();
 
     let has_inherits = index
         .topology()
@@ -163,8 +163,8 @@ fn cap_annotation_usage() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let app_idx = index.fqn_map()["App"];
-    let anno_idx = index.fqn_map()["MyAnno"];
+    let app_idx = index.find_node("App").unwrap();
+    let anno_idx = index.find_node("MyAnno").unwrap();
 
     let has_decorated = index
         .topology()
@@ -190,7 +190,7 @@ fn cap_static_field_access() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let config_key_idx = index.fqn_map()["Config.KEY"];
+    let config_key_idx = index.find_node("Config.KEY").unwrap();
 
     // Checking if Main.java is discovered as a candidate for Config.KEY
     let discovery = DiscoveryEngine::new(&index);
@@ -214,8 +214,8 @@ fn cap_generic_type_link() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let list_idx = index.fqn_map()["Main.list"];
-    let type_a_idx = index.fqn_map()["TypeA"];
+    let list_idx = index.find_node("Main.list").unwrap();
+    let type_a_idx = index.find_node("TypeA").unwrap();
 
     let has_link = index
         .topology()

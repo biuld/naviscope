@@ -6,17 +6,16 @@ use naviscope_api::navigation::{NavigationService, ResolveResult};
 #[async_trait]
 impl NavigationService for EngineHandle {
     async fn resolve_path(&self, target: &str, current_context: Option<&str>) -> ResolveResult {
+        let graph = self.graph().await;
         // 1. Handle special paths ("/" or "root")
         if target == "/" || target == "root" {
-            let graph = self.graph().await;
-
             let project_nodes: Vec<_> = graph
                 .topology()
                 .node_indices()
                 .filter_map(|idx| {
                     let node = &graph.topology()[idx];
                     if matches!(node.kind(), NodeKind::Project) {
-                        Some(node.fqn().to_string())
+                        Some(node.fqn(graph.symbols()).to_string())
                     } else {
                         None
                     }
@@ -30,22 +29,24 @@ impl NavigationService for EngineHandle {
             };
         }
 
-        let graph = self.graph().await;
-
         // 2. Handle parent navigation ("..")
         if target == ".." {
             if let Some(current_fqn) = current_context {
-                if let Some(&idx) = graph.fqn_map().get(current_fqn) {
+                if let Some(idx) = graph.find_node(current_fqn) {
                     let mut incoming = graph
                         .topology()
                         .neighbors_directed(idx, petgraph::Direction::Incoming)
                         .detach();
 
-                    while let Some((edge_idx, neighbor_idx)) = incoming.next(graph.topology()) {
+                    while let Some(edge_idx) = incoming.next_edge(graph.topology()) {
                         let edge = &graph.topology()[edge_idx];
                         if edge.edge_type == EdgeType::Contains {
-                            if let Some(parent_node) = graph.topology().node_weight(neighbor_idx) {
-                                return ResolveResult::Found(parent_node.fqn().to_string());
+                            let (parent_idx, _) =
+                                graph.topology().edge_endpoints(edge_idx).unwrap();
+                            if let Some(parent_node) = graph.topology().node_weight(parent_idx) {
+                                return ResolveResult::Found(
+                                    parent_node.fqn(graph.symbols()).to_string(),
+                                );
                             }
                         }
                     }
@@ -55,7 +56,7 @@ impl NavigationService for EngineHandle {
         }
 
         // 3. Try exact match (absolute FQN)
-        if graph.fqn_map().contains_key(target) {
+        if graph.find_node(target).is_some() {
             return ResolveResult::Found(target.to_string());
         }
 
@@ -67,15 +68,13 @@ impl NavigationService for EngineHandle {
                 "."
             };
             let joined = format!("{}{}{}", current_fqn, separator, target);
-            if graph.fqn_map().contains_key(joined.as_str()) {
+            if graph.find_node(&joined).is_some() {
                 return ResolveResult::Found(joined);
             }
         }
 
         // 5. Try fuzzy matching (child lookup)
-        let current_idx = current_context
-            .and_then(|fqn| graph.fqn_map().get(fqn))
-            .copied();
+        let current_idx = current_context.and_then(|fqn| graph.find_node(fqn));
 
         let candidates: Vec<String> = if let Some(parent_idx) = current_idx {
             // Search in children of current node
@@ -84,17 +83,21 @@ impl NavigationService for EngineHandle {
                 .neighbors_directed(parent_idx, petgraph::Direction::Outgoing)
                 .filter_map(|child_idx| {
                     // Check if edge is "Contains"
-                    let edge_idx = graph.topology().find_edge(parent_idx, child_idx).unwrap();
-                    let edge = &graph.topology()[edge_idx];
+                    // Helper to find edge: stable_graph doesn't have find_edge(a,b) directly returning Index?
+                    // Actually it does: find_edge(a, b) -> Option<EdgeIndex>
+                    if let Some(edge_idx) = graph.topology().find_edge(parent_idx, child_idx) {
+                        let edge = &graph.topology()[edge_idx];
+                        if edge.edge_type == EdgeType::Contains {
+                            let node = &graph.topology()[child_idx];
+                            let fqn = node.fqn(graph.symbols());
 
-                    if edge.edge_type == EdgeType::Contains {
-                        let node = &graph.topology()[child_idx];
-                        let fqn = node.fqn();
-
-                        // Match by simple name (last component)
-                        let simple_name = fqn.split(&['.', ':']).last().unwrap_or(fqn);
-                        if simple_name == target {
-                            Some(fqn.to_string())
+                            // Match by simple name (last component)
+                            let simple_name = fqn.split(&['.', ':']).last().unwrap_or(fqn);
+                            if simple_name == target {
+                                Some(fqn.to_string())
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
@@ -108,11 +111,15 @@ impl NavigationService for EngineHandle {
             graph
                 .fqn_map()
                 .keys()
-                .filter(|fqn| {
+                .filter_map(|sym| {
+                    let fqn = graph.symbols().resolve(&sym.0);
                     let simple_name = fqn.split(&['.', ':']).last().unwrap_or(fqn);
-                    simple_name == target
+                    if simple_name == target {
+                        Some(fqn.to_string())
+                    } else {
+                        None
+                    }
                 })
-                .map(|s| s.to_string())
                 .collect()
         };
 
@@ -128,9 +135,15 @@ impl NavigationService for EngineHandle {
         graph
             .fqn_map()
             .keys()
-            .filter(|fqn| fqn.starts_with(prefix))
+            .filter_map(|sym| {
+                let fqn = graph.symbols().resolve(&sym.0);
+                if fqn.starts_with(prefix) {
+                    Some(fqn.to_string())
+                } else {
+                    None
+                }
+            })
             .take(50) // Reasonable limit for candidates
-            .map(|s| s.to_string())
             .collect()
     }
 }

@@ -1,24 +1,24 @@
 use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
+use std::borrow::Cow;
 use std::fmt;
 
 /// Programming language types
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Language(SmolStr);
+pub struct Language(Cow<'static, str>);
 
 impl Language {
-    pub const JAVA: Language = Language(SmolStr::new_inline("java"));
-    pub const KOTLIN: Language = Language(SmolStr::new_inline("kotlin"));
-    pub const RUST: Language = Language(SmolStr::new_inline("rust"));
-    pub const JAVASCRIPT: Language = Language(SmolStr::new_inline("javascript"));
-    pub const TYPESCRIPT: Language = Language(SmolStr::new_inline("typescript"));
-    pub const PYTHON: Language = Language(SmolStr::new_inline("python"));
-    pub const GO: Language = Language(SmolStr::new_inline("go"));
-    pub const BUILDFILE: Language = Language(SmolStr::new_inline("buildfile"));
-    pub const UNKNOWN: Language = Language(SmolStr::new_inline("unknown"));
+    pub const JAVA: Language = Language(Cow::Borrowed("java"));
+    pub const KOTLIN: Language = Language(Cow::Borrowed("kotlin"));
+    pub const RUST: Language = Language(Cow::Borrowed("rust"));
+    pub const JAVASCRIPT: Language = Language(Cow::Borrowed("javascript"));
+    pub const TYPESCRIPT: Language = Language(Cow::Borrowed("typescript"));
+    pub const PYTHON: Language = Language(Cow::Borrowed("python"));
+    pub const GO: Language = Language(Cow::Borrowed("go"));
+    pub const BUILDFILE: Language = Language(Cow::Borrowed("buildfile"));
+    pub const UNKNOWN: Language = Language(Cow::Borrowed("unknown"));
 
-    pub fn new(name: impl Into<SmolStr>) -> Self {
+    pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
         Self(name.into())
     }
 
@@ -34,12 +34,12 @@ impl Language {
             "py" => Some(Self::PYTHON),
             "go" => Some(Self::GO),
             "gradle" | "gradle.kts" => Some(Self::BUILDFILE),
-            ext => Some(Self::new(ext)),
+            ext => Some(Self::new(ext.to_string())),
         }
     }
 
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
 }
 
@@ -51,7 +51,7 @@ impl fmt::Display for Language {
 
 impl From<&str> for Language {
     fn from(s: &str) -> Self {
-        Self::new(s)
+        Self::new(s.to_string())
     }
 }
 
@@ -70,22 +70,22 @@ impl AsRef<str> for Language {
 /// Build tool types
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct BuildTool(SmolStr);
+pub struct BuildTool(Cow<'static, str>);
 
 impl BuildTool {
-    pub const GRADLE: BuildTool = BuildTool(SmolStr::new_inline("gradle"));
-    pub const MAVEN: BuildTool = BuildTool(SmolStr::new_inline("maven"));
-    pub const CARGO: BuildTool = BuildTool(SmolStr::new_inline("cargo"));
-    pub const NPM: BuildTool = BuildTool(SmolStr::new_inline("npm"));
-    pub const POETRY: BuildTool = BuildTool(SmolStr::new_inline("poetry"));
-    pub const BAZEL: BuildTool = BuildTool(SmolStr::new_inline("bazel"));
+    pub const GRADLE: BuildTool = BuildTool(Cow::Borrowed("gradle"));
+    pub const MAVEN: BuildTool = BuildTool(Cow::Borrowed("maven"));
+    pub const CARGO: BuildTool = BuildTool(Cow::Borrowed("cargo"));
+    pub const NPM: BuildTool = BuildTool(Cow::Borrowed("npm"));
+    pub const POETRY: BuildTool = BuildTool(Cow::Borrowed("poetry"));
+    pub const BAZEL: BuildTool = BuildTool(Cow::Borrowed("bazel"));
 
-    pub fn new(name: impl Into<SmolStr>) -> Self {
+    pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
         Self(name.into())
     }
 
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
 }
 
@@ -97,7 +97,7 @@ impl fmt::Display for BuildTool {
 
 impl From<&str> for BuildTool {
     fn from(s: &str) -> Self {
-        Self::new(s)
+        Self::new(s.to_string())
     }
 }
 

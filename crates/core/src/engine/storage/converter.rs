@@ -1,44 +1,36 @@
 use super::model::*;
-use super::pool::GLOBAL_POOL;
 use crate::engine::graph::{CodeGraphInner, FileEntry};
-use crate::model::{GraphNode, SymbolLocation};
+use crate::model::{GraphNode, InternedLocation};
 use crate::plugin::MetadataPlugin;
+use lasso::{Key, Rodeo, Spur};
+use naviscope_api::models::symbol::Symbol;
 use petgraph::stable_graph::NodeIndex;
-use smol_str::SmolStr;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 struct GenericStorageContext<'a> {
-    pools: &'a mut StoragePools,
-    string_map: &'a mut HashMap<String, u32>,
-    path_map: &'a mut HashMap<String, u32>,
+    rodeo: &'a mut Rodeo,
 }
 
 impl<'a> StorageContext for GenericStorageContext<'a> {
     fn intern_str(&mut self, s: &str) -> u32 {
-        *self.string_map.entry(s.to_string()).or_insert_with(|| {
-            let id = self.pools.strings.len() as u32;
-            self.pools.strings.push(s.to_string());
-            id
-        })
+        self.rodeo.get_or_intern(s).into_usize() as u32
     }
 
     fn intern_path(&mut self, p: &Path) -> u32 {
-        let s = p.to_string_lossy().to_string();
-        *self.path_map.entry(s.clone()).or_insert_with(|| {
-            let id = self.pools.paths.len() as u32;
-            self.pools.paths.push(s);
-            id
-        })
+        let s = p.to_string_lossy();
+        self.rodeo.get_or_intern(s.as_ref()).into_usize() as u32
     }
 
     fn resolve_str(&self, sid: u32) -> &str {
-        &self.pools.strings[sid as usize]
+        let spur = Spur::try_from_usize(sid as usize).unwrap();
+        self.rodeo.resolve(&spur)
     }
 
     fn resolve_path(&self, pid: u32) -> &Path {
-        Path::new(&self.pools.paths[pid as usize])
+        let spur = Spur::try_from_usize(pid as usize).unwrap();
+        Path::new(self.rodeo.resolve(&spur))
     }
 }
 
@@ -47,7 +39,7 @@ struct DefaultMetadataPlugin;
 impl MetadataPlugin for DefaultMetadataPlugin {}
 
 /// Read-only context used during deserialization
-struct ReadOnlyStorageContext<'a>(&'a StoragePools);
+struct ReadOnlyStorageContext<'a>(&'a Rodeo);
 
 impl<'a> StorageContext for ReadOnlyStorageContext<'a> {
     fn intern_str(&mut self, _s: &str) -> u32 {
@@ -57,10 +49,12 @@ impl<'a> StorageContext for ReadOnlyStorageContext<'a> {
         unreachable!("Read-only context")
     }
     fn resolve_str(&self, sid: u32) -> &str {
-        &self.0.strings[sid as usize]
+        let spur = Spur::try_from_usize(sid as usize).unwrap();
+        self.0.resolve(&spur)
     }
     fn resolve_path(&self, pid: u32) -> &Path {
-        Path::new(&self.0.paths[pid as usize])
+        let spur = Spur::try_from_usize(pid as usize).unwrap();
+        Path::new(self.0.resolve(&spur))
     }
 }
 
@@ -68,15 +62,9 @@ pub fn to_storage(
     inner: &CodeGraphInner,
     get_plugin: impl Fn(&str) -> Option<Arc<dyn MetadataPlugin>>,
 ) -> StorageGraph {
-    let mut pools = StoragePools::default();
-    let mut string_map = HashMap::new();
-    let mut path_map = HashMap::new();
+    let mut rodeo = inner.symbols.clone();
 
-    let mut ctx = GenericStorageContext {
-        pools: &mut pools,
-        string_map: &mut string_map,
-        path_map: &mut path_map,
-    };
+    let mut ctx = GenericStorageContext { rodeo: &mut rodeo };
 
     let default_plugin = Arc::new(DefaultMetadataPlugin);
     let mut node_id_map = HashMap::new();
@@ -87,16 +75,18 @@ pub fn to_storage(
         let storage_idx = nodes.len() as u32;
         node_id_map.insert(idx, storage_idx);
 
-        let plugin = get_plugin(&node.lang).unwrap_or_else(|| default_plugin.clone());
+        // Resolve language string for plugin lookup
+        let lang_str = ctx.resolve_str(node.lang.0.into_usize() as u32).to_string();
+        let plugin = get_plugin(&lang_str).unwrap_or_else(|| default_plugin.clone());
         let metadata = plugin.intern(node.metadata.clone(), &mut ctx);
 
         nodes.push(StorageNode {
-            id_sid: ctx.intern_str(&node.id),
-            name_sid: ctx.intern_str(node.name.as_str()),
+            id_sid: node.id.0.into_usize() as u32,
+            name_sid: node.name.0.into_usize() as u32,
             kind: node.kind.clone(),
-            lang_sid: ctx.intern_str(&node.lang),
+            lang_sid: node.lang.0.into_usize() as u32,
             location: node.location.as_ref().map(|loc| StorageLocation {
-                path_id: ctx.intern_path(&loc.path),
+                path_id: loc.path.0.into_usize() as u32,
                 range: loc.range,
                 selection_range: loc.selection_range,
             }),
@@ -117,11 +107,10 @@ pub fn to_storage(
         })
         .collect();
 
-    // Re-use ctx for index pools
     let mut fqn_index: Vec<(u32, u32)> = inner
         .fqn_index
         .iter()
-        .map(|(fqn, idx)| (ctx.intern_str(fqn), *node_id_map.get(idx).unwrap()))
+        .map(|(fqn, idx)| (fqn.0.into_usize() as u32, *node_id_map.get(idx).unwrap()))
         .collect();
     fqn_index.sort_unstable_by_key(|k| k.0);
 
@@ -130,7 +119,7 @@ pub fn to_storage(
         .iter()
         .map(|(name, indices)| {
             (
-                ctx.intern_str(name.as_str()),
+                name.0.into_usize() as u32,
                 indices
                     .iter()
                     .map(|i| *node_id_map.get(i).unwrap())
@@ -145,7 +134,7 @@ pub fn to_storage(
         .iter()
         .map(|(path, entry)| {
             (
-                ctx.intern_path(path),
+                path.0.into_usize() as u32,
                 StorageFileEntry {
                     metadata: entry.metadata.clone(),
                     nodes: entry
@@ -164,8 +153,8 @@ pub fn to_storage(
         .iter()
         .map(|(token, paths)| {
             (
-                ctx.intern_str(token.as_str()),
-                paths.iter().map(|p| ctx.intern_path(p)).collect(),
+                token.0.into_usize() as u32,
+                paths.iter().map(|p| p.0.into_usize() as u32).collect(),
             )
         })
         .collect();
@@ -173,7 +162,7 @@ pub fn to_storage(
 
     StorageGraph {
         version: inner.version,
-        pools,
+        rodeo,
         nodes,
         edges,
         fqn_index,
@@ -189,25 +178,22 @@ pub fn from_storage(
 ) -> CodeGraphInner {
     let mut topology = petgraph::stable_graph::StableDiGraph::new();
     let default_plugin = Arc::new(DefaultMetadataPlugin);
-    
-    let pools = &storage.pools;
-    let ctx = ReadOnlyStorageContext(pools);
+
+    let rodeo = storage.rodeo;
+    let ctx = ReadOnlyStorageContext(&rodeo);
 
     for snode in &storage.nodes {
-        let fqn_str = &pools.strings[snode.id_sid as usize];
-        let fqn: Arc<str> = GLOBAL_POOL.intern_str(fqn_str);
-        let lang = &pools.strings[snode.lang_sid as usize];
-        
-        let plugin = get_plugin(lang).unwrap_or_else(|| default_plugin.clone());
+        let lang_str = ctx.resolve_str(snode.lang_sid).to_string();
+        let plugin = get_plugin(&lang_str).unwrap_or_else(|| default_plugin.clone());
         let metadata = plugin.resolve(snode.metadata.clone(), &ctx);
 
         let node = GraphNode {
-            id: fqn.clone(),
-            name: SmolStr::from(&pools.strings[snode.name_sid as usize]),
+            id: Symbol(Spur::try_from_usize(snode.id_sid as usize).unwrap()),
+            name: Symbol(Spur::try_from_usize(snode.name_sid as usize).unwrap()),
             kind: snode.kind.clone(),
-            lang: GLOBAL_POOL.intern_str(lang),
-            location: snode.location.as_ref().map(|loc| SymbolLocation {
-                path: GLOBAL_POOL.intern_path(Path::new(&pools.paths[loc.path_id as usize])),
+            lang: Symbol(Spur::try_from_usize(snode.lang_sid as usize).unwrap()),
+            location: snode.location.as_ref().map(|loc| InternedLocation {
+                path: Symbol(Spur::try_from_usize(loc.path_id as usize).unwrap()),
                 range: loc.range,
                 selection_range: loc.selection_range,
             }),
@@ -229,7 +215,7 @@ pub fn from_storage(
         .into_iter()
         .map(|(sid, idx)| {
             (
-                GLOBAL_POOL.intern_str(&pools.strings[sid as usize]),
+                Symbol(Spur::try_from_usize(sid as usize).unwrap()),
                 NodeIndex::new(idx as usize),
             )
         })
@@ -240,7 +226,7 @@ pub fn from_storage(
         .into_iter()
         .map(|(sid, indices)| {
             (
-                SmolStr::from(&pools.strings[sid as usize]),
+                Symbol(Spur::try_from_usize(sid as usize).unwrap()),
                 indices
                     .into_iter()
                     .map(|i| NodeIndex::new(i as usize))
@@ -254,7 +240,7 @@ pub fn from_storage(
         .into_iter()
         .map(|(pid, entry)| {
             (
-                GLOBAL_POOL.intern_path(Path::new(&pools.paths[pid as usize])),
+                Symbol(Spur::try_from_usize(pid as usize).unwrap()),
                 FileEntry {
                     metadata: entry.metadata,
                     nodes: entry
@@ -272,10 +258,10 @@ pub fn from_storage(
         .into_iter()
         .map(|(sid, paths)| {
             (
-                SmolStr::from(&pools.strings[sid as usize]),
+                Symbol(Spur::try_from_usize(sid as usize).unwrap()),
                 paths
                     .into_iter()
-                    .map(|pid| GLOBAL_POOL.intern_path(Path::new(&pools.paths[pid as usize])))
+                    .map(|pid| Symbol(Spur::try_from_usize(pid as usize).unwrap()))
                     .collect(),
             )
         })
@@ -284,6 +270,7 @@ pub fn from_storage(
     CodeGraphInner {
         version: storage.version,
         topology,
+        symbols: rodeo,
         fqn_index,
         name_index,
         file_index,

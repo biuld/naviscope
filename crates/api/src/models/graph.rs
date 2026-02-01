@@ -2,8 +2,6 @@ use super::language::Language;
 use super::symbol::Range;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
-use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
@@ -97,47 +95,56 @@ impl GraphEdge {
     }
 }
 
+use super::symbol::Symbol;
+use lasso::Reader;
+
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct GraphNode {
-    /// Unique Identifier (FQN)
-    #[serde(with = "super::util::serde_arc_str")]
-    #[schemars(with = "String")]
-    pub id: Arc<str>,
-    /// Short display name
-    #[schemars(with = "String")]
-    pub name: SmolStr,
+    /// Unique Identifier (Symbol)
+    pub id: Symbol,
+    /// Short display name (Symbol)
+    pub name: Symbol,
     /// Abstract categorization
     pub kind: NodeKind,
-    /// Language identifier ("java", "rust", "buildfile")
-    #[serde(with = "super::util::serde_arc_str")]
-    #[schemars(with = "String")]
-    pub lang: Arc<str>,
+    /// Language identifier (Symbol)
+    pub lang: Symbol,
     /// Physical Location
-    pub location: Option<super::symbol::SymbolLocation>,
+    pub location: Option<super::symbol::InternedLocation>,
     /// Extension metadata
     #[serde(default)]
     pub metadata: serde_json::Value,
 }
 
 impl GraphNode {
-    pub fn language(&self) -> Language {
-        Language::new(SmolStr::from(self.lang.as_ref()))
+    pub fn to_display(&self, rodeo: &impl Reader) -> DisplayGraphNode {
+        DisplayGraphNode {
+            id: self.fqn(rodeo).to_string(),
+            name: self.name(rodeo).to_string(),
+            kind: self.kind.clone(),
+            lang: self.language(rodeo).as_str().to_string(),
+            location: self.location.as_ref().map(|l| l.to_display(rodeo)),
+            metadata: self.metadata.clone(),
+        }
     }
 
-    pub fn fqn(&self) -> &str {
-        &self.id
+    pub fn language<'a>(&self, rodeo: &'a impl Reader) -> Language {
+        Language::new(rodeo.resolve(&self.lang.0).to_string())
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn fqn<'a>(&self, rodeo: &'a impl Reader) -> &'a str {
+        rodeo.resolve(&self.id.0)
+    }
+
+    pub fn name<'a>(&self, rodeo: &'a impl Reader) -> &'a str {
+        rodeo.resolve(&self.name.0)
     }
 
     pub fn kind(&self) -> NodeKind {
         self.kind.clone()
     }
 
-    pub fn file_path(&self) -> Option<&Path> {
-        self.location.as_ref().map(|l| l.path.as_ref())
+    pub fn path<'a>(&self, rodeo: &'a impl Reader) -> Option<&'a str> {
+        self.location.as_ref().map(|l| rodeo.resolve(&l.path.0))
     }
 
     pub fn range(&self) -> Option<&Range> {
@@ -148,6 +155,48 @@ impl GraphNode {
         self.location
             .as_ref()
             .and_then(|l| l.selection_range.as_ref())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+pub struct DisplaySymbolLocation {
+    pub path: String,
+    pub range: Range,
+    #[serde(default)]
+    pub selection_range: Option<Range>,
+}
+
+impl DisplaySymbolLocation {
+    pub fn to_internal(&self, rodeo: &mut lasso::Rodeo) -> super::symbol::InternedLocation {
+        super::symbol::InternedLocation {
+            path: Symbol(rodeo.get_or_intern(&self.path)),
+            range: self.range,
+            selection_range: self.selection_range,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+pub struct DisplayGraphNode {
+    pub id: String,
+    pub name: String,
+    pub kind: NodeKind,
+    pub lang: String,
+    pub location: Option<DisplaySymbolLocation>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl DisplayGraphNode {
+    pub fn to_internal(&self, rodeo: &mut lasso::Rodeo) -> GraphNode {
+        GraphNode {
+            id: Symbol(rodeo.get_or_intern(&self.id)),
+            name: Symbol(rodeo.get_or_intern(&self.name)),
+            kind: self.kind.clone(),
+            lang: Symbol(rodeo.get_or_intern(&self.lang)),
+            location: self.location.as_ref().map(|l| l.to_internal(rodeo)),
+            metadata: self.metadata.clone(),
+        }
     }
 }
 
@@ -203,12 +252,12 @@ pub struct QueryResultEdge {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct QueryResult {
-    pub nodes: Vec<GraphNode>,
+    pub nodes: Vec<DisplayGraphNode>,
     pub edges: Vec<QueryResultEdge>,
 }
 
 impl QueryResult {
-    pub fn new(nodes: Vec<GraphNode>, edges: Vec<QueryResultEdge>) -> Self {
+    pub fn new(nodes: Vec<DisplayGraphNode>, edges: Vec<QueryResultEdge>) -> Self {
         Self { nodes, edges }
     }
 }

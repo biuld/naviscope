@@ -6,8 +6,9 @@
 use crate::error::NaviscopeError;
 use crate::model::{GraphEdge, GraphNode};
 use crate::project::source::SourceFile;
+use lasso::Rodeo;
+use naviscope_api::models::symbol::Symbol;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
-use smol_str::SmolStr;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -24,18 +25,21 @@ pub struct CodeGraphInner {
     pub version: u32,
     pub topology: StableDiGraph<GraphNode, GraphEdge>,
 
+    /// Core symbol table: created and destroyed with the graph instance
+    pub symbols: Rodeo,
+
     /// FQN -> NodeIndex mapping for fast lookup
-    pub fqn_index: HashMap<Arc<str>, NodeIndex>,
+    pub fqn_index: HashMap<Symbol, NodeIndex>,
 
     /// Simple name -> NodeIndices for symbol search
-    pub name_index: HashMap<SmolStr, Vec<NodeIndex>>,
+    pub name_index: HashMap<Symbol, Vec<NodeIndex>>,
 
     /// File-level information: metadata and nodes contained in each file
-    pub file_index: HashMap<Arc<Path>, FileEntry>,
+    pub file_index: HashMap<Symbol, FileEntry>,
 
     /// Reference Index: Token (e.g. Method Name) -> Files that contain this token.
     /// Used for fast "scouting" during reference discovery.
-    pub reference_index: HashMap<SmolStr, Vec<Arc<Path>>>,
+    pub reference_index: HashMap<Symbol, Vec<Symbol>>,
 }
 
 /// Metadata and nodes associated with a single source file
@@ -52,6 +56,7 @@ impl CodeGraph {
             inner: std::sync::Arc::new(CodeGraphInner {
                 version: crate::engine::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
+                symbols: Rodeo::default(),
                 fqn_index: HashMap::new(),
                 name_index: HashMap::new(),
                 file_index: HashMap::new(),
@@ -82,34 +87,39 @@ impl CodeGraph {
         self.inner.version
     }
 
+    pub fn symbols(&self) -> &Rodeo {
+        &self.inner.symbols
+    }
+
     /// Get reference to the topology graph
     pub fn topology(&self) -> &StableDiGraph<GraphNode, GraphEdge> {
         &self.inner.topology
     }
 
     /// Get reference to the FQN index
-    pub fn fqn_map(&self) -> &HashMap<Arc<str>, NodeIndex> {
+    pub fn fqn_map(&self) -> &HashMap<Symbol, NodeIndex> {
         &self.inner.fqn_index
     }
 
     /// Get reference to the name index
-    pub fn name_map(&self) -> &HashMap<SmolStr, Vec<NodeIndex>> {
+    pub fn name_map(&self) -> &HashMap<Symbol, Vec<NodeIndex>> {
         &self.inner.name_index
     }
 
     /// Get reference to the file index
-    pub fn file_index(&self) -> &HashMap<Arc<Path>, FileEntry> {
+    pub fn file_index(&self) -> &HashMap<Symbol, FileEntry> {
         &self.inner.file_index
     }
 
     /// Get reference to the reference index
-    pub fn reference_index(&self) -> &HashMap<SmolStr, Vec<Arc<Path>>> {
+    pub fn reference_index(&self) -> &HashMap<Symbol, Vec<Symbol>> {
         &self.inner.reference_index
     }
 
     /// Find node index by FQN
     pub fn find_node(&self, fqn: &str) -> Option<NodeIndex> {
-        self.inner.fqn_index.get(fqn).copied()
+        let key = self.inner.symbols.get(fqn)?;
+        self.inner.fqn_index.get(&Symbol(key)).copied()
     }
 
     /// Get node data by index
@@ -117,13 +127,15 @@ impl CodeGraph {
         self.inner.topology.node_weight(idx)
     }
 
-    /// Find node at a specific location in a file
+    /// Find node at a specific location in a file (by name range)
     pub fn find_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
-        let entry = self.inner.file_index.get(path)?;
+        let path_str = path.to_string_lossy();
+        let key = self.inner.symbols.get(path_str.as_ref())?;
+        let entry = self.inner.file_index.get(&Symbol(key))?;
 
         for &idx in &entry.nodes {
             if let Some(node) = self.inner.topology.node_weight(idx) {
-                let range_opt: Option<&crate::model::Range> = node.name_range();
+                let range_opt: Option<&naviscope_api::models::symbol::Range> = node.name_range();
                 if let Some(range) = range_opt {
                     if range.contains(line, col) {
                         return Some(idx);
@@ -134,13 +146,41 @@ impl CodeGraph {
         None
     }
 
+    /// Find the smallest node whose full range contains the specific location
+    pub fn find_container_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
+        let path_str = path.to_string_lossy();
+        let key = self.inner.symbols.get(path_str.as_ref())?;
+        let entry = self.inner.file_index.get(&Symbol(key))?;
+
+        let mut best_node = None;
+        let mut min_range_size = usize::MAX;
+
+        for &idx in &entry.nodes {
+            if let Some(node) = self.inner.topology.node_weight(idx) {
+                if let Some(range) = node.range() {
+                    if range.contains(line, col) {
+                        // Calculate a rough size to find the smallest enclosing node
+                        let size = (range.end_line - range.start_line) * 1000
+                            + (range.end_col.saturating_sub(range.start_col));
+                        if size < min_range_size {
+                            min_range_size = size;
+                            best_node = Some(idx);
+                        }
+                    }
+                }
+            }
+        }
+        best_node
+    }
+
     /// Find nodes matching a symbol resolution result
     pub fn find_matches_by_fqn(&self, fqn: &str) -> Vec<NodeIndex> {
-        if let Some(&idx) = self.inner.fqn_index.get(fqn) {
-            vec![idx]
-        } else {
-            vec![]
+        if let Some(key) = self.inner.symbols.get(fqn) {
+            if let Some(&idx) = self.inner.fqn_index.get(&Symbol(key)) {
+                return vec![idx];
+            }
         }
+        vec![]
     }
 
     /// Get the number of nodes
@@ -239,19 +279,18 @@ mod tests {
     #[test]
     fn test_graph_serialization_roundtrip() {
         use crate::engine::builder::CodeGraphBuilder;
-        use crate::model::{GraphNode, NodeKind};
-        use std::sync::Arc;
+        use crate::model::{DisplayGraphNode, NodeKind};
 
         let mut builder = CodeGraphBuilder::new();
-        let node = GraphNode {
-            id: Arc::from("test.node"),
-            name: smol_str::SmolStr::from("node"),
+        let node = DisplayGraphNode {
+            id: "test.node".to_string(),
+            name: "node".to_string(),
             kind: NodeKind::Class,
-            lang: Arc::from("java"),
+            lang: "java".to_string(),
             location: None,
             metadata: serde_json::Value::Null,
         };
-        builder.add_node(Arc::from("test.node"), node);
+        builder.add_node(node);
         let graph = builder.build();
 
         let serialized = graph.serialize(|_| None).expect("Serialization failed");
@@ -261,7 +300,9 @@ mod tests {
         assert_eq!(deserialized.node_count(), 1);
         let idx = deserialized.find_node("test.node").unwrap();
         let recovered_node = &deserialized.topology()[idx];
-        assert_eq!(recovered_node.name, "node");
-        assert_eq!(recovered_node.lang.as_ref(), "java");
+
+        let symbols = deserialized.symbols();
+        assert_eq!(recovered_node.name(symbols), "node");
+        assert_eq!(recovered_node.language(symbols).as_str(), "java");
     }
 }

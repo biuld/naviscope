@@ -1,10 +1,10 @@
 use crate::error::{NaviscopeError, Result};
-use crate::model::{EdgeType, NodeKind};
+use crate::model::{DisplayGraphNode, EdgeType, NodeKind};
 use crate::query::model::{QueryResult, QueryResultEdge};
 use naviscope_api::models::GraphQuery;
+use naviscope_api::models::symbol::Symbol;
 use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
-use smol_str::SmolStr;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -13,15 +13,22 @@ pub trait CodeGraphLike: Send + Sync {
     fn topology(
         &self,
     ) -> &petgraph::stable_graph::StableDiGraph<crate::model::GraphNode, crate::model::GraphEdge>;
-    fn fqn_map(&self) -> &std::collections::HashMap<Arc<str>, petgraph::stable_graph::NodeIndex>;
+    fn fqn_map(&self) -> &std::collections::HashMap<Symbol, petgraph::stable_graph::NodeIndex>;
     fn path_to_nodes(&self, path: &Path) -> Option<&[petgraph::stable_graph::NodeIndex]>;
-    fn reference_index(&self) -> &std::collections::HashMap<SmolStr, Vec<Arc<Path>>>;
+    fn reference_index(&self) -> &std::collections::HashMap<Symbol, Vec<Symbol>>;
     fn find_container_node_at(
         &self,
         path: &std::path::Path,
         line: usize,
         col: usize,
     ) -> Option<petgraph::stable_graph::NodeIndex>;
+    fn symbols(&self) -> &lasso::Rodeo;
+
+    // Helper to find node by string FQN
+    fn find_node(&self, fqn: &str) -> Option<petgraph::stable_graph::NodeIndex> {
+        let key = self.symbols().get(fqn)?;
+        self.fqn_map().get(&Symbol(key)).copied()
+    }
 }
 
 // Blanket implementation for references
@@ -33,7 +40,7 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
         (*self).topology()
     }
 
-    fn fqn_map(&self) -> &std::collections::HashMap<Arc<str>, petgraph::stable_graph::NodeIndex> {
+    fn fqn_map(&self) -> &std::collections::HashMap<Symbol, petgraph::stable_graph::NodeIndex> {
         (*self).fqn_map()
     }
 
@@ -41,7 +48,7 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
         (*self).path_to_nodes(path)
     }
 
-    fn reference_index(&self) -> &std::collections::HashMap<SmolStr, Vec<Arc<Path>>> {
+    fn reference_index(&self) -> &std::collections::HashMap<Symbol, Vec<Symbol>> {
         (*self).reference_index()
     }
 
@@ -52,6 +59,10 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
         col: usize,
     ) -> Option<petgraph::stable_graph::NodeIndex> {
         (*self).find_container_node_at(path, line, col)
+    }
+
+    fn symbols(&self) -> &lasso::Rodeo {
+        (*self).symbols()
     }
 }
 
@@ -64,15 +75,18 @@ impl CodeGraphLike for crate::engine::CodeGraph {
         self.topology()
     }
 
-    fn fqn_map(&self) -> &std::collections::HashMap<Arc<str>, petgraph::stable_graph::NodeIndex> {
+    fn fqn_map(&self) -> &std::collections::HashMap<Symbol, petgraph::stable_graph::NodeIndex> {
         self.fqn_map()
     }
 
     fn path_to_nodes(&self, path: &Path) -> Option<&[petgraph::stable_graph::NodeIndex]> {
-        self.file_index().get(path).map(|e| e.nodes.as_slice())
+        let key = self.symbols().get(path.to_string_lossy())?;
+        self.file_index()
+            .get(&Symbol(key))
+            .map(|e| e.nodes.as_slice())
     }
 
-    fn reference_index(&self) -> &std::collections::HashMap<SmolStr, Vec<Arc<Path>>> {
+    fn reference_index(&self) -> &std::collections::HashMap<Symbol, Vec<Symbol>> {
         self.reference_index()
     }
 
@@ -82,25 +96,11 @@ impl CodeGraphLike for crate::engine::CodeGraph {
         line: usize,
         col: usize,
     ) -> Option<petgraph::stable_graph::NodeIndex> {
-        let entry = self.file_index().get(path)?;
-        let mut best_node = None;
-        let mut best_range_size = usize::MAX;
+        self.find_container_node_at(path, line, col)
+    }
 
-        for &idx in &entry.nodes {
-            let node = &self.topology()[idx];
-            if let Some(range) = node.range() {
-                if range.contains(line, col) {
-                    // We want the smallest node that contains the location (e.g. Method inside Class)
-                    let size = (range.end_line - range.start_line) * 1000
-                        + (range.end_col.saturating_sub(range.start_col));
-                    if size < best_range_size {
-                        best_range_size = size;
-                        best_node = Some(idx);
-                    }
-                }
-            }
-        }
-        best_node
+    fn symbols(&self) -> &lasso::Rodeo {
+        self.symbols()
     }
 }
 
@@ -113,7 +113,13 @@ impl<G: CodeGraphLike> QueryEngine<G> {
         Self { graph }
     }
 
+    fn to_display_node(&self, node: &crate::model::GraphNode) -> DisplayGraphNode {
+        let symbols = self.graph.symbols();
+        node.to_display(symbols)
+    }
+
     pub fn execute(&self, query: &GraphQuery) -> Result<QueryResult> {
+        let symbols = self.graph.symbols();
         match query {
             GraphQuery::Find {
                 pattern,
@@ -129,9 +135,9 @@ impl<G: CodeGraphLike> QueryEngine<G> {
 
                 for node in self.graph.topology().node_weights() {
                     // Check if either FQN or Name matches the pattern
-                    if regex.is_match(node.fqn()) || regex.is_match(node.name()) {
-                        if kind.is_empty() || kind.contains(&node.kind()) {
-                            nodes.push(node.clone());
+                    if regex.is_match(node.fqn(symbols)) || regex.is_match(node.name(symbols)) {
+                        if kind.is_empty() || kind.contains(&node.kind) {
+                            nodes.push(self.to_display_node(node));
                         }
                     }
 
@@ -160,7 +166,7 @@ impl<G: CodeGraphLike> QueryEngine<G> {
                     // 1. Try to find Modules first (this is what we almost always want in root)
                     for idx in self.graph.topology().node_indices() {
                         let node = &self.graph.topology()[idx];
-                        if node.kind() == NodeKind::Module {
+                        if node.kind == NodeKind::Module {
                             let has_parent = self
                                 .graph
                                 .topology()
@@ -168,7 +174,7 @@ impl<G: CodeGraphLike> QueryEngine<G> {
                                 .any(|e| e.weight().edge_type == EdgeType::Contains);
 
                             if !has_parent {
-                                nodes.push(node.clone());
+                                nodes.push(self.to_display_node(node));
                             }
                         }
                     }
@@ -184,8 +190,8 @@ impl<G: CodeGraphLike> QueryEngine<G> {
                                 .any(|e| e.weight().edge_type == EdgeType::Contains);
 
                             if !has_parent {
-                                if kind.is_empty() || kind.contains(&node.kind()) {
-                                    nodes.push(node.clone());
+                                if kind.is_empty() || kind.contains(&node.kind) {
+                                    nodes.push(self.to_display_node(node));
                                 }
                             }
                             if nodes.len() >= 50 {
@@ -198,9 +204,9 @@ impl<G: CodeGraphLike> QueryEngine<G> {
                 }
             }
             GraphQuery::Cat { fqn } => {
-                if let Some(&idx) = self.graph.fqn_map().get(fqn.as_str()) {
+                if let Some(idx) = self.graph.find_node(fqn) {
                     let node = &self.graph.topology()[idx];
-                    Ok(QueryResult::new(vec![node.clone()], vec![]))
+                    Ok(QueryResult::new(vec![self.to_display_node(node)], vec![]))
                 } else {
                     Ok(QueryResult::empty())
                 }
@@ -227,40 +233,36 @@ impl<G: CodeGraphLike> QueryEngine<G> {
         dir: PetDirection,
         kind_filter: &[NodeKind],
     ) -> Result<QueryResult> {
-        let start_idx = self.graph.fqn_map().get(fqn).ok_or_else(|| {
-            // Debug log to help identify the mismatch
-            eprintln!(
-                "DEBUG: traverse_neighbors failed. Looking for FQN: '{}'",
-                fqn
-            );
-            eprintln!(
-                "DEBUG: Available FQNs count: {}",
-                self.graph.fqn_map().len()
-            );
-            if let Some(closest) = self.graph.fqn_map().keys().find(|k| k.contains(fqn)) {
-                eprintln!("DEBUG: Found something containing '{}': '{}'", fqn, closest);
-            }
-            NaviscopeError::Parsing(format!("Node not found: {}", fqn))
-        })?;
+        let start_idx = self
+            .graph
+            .find_node(fqn)
+            .ok_or_else(|| NaviscopeError::Parsing(format!("Node not found: {}", fqn)))?;
 
         let mut nodes = Vec::new();
         let mut edges_result = Vec::new();
         let topology = self.graph.topology();
-        let mut edges = topology.neighbors_directed(*start_idx, dir).detach();
+        let mut edges = topology.neighbors_directed(start_idx, dir).detach();
+        let symbols = self.graph.symbols();
 
         while let Some((edge_idx, neighbor_idx)) = edges.next(topology) {
             let edge_data = &topology[edge_idx];
             if edge_filter.is_empty() || edge_filter.contains(&edge_data.edge_type) {
                 let neighbor_node = &topology[neighbor_idx];
-                let start_node = &topology[*start_idx];
+                let start_node = &topology[start_idx];
 
-                if kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind()) {
-                    nodes.push(neighbor_node.clone());
+                if kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind) {
+                    nodes.push(self.to_display_node(neighbor_node));
 
                     let (from, to) = if dir == PetDirection::Outgoing {
-                        (start_node.id.clone(), neighbor_node.id.clone())
+                        (
+                            Arc::from(start_node.fqn(symbols)),
+                            Arc::from(neighbor_node.fqn(symbols)),
+                        )
                     } else {
-                        (neighbor_node.id.clone(), start_node.id.clone())
+                        (
+                            Arc::from(neighbor_node.fqn(symbols)),
+                            Arc::from(start_node.fqn(symbols)),
+                        )
                     };
 
                     edges_result.push(QueryResultEdge {
