@@ -100,9 +100,25 @@ impl IndexResolver {
 
     /// Resolve all parsed files into graph operations using a two-phase process
     pub fn resolve(&self, files: Vec<ParsedFile>) -> Result<Vec<GraphOp>> {
-        let mut all_ops = Vec::new();
+        let (mut all_ops, build_files, source_files) = self.prepare_and_partition(files);
 
-        // Add RemovePath operations and UpdateFile operations for each file being processed
+        // Phase 1: Build Tools
+        let mut project_context = ProjectContext::new();
+        let build_ops = self.resolve_build_batch(&build_files, &mut project_context)?;
+        all_ops.extend(build_ops);
+
+        // Phase 2: Source Files
+        let source_ops = self.resolve_source_batch(&source_files, &project_context)?;
+        all_ops.extend(source_ops);
+
+        Ok(all_ops)
+    }
+
+    fn prepare_and_partition(
+        &self,
+        files: Vec<ParsedFile>,
+    ) -> (Vec<GraphOp>, Vec<ParsedFile>, Vec<ParsedFile>) {
+        let mut all_ops = Vec::new();
         for file in &files {
             all_ops.push(GraphOp::RemovePath {
                 path: Arc::from(file.file.path.as_path()),
@@ -112,16 +128,20 @@ impl IndexResolver {
             });
         }
 
-        // Separate files into build and source files
         let (build_files, source_files): (Vec<_>, Vec<_>) =
             files.into_iter().partition(|f| f.is_build());
 
-        // Phase 1: Resolve Build Tools (Structure)
-        let mut project_context = ProjectContext::new();
+        (all_ops, build_files, source_files)
+    }
 
+    pub fn resolve_build_batch(
+        &self,
+        build_files: &[ParsedFile],
+        context: &mut ProjectContext,
+    ) -> Result<Vec<GraphOp>> {
+        let mut all_ops = Vec::new();
         for plugin in &self.build_plugins {
-            // Find files relevant to this plugin
-            let tool_files: Vec<ParsedFile> = build_files
+            let tool_files: Vec<&ParsedFile> = build_files
                 .iter()
                 .filter(|f| {
                     if let Some(file_name) = f.path().file_name().and_then(|n| n.to_str()) {
@@ -130,22 +150,23 @@ impl IndexResolver {
                         false
                     }
                 })
-                .cloned()
                 .collect();
-
-            let tool_files_refs: Vec<&ParsedFile> = tool_files.iter().collect();
 
             if !tool_files.is_empty() {
                 let resolver = plugin.build_resolver();
-                let (unit, context) = resolver.resolve(&tool_files_refs)?;
+                let (unit, ctx) = resolver.resolve(&tool_files)?;
                 all_ops.extend(unit.ops);
-                project_context
-                    .path_to_module
-                    .extend(context.path_to_module);
+                context.path_to_module.extend(ctx.path_to_module);
             }
         }
+        Ok(all_ops)
+    }
 
-        // Phase 2: Resolve Source Files (Entities) in parallel
+    pub fn resolve_source_batch(
+        &self,
+        source_files: &[ParsedFile],
+        context: &ProjectContext,
+    ) -> Result<Vec<GraphOp>> {
         let source_results: Vec<Result<ResolvedUnit>> = source_files
             .par_iter()
             .map(|file| {
@@ -154,18 +175,40 @@ impl IndexResolver {
 
                 if let Some(p) = plugin {
                     let resolver = p.lang_resolver();
-                    resolver.resolve(file, &project_context)
+                    resolver.resolve(file, context)
                 } else {
                     Ok(ResolvedUnit::new())
                 }
             })
             .collect();
 
-        // Collect and merge source operations
+        let mut all_ops = Vec::new();
         for result in source_results {
             let unit = result?;
             all_ops.extend(unit.ops);
         }
+        Ok(all_ops)
+    }
+}
+
+impl crate::ingest::pipeline::PipelineStage<ProjectContext> for IndexResolver {
+    type Output = GraphOp;
+
+    fn process(
+        &self,
+        context: &ProjectContext,
+        paths: Vec<std::path::PathBuf>,
+    ) -> Result<Vec<Self::Output>> {
+        // In a pipeline batch, we need to scan and then resolve
+        // For simplicity in this first step, we assume paths are already filtered
+        // We need existing_metadata to avoid redundant parsing, but for a simple pipeline we can skip it or pass it in context
+        let files =
+            crate::ingest::scanner::Scanner::scan_files(paths, &std::collections::HashMap::new());
+        let (mut all_ops, _build, source) = self.prepare_and_partition(files);
+
+        // In this stage, we only care about source files in the pipeline
+        let source_ops = self.resolve_source_batch(&source, context)?;
+        all_ops.extend(source_ops);
 
         Ok(all_ops)
     }

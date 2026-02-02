@@ -117,15 +117,13 @@ This hybrid approach combines the speed of inverted indexing with the precision 
 
 ### Prerequisites
 - Rust (2024 edition)
-- C Compiler (required for compiling Tree-sitter grammars)
 
 ### Installation from source code
 
 ```bash
-# 1. Clone & Update Submodules (Required for tree-sitter grammars)
+# 1. Clone
 git clone https://github.com/biuld/naviscope.git
 cd naviscope
-git submodule update --init --recursive
 
 # 2. Install the Naviscope CLI
 cargo install --path crates/cli

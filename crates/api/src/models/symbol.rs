@@ -25,6 +25,17 @@ pub struct Range {
     pub end_col: usize,
 }
 
+impl Default for Range {
+    fn default() -> Self {
+        Self {
+            start_line: 0,
+            start_col: 0,
+            end_line: 0,
+            end_col: 0,
+        }
+    }
+}
+
 impl Range {
     pub fn contains(&self, line: usize, col: usize) -> bool {
         if line < self.start_line || line > self.end_line {

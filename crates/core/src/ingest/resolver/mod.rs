@@ -49,6 +49,8 @@ pub struct ProjectContext {
     pub path_to_module: HashMap<PathBuf, String>,
 }
 
+impl crate::ingest::pipeline::PipelineContext for ProjectContext {}
+
 impl ProjectContext {
     pub fn new() -> Self {
         Self {

@@ -33,3 +33,4 @@ url = { workspace = true }
 
 [dev-dependencies]
 tree-sitter-java = { workspace = true }
+tempfile = { workspace = true }

@@ -373,6 +373,22 @@ impl LangResolver for JavaResolver {
                     return Ok(unit);
                 }
             }
+            ParsedContent::Lazy => {
+                if file.path().extension().map_or(false, |e| e == "java") {
+                    let src = file.read_content().map_err(|e| {
+                        naviscope_core::error::NaviscopeError::Internal(format!(
+                            "Failed to read file {}: {}",
+                            file.path().display(),
+                            e
+                        ))
+                    })?;
+                    use naviscope_core::ingest::parser::IndexParser;
+                    parse_result_owned = self.parser.parse_file(&src, Some(&file.file.path))?;
+                    &parse_result_owned
+                } else {
+                    return Ok(unit);
+                }
+            }
             _ => return Ok(unit),
         };
 

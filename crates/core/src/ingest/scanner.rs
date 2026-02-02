@@ -15,6 +15,8 @@ pub enum ParsedContent {
     Language(GlobalParseResult),
     MetaData(serde_json::Value),
     Unparsed(String),
+    /// Content not yet loaded into memory
+    Lazy,
 }
 
 #[derive(Clone)]
@@ -26,7 +28,7 @@ pub struct ParsedFile {
 impl ParsedFile {
     pub fn is_build(&self) -> bool {
         match self.content {
-            ParsedContent::Unparsed(..) => {
+            ParsedContent::Unparsed(..) | ParsedContent::Lazy => {
                 let name = self
                     .path()
                     .file_name()
@@ -43,7 +45,7 @@ impl ParsedFile {
 
     pub fn build_tool(&self) -> Option<BuildTool> {
         match self.content {
-            ParsedContent::Unparsed(..) => {
+            ParsedContent::Unparsed(..) | ParsedContent::Lazy => {
                 if self.is_build() {
                     Some(BuildTool::GRADLE)
                 } else {
@@ -66,7 +68,7 @@ impl ParsedFile {
                 Some(Language::UNKNOWN)
             }
             ParsedContent::MetaData(..) => None,
-            ParsedContent::Unparsed(..) => {
+            ParsedContent::Unparsed(..) | ParsedContent::Lazy => {
                 if self.is_build() {
                     self.build_tool()
                         .map(|t| Language::new(t.as_str().to_string()))
@@ -77,6 +79,17 @@ impl ParsedFile {
                         .and_then(Language::from_extension)
                 }
             }
+        }
+    }
+
+    pub fn read_content(&self) -> std::io::Result<String> {
+        match &self.content {
+            ParsedContent::Unparsed(s) => Ok(s.clone()),
+            ParsedContent::Lazy => std::fs::read_to_string(self.path()),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Content is already parsed or metadata",
+            )),
         }
     }
 
@@ -137,11 +150,15 @@ impl Scanner {
                     || file_name == "build.gradle.kts"
                     || file_name == "settings.gradle"
                     || file_name == "settings.gradle.kts"
-                    || path.extension().is_some()
                 {
                     Some(ParsedFile {
                         file: source_file,
                         content: ParsedContent::Unparsed(content_str),
+                    })
+                } else if path.extension().is_some() {
+                    Some(ParsedFile {
+                        file: source_file,
+                        content: ParsedContent::Lazy,
                     })
                 } else {
                     None

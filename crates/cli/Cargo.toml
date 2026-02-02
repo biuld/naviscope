@@ -25,3 +25,4 @@ serde_json = { workspace = true }
 indexmap = { workspace = true }
 petgraph = { workspace = true }
 naviscope-api = { workspace = true }
+mimalloc = { workspace = true }

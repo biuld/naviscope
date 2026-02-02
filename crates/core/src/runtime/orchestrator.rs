@@ -3,7 +3,7 @@
 use crate::error::{NaviscopeError, Result};
 use crate::ingest::builder::CodeGraphBuilder;
 use crate::ingest::resolver::engine::IndexResolver;
-use crate::ingest::scanner::{ParsedFile, Scanner};
+use crate::ingest::scanner::Scanner;
 use crate::model::CodeGraph;
 use crate::model::GraphOp;
 use std::path::{Path, PathBuf};
@@ -173,66 +173,87 @@ impl NaviscopeEngine {
             );
         }
 
+        let current_lock = self.current.clone();
+
         // Processing in blocking pool
-        let result = tokio::task::spawn_blocking(
-            move || -> Result<Option<(Vec<GraphOp>, Vec<ParsedFile>)>> {
-                let mut manual_ops = Vec::new();
-                let mut to_scan = Vec::new();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut manual_ops = Vec::new();
+            let mut to_scan = Vec::new();
 
-                for path in files {
-                    if path.exists() {
-                        to_scan.push(path);
-                    } else {
-                        // File was deleted
-                        manual_ops.push(GraphOp::RemovePath {
-                            path: Arc::from(path.as_path()),
-                        });
-                    }
-                }
-
-                let parse_results = Scanner::scan_files(to_scan, &existing_metadata);
-
-                // If nothing changed and no deletions, return early
-                if parse_results.is_empty() && manual_ops.is_empty() {
-                    return Ok(None);
-                }
-
-                let resolver =
-                    IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
-                let mut ops = resolver.resolve(parse_results.clone())?;
-
-                // Add manual deletion ops
-                ops.extend(manual_ops);
-
-                Ok(Some((ops, parse_results)))
-            },
-        )
-        .await
-        .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
-
-        if let Some((ops, _parse_results)) = result {
-            // Atomically update current, checking for concurrent updates
-            {
-                let mut lock = self.current.write().await;
-                let current_graph = &**lock;
-
-                if current_graph.instance_id() != base_graph.instance_id() {
-                    tracing::info!(
-                        "Concurrent update detected, re-applying changes to latest graph..."
-                    );
-                    let mut builder = current_graph.to_builder();
-                    builder.apply_ops(ops)?;
-                    *lock = Arc::new(builder.build());
+            for path in files {
+                if path.exists() {
+                    to_scan.push(path);
                 } else {
-                    let mut builder = base_graph.to_builder();
-                    builder.apply_ops(ops)?;
-                    *lock = Arc::new(builder.build());
+                    // File was deleted
+                    manual_ops.push(GraphOp::RemovePath {
+                        path: Arc::from(path.as_path()),
+                    });
                 }
             }
 
-            // Save to disk
-            self.save().await?;
-        }
+            // 1. Initial scan to identify file types and changes
+            let scan_results = Scanner::scan_files(to_scan, &existing_metadata);
+            if scan_results.is_empty() && manual_ops.is_empty() {
+                return Ok(());
+            }
+
+            // Partition into build and source
+            let (build_files, source_files): (Vec<_>, Vec<_>) =
+                scan_results.into_iter().partition(|f| f.is_build());
+
+            let resolver =
+                IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
+
+            // 2. Phase 1: Heavy Build Resolution (Global Context)
+            let mut project_context = crate::ingest::resolver::ProjectContext::new();
+            let mut initial_ops = manual_ops;
+
+            // IMPORTANT: RemovePath MUST come before AddNode for the same paths.
+            // Add RemovePath and UpdateFile for build files up front.
+            for bf in &build_files {
+                initial_ops.push(GraphOp::RemovePath {
+                    path: Arc::from(bf.path()),
+                });
+                initial_ops.push(GraphOp::UpdateFile {
+                    metadata: bf.file.clone(),
+                });
+            }
+
+            // For build files, we still process them up front because they define the structure
+            let build_ops = resolver.resolve_build_batch(&build_files, &mut project_context)?;
+            initial_ops.extend(build_ops);
+
+            // 3. Phase 2: Pipeline Batch Processing for source files
+            let pipeline = crate::ingest::pipeline::IngestPipeline::new(500); // 500 files per batch
+            let source_paths: Vec<PathBuf> = source_files
+                .into_iter()
+                .map(|f| f.path().to_path_buf())
+                .collect();
+
+            let mut builder = base_graph.to_builder();
+            builder.apply_ops(initial_ops)?;
+
+            // Note: We are in a blocking thread, resolver and context are Thread-safe.
+            pipeline.execute(&project_context, source_paths, &resolver, |batch_ops| {
+                builder.apply_ops(batch_ops)?;
+                Ok(())
+            })?;
+
+            // 4. Final Swap
+            let final_graph = Arc::new(builder.build());
+            let rt = tokio::runtime::Handle::current();
+            rt.block_on(async {
+                let mut lock = current_lock.write().await;
+                *lock = final_graph;
+            });
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| crate::error::NaviscopeError::Internal(e.to_string()))??;
+
+        // Save at the very end
+        self.save().await?;
 
         Ok(())
     }
