@@ -1,6 +1,7 @@
 mod common;
 
 use common::setup_java_test_graph;
+use naviscope_core::features::CodeGraphLike;
 use naviscope_core::ingest::parser::SymbolResolution;
 use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
@@ -68,7 +69,7 @@ fn test_goto_definition_cross_file() {
         .expect("Should resolve A");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology()[matches[0]].fqn(index.symbols()), "com.A");
+    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "com.A");
 
     // 2. Resolve Method hello
     let hello_usage = b_content.find("hello()").unwrap();
@@ -79,8 +80,8 @@ fn test_goto_definition_cross_file() {
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     assert_eq!(
-        index.topology()[matches[0]].fqn(index.symbols()),
-        "com.A.hello"
+        index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)),
+        "com.A#hello"
     );
 }
 
@@ -135,8 +136,8 @@ fn test_goto_definition_constructor() {
     assert!(!matches.is_empty());
     // In our model, constructor might be the class or the method depending on implementation
     assert!(
-        index.topology()[matches[0]]
-            .fqn(index.symbols())
+        index
+            .render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention))
             .contains("A")
     );
 }
@@ -162,5 +163,5 @@ fn test_goto_definition_static() {
         .expect("Should resolve static field");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology()[matches[0]].fqn(index.symbols()), "A.VAL");
+    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "A#VAL");
 }

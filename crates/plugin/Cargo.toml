@@ -1,0 +1,10 @@
+[package]
+name = "naviscope-plugin"
+version = "0.5.0"
+edition = "2024"
+
+[dependencies]
+naviscope-api = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }

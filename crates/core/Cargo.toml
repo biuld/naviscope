@@ -8,6 +8,7 @@ petgraph = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+dashmap = { workspace = true }
 thiserror = { workspace = true }
 walkdir = { workspace = true }
 log = { workspace = true }
@@ -28,6 +29,7 @@ lsp-types = { workspace = true }
 lasso = { workspace = true }
 zstd = { workspace = true }
 naviscope-api = { workspace = true }
+naviscope-plugin = { workspace = true }
 async-trait = { workspace = true }
 url = { workspace = true }
 

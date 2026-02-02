@@ -1,6 +1,7 @@
 mod common;
 
 use common::setup_java_test_graph;
+use naviscope_core::features::CodeGraphLike;
 use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
 
@@ -39,7 +40,7 @@ fn test_goto_type_definition_variable() {
     assert!(!type_res.is_empty());
     let matches = resolver.find_matches(&index, &type_res[0]);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology()[matches[0]].fqn(index.symbols()), "Model");
+    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "Model");
 }
 
 #[test]
@@ -69,5 +70,5 @@ fn test_goto_type_definition_method_return() {
     assert!(!type_res.is_empty());
     let matches = resolver.find_matches(&index, &type_res[0]);
     assert!(!matches.is_empty());
-    assert_eq!(index.topology()[matches[0]].fqn(index.symbols()), "Model");
+    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "Model");
 }

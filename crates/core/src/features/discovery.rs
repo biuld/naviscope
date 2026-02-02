@@ -6,11 +6,23 @@ use std::collections::HashSet;
 /// DiscoveryEngine bridges Meso-level graph knowledge with Micro-level file scanning.
 pub struct DiscoveryEngine<'a> {
     index: &'a dyn CodeGraphLike,
+    naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
 }
 
 impl<'a> DiscoveryEngine<'a> {
-    pub fn new(index: &'a dyn CodeGraphLike) -> Self {
-        Self { index }
+    pub fn new(
+        index: &'a dyn CodeGraphLike,
+        naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
+    ) -> Self {
+        Self {
+            index,
+            naming_conventions,
+        }
+    }
+    
+    fn get_convention(&self, node: &crate::model::GraphNode) -> Option<&dyn naviscope_plugin::NamingConvention> {
+        let lang_str = self.index.symbols().resolve(&node.lang.0);
+        self.naming_conventions.get(lang_str).map(|c| c.as_ref())
     }
 
     /// Meso-level: Scout for candidate files that likely contain references to the given nodes.
@@ -48,7 +60,7 @@ impl<'a> DiscoveryEngine<'a> {
         for &node_idx in matches {
             let node = &topology[node_idx];
 
-            let (primary, context) = Self::extract_smart_tokens(node, self.index);
+            let (primary, context) = self.extract_smart_tokens(node);
 
             // Helper to get paths for a token string
             let get_paths = |token: &str| -> Option<Vec<std::path::PathBuf>> {
@@ -94,12 +106,13 @@ impl<'a> DiscoveryEngine<'a> {
     /// Smartly extract tokens for "bag of words" intersection.
     /// Returns (Primary Token, Optional Context Token)
     fn extract_smart_tokens(
+        &self,
         node: &crate::model::GraphNode,
-        index: &dyn CodeGraphLike,
     ) -> (String, Option<String>) {
-        let symbols = index.symbols();
+        let symbols = self.index.symbols();
         let name = node.name(symbols).to_string();
-        let fqn = node.fqn(symbols);
+        let convention = self.get_convention(node);
+        let fqn = self.index.render_fqn(node, convention);
 
         // Split by ANY non-alphanumeric character (except underscore)
         // This is much more language-agnostic than hardcoding '.', ':', etc.

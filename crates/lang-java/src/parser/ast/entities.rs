@@ -16,8 +16,24 @@ impl JavaParser {
         package: &Option<String>,
         entities: &mut Vec<JavaEntity<'a>>,
         relations: &mut Vec<JavaRelation>,
-        entities_map: &mut HashMap<String, usize>,
+        entities_map: &mut HashMap<naviscope_api::models::symbol::NodeId, usize>,
     ) {
+        use naviscope_api::models::graph::NodeKind;
+
+        // Helper to map string label to NodeKind
+        let map_kind_label = |label: &str| -> NodeKind {
+            match label {
+                KIND_LABEL_CLASS => NodeKind::Class,
+                KIND_LABEL_INTERFACE => NodeKind::Interface,
+                KIND_LABEL_ENUM => NodeKind::Enum,
+                KIND_LABEL_ANNOTATION => NodeKind::Annotation,
+                KIND_LABEL_METHOD => NodeKind::Method,
+                KIND_LABEL_CONSTRUCTOR => NodeKind::Constructor,
+                KIND_LABEL_FIELD => NodeKind::Field,
+                _ => NodeKind::Custom(label.to_string()),
+            }
+        };
+
         for captures in all_matches {
             let definition_anchor = captures.iter().find(|c| {
                 let i = c.index;
@@ -32,7 +48,7 @@ impl JavaParser {
 
             if let Some(anchor) = definition_anchor {
                 let anchor_node = anchor.node;
-                let (kind, name_idx) = if anchor.index == self.indices.class_def {
+                let (kind_label, name_idx) = if anchor.index == self.indices.class_def {
                     (KIND_LABEL_CLASS, self.indices.class_name)
                 } else if anchor.index == self.indices.inter_def {
                     (KIND_LABEL_INTERFACE, self.indices.inter_name)
@@ -53,7 +69,15 @@ impl JavaParser {
                     .find(|c| c.index == name_idx)
                     .map(|c| c.node)
                 {
-                    let fqn = self.get_fqn_for_definition(&name_node, source, package.as_deref());
+                    // Generate structured ID
+                    let node_kind = map_kind_label(kind_label);
+                    let fqn_id = self.get_node_id_for_definition(
+                        &name_node,
+                        source,
+                        package.as_deref(),
+                        node_kind.clone(),
+                    );
+
                     let name = name_node
                         .utf8_text(source.as_bytes())
                         .unwrap_or_default()
@@ -61,36 +85,44 @@ impl JavaParser {
                     let range = range_from_ts(anchor_node.range());
                     let name_range = range_from_ts(name_node.range());
 
-                    if !entities_map.contains_key(&fqn) {
+                    if !entities_map.contains_key(&fqn_id) {
                         let new_idx = entities.len();
                         let element = self.create_java_element(
-                            kind, &fqn, &name, range, name_range, captures, source, relations,
+                            kind_label, &fqn_id, &name, range, name_range, captures, source,
+                            relations,
                         );
                         entities.push(JavaEntity {
                             element,
                             node: anchor_node,
-                            fqn: fqn.clone(),
+                            fqn: fqn_id.clone(),
                             name: name.clone(),
                         });
-                        entities_map.insert(fqn.clone(), new_idx);
+                        entities_map.insert(fqn_id.clone(), new_idx);
 
                         // Structural relation (Contains)
                         if let Some(parent_node) = self.find_next_enclosing_definition(anchor_node)
                         {
                             if let Some(parent_name_node) = parent_node.child_by_field_name("name")
                             {
-                                let parent = self.get_fqn_for_definition(
-                                    &parent_name_node,
-                                    source,
-                                    package.as_deref(),
-                                );
-                                if parent != fqn {
-                                    relations.push(JavaRelation {
-                                        source_fqn: parent,
-                                        target_name: fqn.clone(),
-                                        rel_type: EdgeType::Contains,
-                                        range: None,
-                                    });
+                                // Kind of parent is needed
+                                let pk = Self::tree_sitter_kind_to_node_kind(parent_node.kind());
+
+                                if let Some(pk) = pk {
+                                    let parent_id = self.get_node_id_for_definition(
+                                        &parent_name_node,
+                                        source,
+                                        package.as_deref(),
+                                        pk,
+                                    );
+
+                                    if parent_id != fqn_id {
+                                        relations.push(JavaRelation {
+                                            source_id: parent_id,
+                                            target_id: fqn_id.clone(),
+                                            rel_type: EdgeType::Contains,
+                                            range: None,
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -103,7 +135,7 @@ impl JavaParser {
     fn create_java_element<'a>(
         &self,
         kind: &str,
-        _fqn: &str,
+        fqn_id: &naviscope_api::models::symbol::NodeId,
         _name: &str,
         _range: Range,
         _name_range: Range,
@@ -127,7 +159,7 @@ impl JavaParser {
                     .map(|c| c.node)
                 {
                     return_type = self.parse_type_node(ret_node, source);
-                    self.generate_typed_as_edges(ret_node, source, _fqn, relations);
+                    self.generate_typed_as_edges(ret_node, source, fqn_id, relations);
                 }
                 JavaIndexMetadata::Method {
                     return_type,
@@ -154,7 +186,7 @@ impl JavaParser {
                     });
 
                 let type_ref = if let Some(t) = type_node {
-                    self.generate_typed_as_edges(t, source, _fqn, relations);
+                    self.generate_typed_as_edges(t, source, fqn_id, relations);
                     self.parse_type_node(t, source)
                 } else {
                     TypeRef::Unknown

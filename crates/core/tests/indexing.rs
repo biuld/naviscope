@@ -4,8 +4,8 @@ use naviscope_core::ingest::resolver::{BuildResolver, ProjectContext};
 use naviscope_core::ingest::scanner::ParsedFile;
 use naviscope_core::model::{NodeKind, ResolvedUnit};
 use naviscope_core::runtime::orchestrator::NaviscopeEngine;
-use naviscope_core::runtime::plugin::{
-    BuildParseResult, BuildToolPlugin, MetadataPlugin, NodeRenderer,
+use naviscope_core::plugin::{
+    BuildParseResult, BuildToolPlugin, NodeAdapter, PluginInstance,
 };
 use std::fs;
 use std::sync::Arc;
@@ -13,25 +13,28 @@ use tempfile::tempdir;
 
 struct MockBuildPlugin;
 
-impl MetadataPlugin for MockBuildPlugin {
-    fn resolve(
-        &self,
-        _bytes: &[u8],
-        _ctx: &dyn naviscope_core::model::storage::model::StorageContext,
-    ) -> Arc<dyn naviscope_api::models::NodeMetadata> {
-        Arc::new(EmptyMetadata)
+impl PluginInstance for MockBuildPlugin {
+    fn get_node_adapter(&self) -> Option<Arc<dyn NodeAdapter>> {
+        Some(Arc::new(MockBuildPlugin))
     }
 }
 
-impl NodeRenderer for MockBuildPlugin {
+impl NodeAdapter for MockBuildPlugin {
     fn render_display_node(
         &self,
         _node: &naviscope_api::models::GraphNode,
-        _rodeo: &dyn lasso::Reader,
+        _rodeo: &dyn naviscope_api::models::symbol::FqnReader,
     ) -> naviscope_api::models::DisplayGraphNode {
         unimplemented!()
     }
-    fn hydrate_display_node(&self, _node: &mut naviscope_api::models::DisplayGraphNode) {}
+
+    fn decode_metadata(
+        &self,
+        _bytes: &[u8],
+        _ctx: &dyn naviscope_api::models::graph::StorageContext,
+    ) -> Arc<dyn naviscope_api::models::NodeMetadata> {
+        Arc::new(EmptyMetadata)
+    }
 }
 
 impl BuildToolPlugin for MockBuildPlugin {
@@ -60,7 +63,7 @@ impl BuildResolver for MockBuildResolver {
         let mut context = ProjectContext::new();
         if let Some(f) = files.first() {
             unit.add_node(IndexNode {
-                id: "project:test".to_string(),
+                id: naviscope_api::models::symbol::NodeId::Flat("project:test".to_string()),
                 name: "test".to_string(),
                 kind: NodeKind::Project,
                 lang: "gradle".to_string(),

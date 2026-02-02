@@ -12,7 +12,9 @@ use naviscope_core::ingest::resolver::{LangResolver, ProjectContext, SemanticRes
 use naviscope_core::ingest::scanner::ParsedFile;
 use naviscope_core::model::ResolvedUnit;
 use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
-use naviscope_core::runtime::plugin::{LanguagePlugin, MetadataPlugin, NodeRenderer};
+use naviscope_core::plugin::{
+    LanguagePlugin, NamingConvention, NodeAdapter, PluginInstance,
+};
 use petgraph::stable_graph::NodeIndex;
 use std::any::Any;
 use std::path::Path;
@@ -51,40 +53,18 @@ struct MockPlugin {
     lang_resolver: Arc<MockLangResolver>,
 }
 
-impl MetadataPlugin for MockPlugin {
-    fn intern(
-        &self,
-        metadata: &dyn naviscope_core::model::NodeMetadata,
-        _ctx: &mut dyn naviscope_core::model::storage::model::StorageContext,
-    ) -> Vec<u8> {
-        if let Some(m) = metadata.as_any().downcast_ref::<MockMetadata>() {
-            m.id.as_bytes().to_vec()
-        } else {
-            Vec::new()
-        }
-    }
-
-    fn resolve(
-        &self,
-        bytes: &[u8],
-        _ctx: &dyn naviscope_core::model::storage::model::StorageContext,
-    ) -> Arc<dyn naviscope_core::model::NodeMetadata> {
-        let id = String::from_utf8_lossy(bytes).to_string();
-        Arc::new(MockMetadata { id })
-    }
-}
-
-impl NodeRenderer for MockPlugin {
+impl NodeAdapter for MockPlugin {
     fn render_display_node(
         &self,
-        node: &naviscope_core::model::GraphNode,
-        rodeo: &dyn lasso::Reader,
+        node: &naviscope_api::models::graph::GraphNode,
+        rodeo: &dyn naviscope_api::models::symbol::FqnReader,
     ) -> DisplayGraphNode {
+        let display_id = naviscope_plugin::DotPathConvention.render_fqn(node.id, rodeo);
         let mut display = DisplayGraphNode {
-            id: node.fqn(rodeo).to_string(),
-            name: node.name(rodeo).to_string(),
+            id: display_id,
+            name: rodeo.resolve_atom(node.name).to_string(),
             kind: node.kind.clone(),
-            lang: node.language(rodeo).to_string(),
+            lang: rodeo.resolve_atom(node.lang).to_string(),
             location: node.location.as_ref().map(|l| l.to_display(rodeo)),
             detail: None,
             signature: None,
@@ -101,10 +81,31 @@ impl NodeRenderer for MockPlugin {
         display
     }
 
-    fn hydrate_display_node(&self, node: &mut DisplayGraphNode) {
-        node.detail = Some(format!("Mock detail for {}", node.id));
-        node.signature = Some(format!("Mock signature for {}", node.id));
-        node.modifiers = vec!["mock".to_string()];
+    fn encode_metadata(
+        &self,
+        metadata: &dyn naviscope_api::models::graph::NodeMetadata,
+        _ctx: &mut dyn naviscope_api::models::graph::StorageContext,
+    ) -> Vec<u8> {
+        if let Some(m) = metadata.as_any().downcast_ref::<MockMetadata>() {
+            m.id.as_bytes().to_vec()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn decode_metadata(
+        &self,
+        bytes: &[u8],
+        _ctx: &dyn naviscope_api::models::graph::StorageContext,
+    ) -> Arc<dyn naviscope_api::models::graph::NodeMetadata> {
+        let id = String::from_utf8_lossy(bytes).to_string();
+        Arc::new(MockMetadata { id })
+    }
+}
+
+impl PluginInstance for MockPlugin {
+    fn get_node_adapter(&self) -> Option<Arc<dyn NodeAdapter>> {
+        Some(Arc::new(self.clone_internal()))
     }
 }
 
@@ -168,11 +169,8 @@ impl LspParser for MockLspParserWrapper {
     }
 
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DisplayGraphNode> {
-        let mut symbols = self.parser.extract_symbols(tree, source);
-        for sym in &mut symbols {
-            self.plugin.hydrate_display_node(sym);
-        }
-        symbols
+        // Symbols are already fully rendered
+        self.parser.extract_symbols(tree, source)
     }
 
     fn symbol_kind(&self, kind: &naviscope_core::model::NodeKind) -> lsp_types::SymbolKind {
@@ -208,7 +206,7 @@ impl LangResolver for MockLangResolver {
             naviscope_core::ingest::scanner::ParsedContent::Unparsed(_src) => {
                 vec!["Callee".to_string()]
             }
-            _ => vec![],
+            _ => vec!["Callee".to_string()],
         };
 
         if !identifiers.is_empty() {
@@ -337,7 +335,7 @@ async fn test_symbol_navigator_queries() {
     {
         let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
         nodes.push(naviscope_core::ingest::parser::IndexNode {
-            id: "test::Symbol".to_string(),
+            id: naviscope_api::models::symbol::NodeId::Flat("test::Symbol".to_string()),
             name: "Symbol".to_string(),
             kind: NodeKind::Class,
             lang: "mock".to_string(),
@@ -428,7 +426,7 @@ async fn test_call_hierarchy_analyzer() {
         let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
         // Callee
         nodes.push(naviscope_core::ingest::parser::IndexNode {
-            id: "test::Callee".to_string(),
+            id: naviscope_api::models::symbol::NodeId::Flat("test::Callee".to_string()),
             name: "Callee".to_string(),
             kind: NodeKind::Method,
             lang: "mock".to_string(),
@@ -448,7 +446,7 @@ async fn test_call_hierarchy_analyzer() {
         });
         // Caller
         nodes.push(naviscope_core::ingest::parser::IndexNode {
-            id: "test::Caller".to_string(),
+            id: naviscope_api::models::symbol::NodeId::Flat("test::Caller".to_string()),
             name: "Caller".to_string(),
             kind: NodeKind::Method,
             lang: "mock".to_string(),
@@ -501,7 +499,7 @@ async fn test_get_symbol_info() {
     {
         let mut nodes = plugin.lang_resolver.nodes.lock().unwrap();
         nodes.push(naviscope_core::ingest::parser::IndexNode {
-            id: "test::Symbol".to_string(),
+            id: naviscope_api::models::symbol::NodeId::Flat("test::Symbol".to_string()),
             name: "Symbol".to_string(),
             kind: NodeKind::Class,
             lang: "mock".to_string(),

@@ -1328,11 +1328,13 @@ name = "naviscope-core"
 version = "0.5.0"
 dependencies = [
  "async-trait",
+ "dashmap 6.1.0",
  "ignore",
  "lasso",
  "log",
  "lsp-types",
  "naviscope-api",
+ "naviscope-plugin",
  "notify",
  "once_cell",
  "petgraph",
@@ -1364,6 +1366,7 @@ dependencies = [
  "lasso",
  "naviscope-api",
  "naviscope-core",
+ "naviscope-plugin",
  "once_cell",
  "petgraph",
  "rmp-serde",
@@ -1382,6 +1385,7 @@ dependencies = [
  "lsp-types",
  "naviscope-api",
  "naviscope-core",
+ "naviscope-plugin",
  "petgraph",
  "rmp-serde",
  "serde",
@@ -1426,6 +1430,16 @@ dependencies = [
  "tower-lsp",
  "tracing",
  "xxhash-rust",
+]
+
+[[package]]
+name = "naviscope-plugin"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "naviscope-api",
+ "serde",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use xxhash_rust::xxh3::xxh3_64;
+use std::collections::HashMap;
+use naviscope_plugin::NamingConvention;
 
-use crate::runtime::plugin::{BuildToolPlugin, LanguagePlugin};
+use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
 /// Naviscope indexing engine
 ///
@@ -32,6 +34,9 @@ pub struct NaviscopeEngine {
     /// Plugins
     build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
     lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
+
+    /// Runtime registry: language name -> naming convention
+    naming_conventions: Arc<HashMap<String, Arc<dyn NamingConvention>>>,
 
     /// Cancellation token for background tasks (like watcher)
     cancel_token: tokio_util::sync::CancellationToken,
@@ -54,17 +59,32 @@ impl NaviscopeEngine {
             index_path,
             build_plugins: Arc::new(Vec::new()),
             lang_plugins: Arc::new(Vec::new()),
+            naming_conventions: Arc::new(std::collections::HashMap::new()),
             cancel_token: tokio_util::sync::CancellationToken::new(),
         }
     }
 
     pub fn register_language(&mut self, plugin: Arc<dyn LanguagePlugin>) {
+        // Register naming convention if available
+        if let Some(nc) = plugin.get_naming_convention() {
+            let mut conventions = (*self.naming_conventions).clone();
+            conventions.insert(plugin.name().to_string(), nc);
+            self.naming_conventions = Arc::new(conventions);
+        }
+
         let mut plugins = (*self.lang_plugins).clone();
         plugins.push(plugin);
         self.lang_plugins = Arc::new(plugins);
     }
 
     pub fn register_build_tool(&mut self, plugin: Arc<dyn BuildToolPlugin>) {
+        // Register naming convention if available
+        if let Some(nc) = plugin.get_naming_convention() {
+            let mut conventions = (*self.naming_conventions).clone();
+            conventions.insert(plugin.name().to_string(), nc);
+            self.naming_conventions = Arc::new(conventions);
+        }
+
         let mut plugins = (*self.build_plugins).clone();
         plugins.push(plugin);
         self.build_plugins = Arc::new(plugins);
@@ -78,6 +98,11 @@ impl NaviscopeEngine {
     /// Get the index resolver configured with current plugins
     pub fn get_resolver(&self) -> IndexResolver {
         IndexResolver::with_plugins((*self.build_plugins).clone(), (*self.lang_plugins).clone())
+    }
+
+    /// Get naming conventions registry (cheap Arc clone)
+    pub(crate) fn naming_conventions(&self) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
+        self.naming_conventions.clone()
     }
 
     /// Compute index storage path for a project
@@ -231,6 +256,14 @@ impl NaviscopeEngine {
                 .collect();
 
             let mut builder = base_graph.to_builder();
+
+            // Register naming conventions
+            for plugin in lang_plugins.iter() {
+                if let Some(nc) = plugin.get_naming_convention() {
+                    builder.naming_conventions.insert(plugin.name(), nc);
+                }
+            }
+
             builder.apply_ops(initial_ops)?;
 
             // Note: We are in a blocking thread, resolver and context are Thread-safe.
@@ -376,15 +409,15 @@ impl NaviscopeEngine {
 
         let bytes = std::fs::read(path)?;
 
-        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::runtime::plugin::MetadataPlugin>> {
+        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
             for p in lang_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             for p in build_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             None
@@ -428,15 +461,15 @@ impl NaviscopeEngine {
             std::fs::create_dir_all(parent)?;
         }
 
-        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::runtime::plugin::MetadataPlugin>> {
+        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
             for p in lang_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             for p in build_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             None
@@ -471,6 +504,14 @@ impl NaviscopeEngine {
 
         // Build graph
         let mut builder = CodeGraphBuilder::new();
+
+        // Register naming conventions
+        for plugin in lang_plugins.iter() {
+            if let Some(nc) = plugin.get_naming_convention() {
+                builder.naming_conventions.insert(plugin.name(), nc);
+            }
+        }
+
         builder.apply_ops(ops)?;
 
         Ok(builder.build())

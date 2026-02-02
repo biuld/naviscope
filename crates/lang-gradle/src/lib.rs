@@ -4,12 +4,13 @@ pub mod queries;
 pub mod resolver;
 
 use naviscope_api::models::DisplayGraphNode;
+use naviscope_api::models::symbol::FqnReader;
 use naviscope_core::error::Result;
 use naviscope_core::ingest::resolver::BuildResolver;
 use naviscope_core::ingest::scanner::ParsedContent;
 use naviscope_core::model::source::BuildTool;
-use naviscope_core::runtime::plugin::{
-    BuildParseResult, BuildToolPlugin, MetadataPlugin, NodeRenderer,
+use naviscope_core::plugin::{
+    BuildParseResult, BuildToolPlugin, NamingConvention, NodeAdapter, PluginInstance,
 };
 use std::sync::Arc;
 
@@ -17,18 +18,19 @@ pub struct GradlePlugin {
     resolver: Arc<resolver::GradleResolver>,
 }
 
-impl NodeRenderer for GradlePlugin {
+impl NodeAdapter for GradlePlugin {
     fn render_display_node(
         &self,
         node: &naviscope_core::model::GraphNode,
-        rodeo: &dyn lasso::Reader,
+        fqns: &dyn FqnReader,
     ) -> DisplayGraphNode {
+        let display_id = naviscope_plugin::DotPathConvention.render_fqn(node.id, fqns);
         let mut display = DisplayGraphNode {
-            id: node.fqn(rodeo).to_string(),
-            name: node.name(rodeo).to_string(),
+            id: display_id,
+            name: fqns.resolve_atom(node.name).to_string(),
             kind: node.kind.clone(),
             lang: "gradle".to_string(),
-            location: node.location.as_ref().map(|l| l.to_display(rodeo)),
+            location: node.location.as_ref().map(|l| l.to_display(fqns)),
             detail: None,
             signature: None,
             modifiers: vec![],
@@ -40,14 +42,37 @@ impl NodeRenderer for GradlePlugin {
             .as_any()
             .downcast_ref::<crate::model::GradleNodeMetadata>()
         {
-            display.detail = gradle_meta.detail_view(rodeo);
+            display.detail = gradle_meta.detail_view(fqns);
         }
 
         display
     }
 
-    fn hydrate_display_node(&self, _node: &mut DisplayGraphNode) {
-        // Hydration logic is currently disabled as DisplayGraphNode no longer carries raw metadata.
+    fn encode_metadata(
+        &self,
+        metadata: &dyn naviscope_api::models::graph::NodeMetadata,
+        _ctx: &mut dyn naviscope_api::models::graph::StorageContext,
+    ) -> Vec<u8> {
+        if let Some(gradle_meta) = metadata
+            .as_any()
+            .downcast_ref::<crate::model::GradleNodeMetadata>()
+        {
+            rmp_serde::to_vec(&gradle_meta).unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn decode_metadata(
+        &self,
+        bytes: &[u8],
+        _ctx: &dyn naviscope_api::models::graph::StorageContext,
+    ) -> Arc<dyn naviscope_api::models::graph::NodeMetadata> {
+        if let Ok(element) = rmp_serde::from_slice::<crate::model::GradleNodeMetadata>(bytes) {
+            Arc::new(element)
+        } else {
+            Arc::new(naviscope_core::model::EmptyMetadata)
+        }
     }
 }
 
@@ -59,32 +84,9 @@ impl GradlePlugin {
     }
 }
 
-impl MetadataPlugin for GradlePlugin {
-    fn intern(
-        &self,
-        metadata: &dyn naviscope_core::model::NodeMetadata,
-        _ctx: &mut dyn naviscope_core::model::storage::model::StorageContext,
-    ) -> Vec<u8> {
-        if let Some(gradle_meta) = metadata
-            .as_any()
-            .downcast_ref::<crate::model::GradleNodeMetadata>()
-        {
-            rmp_serde::to_vec(&gradle_meta.element).unwrap_or_default()
-        } else {
-            Vec::new()
-        }
-    }
-
-    fn resolve(
-        &self,
-        bytes: &[u8],
-        _ctx: &dyn naviscope_core::model::storage::model::StorageContext,
-    ) -> Arc<dyn naviscope_core::model::NodeMetadata> {
-        if let Ok(element) = rmp_serde::from_slice::<crate::model::GradleStorageElement>(bytes) {
-            Arc::new(crate::model::GradleNodeMetadata::new(element))
-        } else {
-            Arc::new(naviscope_core::model::EmptyMetadata)
-        }
+impl PluginInstance for GradlePlugin {
+    fn get_node_adapter(&self) -> Option<Arc<dyn NodeAdapter>> {
+        Some(Arc::new(Self::new()))
     }
 }
 

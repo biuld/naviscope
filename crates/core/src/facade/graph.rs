@@ -13,7 +13,8 @@ impl graph::GraphService for EngineHandle {
 
         let result = tokio::task::spawn_blocking(
             move || -> Result<crate::features::query::QueryResult, NaviscopeError> {
-                let engine = QueryEngine::new(&graph, |lang| handle.get_node_renderer(lang));
+                let conventions = (*handle.naming_conventions()).clone();
+                let engine = QueryEngine::new(&graph, |lang| handle.get_node_adapter(lang), conventions);
                 engine.execute(&query_clone)
             },
         )

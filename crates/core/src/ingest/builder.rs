@@ -9,7 +9,7 @@ use crate::model::graph::CodeGraphInner;
 use crate::model::source::SourceFile;
 // StorageContext unused
 use crate::model::{GraphEdge, GraphOp};
-use naviscope_api::models::symbol::Symbol;
+use naviscope_api::models::symbol::{FqnInterner, Symbol};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,22 +17,27 @@ use std::path::Path;
 /// Mutable graph builder
 pub struct CodeGraphBuilder {
     inner: CodeGraphInner,
+    pub naming_conventions:
+        HashMap<crate::model::Language, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
 }
 
 impl CodeGraphBuilder {
     /// Create a new empty builder
     pub fn new() -> Self {
+        let rodeo = std::sync::Arc::new(lasso::ThreadedRodeo::new());
         Self {
             inner: CodeGraphInner {
                 instance_id: 0, // Will be updated when built
                 version: crate::model::graph::CURRENT_VERSION,
                 topology: StableDiGraph::new(),
-                symbols: lasso::Rodeo::default(),
+                fqns: crate::model::FqnManager::with_rodeo(rodeo.clone()),
+                symbols: rodeo,
                 fqn_index: HashMap::new(),
                 name_index: HashMap::new(),
                 file_index: HashMap::new(),
                 reference_index: HashMap::new(),
             },
+            naming_conventions: HashMap::new(),
         }
     }
 
@@ -43,32 +48,86 @@ impl CodeGraphBuilder {
 
     /// Create builder from internal data
     pub(crate) fn from_inner(inner: CodeGraphInner) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            naming_conventions: HashMap::new(),
+        }
     }
 
     // ---- Mutation methods ----
 
+    /// Resolve and intern an ID, potentially upgrading it using NamingConventions
+    fn resolve_storage_id(
+        &self,
+        id: &naviscope_api::models::symbol::NodeId,
+        kind_hint: Option<naviscope_api::models::NodeKind>,
+    ) -> naviscope_api::models::symbol::FqnId {
+        // We need to guess the language to pick the convention.
+        // But NodeId doesn't carry language info directly unless we infer it or it's passed.
+        // HOWEVER, `id` might be lang-specific.
+        // For simplicity, we iterate over available conventions or try to detect.
+        // Since we typically have one language active per builder usage OR we can't easily know,
+        // we might have to rely on the fact that `Java` is likely the one needing this.
+        // A better approach: The `GraphOp` or `IndexNode` context.
+        // But `AddEdge` has no context.
+        // Let's iterate all conventions. If any convention claims it, we use it?
+        // Or simpler: Java is special.
+
+        // BETTER: `naming_conventions` is a map. If we have keys, we try them.
+        for (_, nc) in &self.naming_conventions {
+            match id {
+                naviscope_api::models::symbol::NodeId::Flat(s) => {
+                    // Try to upgrade
+                    // We don't know if this ID belongs to 'lang', but we can try parsing.
+                    // A cleaner way is if the ID string itself gives a hint, but it doesn't.
+                    // For now, if we have a convention, we USE it.
+                    // This assumes we don't mix conflicting conventions in one builder session recklessly.
+                    let parts = nc.parse_fqn(s, kind_hint.clone());
+                    let structured_id = naviscope_api::models::symbol::NodeId::Structured(parts);
+                    return self.inner.fqns.intern_node_id(&structured_id);
+                }
+                _ => {}
+            }
+        }
+
+        self.inner.fqns.intern_node_id(id)
+    }
+
     /// Add or update a node
     pub fn add_node(&mut self, node_data: crate::ingest::parser::IndexNode) -> NodeIndex {
-        let fqn_sym = Symbol(self.inner.symbols.get_or_intern(&node_data.id));
+        // We have language info here! Use it to select convention.
+        let lang = crate::model::Language::new(node_data.lang.clone());
+        let fqn_id = if let Some(nc) = self.naming_conventions.get(&lang) {
+            match &node_data.id {
+                naviscope_api::models::symbol::NodeId::Flat(s) => {
+                    let parts = nc.parse_fqn(s, Some(node_data.kind.clone()));
+                    let structured_id = naviscope_api::models::symbol::NodeId::Structured(parts);
+                    self.inner.fqns.intern_node_id(&structured_id)
+                }
+                _ => self.inner.fqns.intern_node_id(&node_data.id),
+            }
+        } else {
+            // Fallback to "any convention" or generic
+            self.resolve_storage_id(&node_data.id, Some(node_data.kind.clone()))
+        };
 
-        if let Some(&idx) = self.inner.fqn_index.get(&fqn_sym) {
+        if let Some(&idx) = self.inner.fqn_index.get(&fqn_id) {
             // Node already exists
             idx
         } else {
-            let name_sym = Symbol(self.inner.symbols.get_or_intern(&node_data.name));
-            let lang_sym = Symbol(self.inner.symbols.get_or_intern(&node_data.lang));
+            let name_sym = self.inner.fqns.intern_atom(&node_data.name);
+            let lang_sym = self.inner.fqns.intern_atom(&node_data.lang);
             let location = node_data
                 .location
                 .as_ref()
-                .map(|l| l.to_internal(&mut self.inner.symbols));
+                .map(|l| l.to_internal(&self.inner.fqns));
 
             let mut ctx = crate::model::storage::model::GenericStorageContext {
-                rodeo: &mut self.inner.symbols,
+                rodeo: self.inner.symbols.clone(),
             };
 
             let node = crate::model::GraphNode {
-                id: fqn_sym,
+                id: fqn_id,
                 name: name_sym,
                 kind: node_data.kind.clone(),
                 lang: lang_sym,
@@ -77,7 +136,7 @@ impl CodeGraphBuilder {
             };
 
             let idx = self.inner.topology.add_node(node);
-            self.inner.fqn_index.insert(fqn_sym, idx);
+            self.inner.fqn_index.insert(fqn_id, idx);
             self.inner.name_index.entry(name_sym).or_default().push(idx);
 
             if let Some(loc) = location {
@@ -120,17 +179,10 @@ impl CodeGraphBuilder {
     pub fn remove_node(&mut self, idx: NodeIndex) {
         if let Some(node) = self.inner.topology.node_weight(idx) {
             let fqn = node.id; // Symbol implements Copy
-            let name = node.name;
+            let _name = node.name;
 
             // Remove from indices
             self.inner.fqn_index.remove(&fqn);
-
-            if let Some(nodes) = self.inner.name_index.get_mut(&name) {
-                nodes.retain(|&i| i != idx);
-                if nodes.is_empty() {
-                    self.inner.name_index.remove(&name);
-                }
-            }
 
             // Remove from topology
             self.inner.topology.remove_node(idx);
@@ -186,12 +238,12 @@ impl CodeGraphBuilder {
                 to_id,
                 edge,
             } => {
-                let from_sym = Symbol(self.inner.symbols.get_or_intern(from_id.as_ref()));
-                let to_sym = Symbol(self.inner.symbols.get_or_intern(to_id.as_ref()));
+                let from_id = self.resolve_storage_id(&from_id, None);
+                let to_id = self.resolve_storage_id(&to_id, None);
 
                 if let (Some(&from), Some(&to)) = (
-                    self.inner.fqn_index.get(&from_sym),
-                    self.inner.fqn_index.get(&to_sym),
+                    self.inner.fqn_index.get(&from_id),
+                    self.inner.fqn_index.get(&to_id),
                 ) {
                     self.add_edge(from, to, edge);
                 }
@@ -251,7 +303,7 @@ mod tests {
         let mut builder = CodeGraphBuilder::new();
 
         let node = crate::ingest::parser::IndexNode {
-            id: "test_project".to_string(),
+            id: "test_project".into(),
             name: "test_project".to_string(),
             kind: NodeKind::Project,
             lang: "buildfile".to_string(),
@@ -274,7 +326,7 @@ mod tests {
         let mut builder = CodeGraphBuilder::from_graph(&graph);
 
         let node = crate::ingest::parser::IndexNode {
-            id: "new_project".to_string(),
+            id: "new_project".into(),
             name: "new_project".to_string(),
             kind: NodeKind::Project,
             lang: "buildfile".to_string(),

@@ -155,17 +155,20 @@ impl JavaParser {
                     return Vec::new();
                 }
             }
-            naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, intent) => {
-                (fqn.split('.').last().unwrap_or(fqn).to_string(), *intent)
-            }
-            naviscope_core::ingest::parser::SymbolResolution::Global(fqn) => {
-                // Global resolution from graph usually implies a high-level symbol (Method/Type/Field)
-                // We'll try to guess intent if it's not provided, but mostly it will stay broad
-                (
-                    fqn.split('.').last().unwrap_or(fqn).to_string(),
-                    naviscope_api::models::SymbolIntent::Unknown,
-                )
-            }
+            naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, intent) => (
+                fqn.split(|c| c == '.' || c == '#' || c == '$')
+                    .last()
+                    .unwrap_or(fqn)
+                    .to_string(),
+                *intent,
+            ),
+            naviscope_core::ingest::parser::SymbolResolution::Global(fqn) => (
+                fqn.split(|c| c == '.' || c == '#' || c == '$')
+                    .last()
+                    .unwrap_or(fqn)
+                    .to_string(),
+                naviscope_api::models::SymbolIntent::Unknown,
+            ),
         };
 
         if name.is_empty() {

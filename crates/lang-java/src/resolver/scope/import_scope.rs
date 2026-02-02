@@ -1,6 +1,7 @@
 use crate::parser::JavaParser;
 use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
+
 use naviscope_core::ingest::parser::SymbolResolution;
 
 pub struct ImportScope<'a> {
@@ -26,13 +27,11 @@ impl SemanticScope<ResolutionContext<'_>> for ImportScope<'_> {
                     .as_ref()
                     .map(|pkg| format!("{}.{}", pkg, name))
                     .and_then(|candidate| {
-                        context
-                            .index
-                            .symbols()
-                            .get(candidate.as_str())
-                            .map(|k| naviscope_api::models::symbol::Symbol(k))
-                            .filter(|sym| context.index.fqn_map().contains_key(sym))
-                            .map(|_| candidate)
+                        if context.index.find_node(&candidate).is_some() {
+                            Some(candidate)
+                        } else {
+                            None
+                        }
                     })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
             })

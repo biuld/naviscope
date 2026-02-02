@@ -95,10 +95,20 @@ impl GraphEdge {
     }
 }
 
-use super::symbol::Symbol;
+use super::symbol::{FqnId, Symbol};
 use lasso::Reader;
 use std::any::Any;
 use std::fmt::Debug;
+
+/// Context for metadata serialization/deserialization operations.
+/// Provides access to shared string interners and other storage facilities.
+pub trait StorageContext: Send + Sync {
+    /// Get the string interner for converting strings to symbols.
+    fn interner(&mut self) -> &mut dyn super::symbol::FqnInterner;
+    
+    /// Downcast to Any for plugin-specific context access.
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+}
 
 /// Trait for language-specific metadata.
 pub trait NodeMetadata: Send + Sync + Debug {
@@ -118,8 +128,8 @@ impl NodeMetadata for EmptyMetadata {
 
 #[derive(Debug, Clone)]
 pub struct GraphNode {
-    /// Unique Identifier (Symbol)
-    pub id: Symbol,
+    /// Unique Identifier (Structured FQN)
+    pub id: FqnId,
     /// Short display name (Symbol)
     pub name: Symbol,
     /// Abstract categorization
@@ -135,7 +145,7 @@ pub struct GraphNode {
 impl Default for GraphNode {
     fn default() -> Self {
         Self {
-            id: Symbol(lasso::Spur::default()),
+            id: FqnId(0),
             name: Symbol(lasso::Spur::default()),
             kind: NodeKind::Custom("unknown".to_string()),
             lang: Symbol(lasso::Spur::default()),
@@ -148,10 +158,6 @@ impl Default for GraphNode {
 impl GraphNode {
     pub fn language<'a>(&self, rodeo: &'a dyn Reader) -> Language {
         Language::new(rodeo.resolve(&self.lang.0).to_string())
-    }
-
-    pub fn fqn<'a>(&self, rodeo: &'a dyn Reader) -> &'a str {
-        rodeo.resolve(&self.id.0)
     }
 
     pub fn name<'a>(&self, rodeo: &'a dyn Reader) -> &'a str {
@@ -186,9 +192,12 @@ pub struct DisplaySymbolLocation {
 }
 
 impl DisplaySymbolLocation {
-    pub fn to_internal(&self, rodeo: &mut lasso::Rodeo) -> super::symbol::InternedLocation {
+    pub fn to_internal(
+        &self,
+        interner: &dyn super::symbol::FqnInterner,
+    ) -> super::symbol::InternedLocation {
         super::symbol::InternedLocation {
-            path: Symbol(rodeo.get_or_intern(&self.path)),
+            path: interner.intern_atom(&self.path),
             range: self.range,
             selection_range: self.selection_range,
         }
@@ -214,13 +223,16 @@ pub struct DisplayGraphNode {
 }
 
 impl DisplayGraphNode {
-    pub fn to_internal(&self, rodeo: &mut lasso::Rodeo) -> GraphNode {
+    pub fn to_internal(&self, interner: &dyn super::symbol::FqnInterner) -> GraphNode {
+        // NOTE: This assumes high-level display node ID is a flat FQN for now.
+        // In a real migration, we'd want to pass the structured parts.
+        let fqn_id = interner.intern_node(None, &self.id, self.kind.clone());
         GraphNode {
-            id: Symbol(rodeo.get_or_intern(&self.id)),
-            name: Symbol(rodeo.get_or_intern(&self.name)),
+            id: fqn_id,
+            name: interner.intern_atom(&self.name),
             kind: self.kind.clone(),
-            lang: Symbol(rodeo.get_or_intern(&self.lang)),
-            location: self.location.as_ref().map(|l| l.to_internal(rodeo)),
+            lang: interner.intern_atom(&self.lang),
+            location: self.location.as_ref().map(|l| l.to_internal(interner)),
             metadata: Arc::new(EmptyMetadata),
         }
     }

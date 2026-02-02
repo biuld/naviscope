@@ -13,6 +13,10 @@ pub fn setup_java_test_graph(
     files: Vec<(&str, &str)>,
 ) -> (CodeGraph, Vec<(PathBuf, String, tree_sitter::Tree)>) {
     let mut builder = CodeGraphBuilder::new();
+    builder.naming_conventions.insert(
+        naviscope_core::model::Language::JAVA,
+        std::sync::Arc::new(naviscope_java::naming::JavaNamingConvention),
+    );
     let mut parsed_files = Vec::new();
     let java_parser = JavaParser::new().unwrap();
     let mut ts_parser = Parser::new();

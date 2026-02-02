@@ -35,7 +35,7 @@ fn test_goto_references_method() {
     let target_idx = matches[0];
 
     // Check for candidate files via DiscoveryEngine (Meso-scouting)
-    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(&index);
+    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(&index, std::collections::HashMap::new());
     let candidate_files = discovery.scout_references(&[target_idx]);
 
     assert_eq!(candidate_files.len(), 3);

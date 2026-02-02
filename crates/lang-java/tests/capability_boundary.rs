@@ -16,14 +16,23 @@ fn cap_structural_nesting() {
 
     // Assert FQNs exist
     // Note: JavaResolver prepends "module::root." to packages when no specific module is found
-    assert!(index.find_node("module::root.com.example").is_some());
+    // Assert FQNs exist
+    // Note: JavaResolver uses clear package names now for FQN compatibility
+    println!("Graph nodes:");
+    for idx in index.topology().node_indices() {
+        let node = &index.topology()[idx];
+        use naviscope_plugin::NamingConvention;
+        println!(" - {:?}", naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns()));
+    }
+
+    assert!(index.find_node("com.example").is_some());
     assert!(index.find_node("com.example.MyClass").is_some());
     assert!(index.find_node("com.example.MyClass.field").is_some());
     assert!(index.find_node("com.example.MyClass.method").is_some());
 
     // Assert nesting via 'Contains' edges
     let class_idx = index.find_node("com.example.MyClass").unwrap();
-    let pkg_idx = index.find_node("module::root.com.example").unwrap();
+    let pkg_idx = index.find_node("com.example").unwrap();
 
     assert!(index.topology().contains_edge(pkg_idx, class_idx));
 
@@ -45,6 +54,26 @@ fn cap_inheritance_tracking() {
 
     let base_idx = index.find_node("Base").unwrap();
     let impl_idx = index.find_node("Impl").unwrap();
+
+    println!("Base ID: {:?}", index.topology()[base_idx].id);
+    println!("Impl ID: {:?}", index.topology()[impl_idx].id);
+
+    println!("Edges from Impl:");
+    let mut neighbors = index
+        .topology()
+        .neighbors_directed(impl_idx, petgraph::Direction::Outgoing)
+        .detach();
+    while let Some((e_idx, target_idx)) = neighbors.next(&index.topology()) {
+        let edge = &index.topology()[e_idx];
+        let target = &index.topology()[target_idx];
+        use naviscope_plugin::NamingConvention;
+        println!(
+            " -> {:?} connection {:?} (Target ID: {:?})",
+            edge.edge_type,
+            naviscope_plugin::DotPathConvention.render_fqn(target.id, index.fqns()),
+            target.id
+        );
+    }
 
     let has_implements = index
         .topology()
@@ -100,7 +129,7 @@ fn cap_instantiation_tracking() {
     let a_idx = index.find_node("A").unwrap();
 
     // Check DiscoveryEngine "Scouting" (uses Reference Index)
-    let discovery = DiscoveryEngine::new(&index);
+    let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
     let candidate_files = discovery.scout_references(&[a_idx]);
     assert!(
         candidate_files.contains(&std::path::PathBuf::from("B.java")),
@@ -121,7 +150,7 @@ fn cap_method_call_tracking() {
     let a_target_idx = index.find_node("A.target").unwrap();
 
     // Check DiscoveryEngine "Scouting" (uses Reference Index)
-    let discovery = DiscoveryEngine::new(&index);
+    let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
     let candidate_files = discovery.scout_references(&[a_target_idx]);
     assert!(
         candidate_files.contains(&std::path::PathBuf::from("B.java")),
@@ -193,7 +222,7 @@ fn cap_static_field_access() {
     let config_key_idx = index.find_node("Config.KEY").unwrap();
 
     // Checking if Main.java is discovered as a candidate for Config.KEY
-    let discovery = DiscoveryEngine::new(&index);
+    let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
     let candidate_files = discovery.scout_references(&[config_key_idx]);
     assert!(
         candidate_files.contains(&std::path::PathBuf::from("Main.java")),

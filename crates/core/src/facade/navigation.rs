@@ -7,13 +7,15 @@ use naviscope_api::navigation::{NavigationService, ResolveResult};
 impl NavigationService for EngineHandle {
     async fn resolve_path(&self, target: &str, current_context: Option<&str>) -> ResolveResult {
         let graph = self.graph().await;
-        let engine = NavigationEngine::new(&graph);
+        let conventions = (*self.naming_conventions()).clone();
+        let engine = NavigationEngine::new(&graph, conventions);
         engine.resolve_path(target, current_context)
     }
 
     async fn get_completion_candidates(&self, prefix: &str) -> Vec<String> {
         let graph = self.graph().await;
-        let engine = NavigationEngine::new(&graph);
+        let conventions = (*self.naming_conventions()).clone();
+        let engine = NavigationEngine::new(&graph, conventions);
         engine.get_completion_candidates(prefix)
     }
 }

@@ -117,7 +117,7 @@ impl BuildResolver for GradleResolver {
 
         // Add Project node
         unit.add_node(naviscope_core::ingest::parser::IndexNode {
-            id: project_id.clone(),
+            id: project_id.clone().into(),
             name: project_name.clone(),
             kind: NodeKind::Project,
             lang: "gradle".to_string(),
@@ -172,7 +172,7 @@ impl BuildResolver for GradleResolver {
                 .unwrap_or(&project_name);
 
             unit.add_node(naviscope_core::ingest::parser::IndexNode {
-                id: root_module_id.clone(),
+                id: root_module_id.clone().into(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
                 lang: "gradle".to_string(),
@@ -199,8 +199,8 @@ impl BuildResolver for GradleResolver {
             });
 
             unit.add_edge(
-                Arc::from(project_id.as_str()),
-                Arc::from(root_module_id.as_str()),
+                project_id.clone().into(),
+                root_module_id.clone().into(),
                 GraphEdge::new(EdgeType::Contains),
             );
 
@@ -220,7 +220,7 @@ impl BuildResolver for GradleResolver {
             let display_name = id.split("::module:").nth(1).unwrap_or(id);
 
             unit.add_node(naviscope_core::ingest::parser::IndexNode {
-                id: id.clone(),
+                id: id.clone().into(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
                 lang: "gradle".to_string(),
@@ -256,8 +256,8 @@ impl BuildResolver for GradleResolver {
                 let normalized_p = self.normalize_path(p);
                 if let Some(parent_id) = path_to_id.get(&normalized_p) {
                     unit.add_edge(
-                        Arc::from(parent_id.as_str()),
-                        Arc::from(id.as_str()),
+                        parent_id.clone().into(),
+                        id.clone().into(),
                         GraphEdge::new(EdgeType::Contains),
                     );
                     found_parent = true;
@@ -272,8 +272,8 @@ impl BuildResolver for GradleResolver {
             // Fallback: link to root module if no parent found
             if !found_parent && path.starts_with(&root_path) {
                 unit.add_edge(
-                    Arc::from(root_module_id.as_str()),
-                    Arc::from(id.as_str()),
+                    root_module_id.clone().into(),
+                    id.clone().into(),
                     GraphEdge::new(EdgeType::Contains),
                 );
             }
@@ -305,7 +305,7 @@ impl BuildResolver for GradleResolver {
                             is_project: dep.is_project,
                         };
                         unit.add_node(naviscope_core::ingest::parser::IndexNode {
-                            id: target_id.clone(),
+                            id: target_id.clone().into(),
                             name: dep.name.clone(),
                             kind: NodeKind::Dependency,
                             lang: "gradle".to_string(),
@@ -332,8 +332,8 @@ impl BuildResolver for GradleResolver {
                     }
 
                     unit.add_edge(
-                        Arc::from(id.as_str()),
-                        Arc::from(target_id.as_str()),
+                        id.clone().into(),
+                        target_id.clone().into(),
                         GraphEdge::new(EdgeType::UsesDependency),
                     );
                 }
@@ -413,7 +413,7 @@ mod tests {
                 } = op
                 {
                     if edge.edge_type == EdgeType::Contains {
-                        Some((from_id.as_ref(), to_id.as_ref()))
+                        Some((from_id.as_str(), to_id.as_str()))
                     } else {
                         None
                     }

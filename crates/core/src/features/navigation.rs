@@ -5,11 +5,23 @@ use naviscope_api::navigation::ResolveResult;
 /// NavigationEngine provides logic for resolving fuzzy/relative paths within a graph.
 pub struct NavigationEngine<'a> {
     graph: &'a dyn CodeGraphLike,
+    naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
 }
 
 impl<'a> NavigationEngine<'a> {
-    pub fn new(graph: &'a dyn CodeGraphLike) -> Self {
-        Self { graph }
+    pub fn new(
+        graph: &'a dyn CodeGraphLike,
+        naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
+    ) -> Self {
+        Self {
+            graph,
+            naming_conventions,
+        }
+    }
+    
+    fn get_convention(&self, node: &crate::model::GraphNode) -> Option<&dyn naviscope_plugin::NamingConvention> {
+        let lang_str = self.graph.symbols().resolve(&node.lang.0);
+        self.naming_conventions.get(lang_str).map(|c| c.as_ref())
     }
 
     pub fn resolve_path(&self, target: &str, current_context: Option<&str>) -> ResolveResult {
@@ -22,7 +34,8 @@ impl<'a> NavigationEngine<'a> {
                 .filter_map(|idx| {
                     let node = &self.graph.topology()[idx];
                     if matches!(node.kind(), NodeKind::Project) {
-                        Some(node.fqn(self.graph.symbols()).to_string())
+                        let convention = self.get_convention(node);
+                        Some(self.graph.render_fqn(node, convention))
                     } else {
                         None
                     }
@@ -53,9 +66,8 @@ impl<'a> NavigationEngine<'a> {
                                 self.graph.topology().edge_endpoints(edge_idx).unwrap();
                             if let Some(parent_node) = self.graph.topology().node_weight(parent_idx)
                             {
-                                return ResolveResult::Found(
-                                    parent_node.fqn(self.graph.symbols()).to_string(),
-                                );
+                                let convention = self.get_convention(parent_node);
+                                return ResolveResult::Found(self.graph.render_fqn(parent_node, convention));
                             }
                         }
                     }
@@ -95,13 +107,14 @@ impl<'a> NavigationEngine<'a> {
                         let edge = &self.graph.topology()[edge_idx];
                         if edge.edge_type == EdgeType::Contains {
                             let node = &self.graph.topology()[child_idx];
-                            let fqn = node.fqn(self.graph.symbols());
+                            let convention = self.get_convention(node);
+                            let fqn = self.graph.render_fqn(node, convention);
 
                             // Match by simple name (last component) or display name
-                            let simple_name = fqn.split(&['.', ':']).last().unwrap_or(fqn);
+                            let simple_name = fqn.split(&['.', ':', '#']).last().unwrap_or(&fqn);
                             let display_name = node.name(self.graph.symbols());
                             if simple_name == target || display_name == target {
-                                Some(fqn.to_string())
+                                Some(fqn)
                             } else {
                                 None
                             }
@@ -118,18 +131,19 @@ impl<'a> NavigationEngine<'a> {
             self.graph
                 .fqn_map()
                 .keys()
-                .filter_map(|sym| {
-                    let fqn = self.graph.symbols().resolve(&sym.0);
-                    let simple_name = fqn.split(&['.', ':']).last().unwrap_or(fqn);
-                    if simple_name == target {
-                        return Some(fqn.to_string());
-                    }
+                .filter_map(|&fid| {
+                    if let Some(&idx) = self.graph.fqn_map().get(&fid) {
+                        let node = &self.graph.topology()[idx];
+                        let convention = self.get_convention(node);
+                        let fqn = self.graph.render_fqn(node, convention);
+                        let simple_name = fqn.split(&['.', ':', '#']).last().unwrap_or(&fqn);
+                        if simple_name == target {
+                            return Some(fqn);
+                        }
 
-                    // Also check display name
-                    if let Some(idx) = self.graph.fqn_map().get(sym) {
-                        let node = &self.graph.topology()[*idx];
+                        // Also check display name
                         if node.name(self.graph.symbols()) == target {
-                            return Some(fqn.to_string());
+                            return Some(fqn);
                         }
                     }
 
@@ -149,13 +163,16 @@ impl<'a> NavigationEngine<'a> {
         self.graph
             .fqn_map()
             .keys()
-            .filter_map(|sym| {
-                let fqn = self.graph.symbols().resolve(&sym.0);
-                if fqn.starts_with(prefix) {
-                    Some(fqn.to_string())
-                } else {
-                    None
+            .filter_map(|&fid| {
+                if let Some(&idx) = self.graph.fqn_map().get(&fid) {
+                    let node = &self.graph.topology()[idx];
+                    let convention = self.get_convention(node);
+                    let fqn = self.graph.render_fqn(node, convention);
+                    if fqn.starts_with(prefix) {
+                        return Some(fqn);
+                    }
                 }
+                None
             })
             .take(50) // Reasonable limit for candidates
             .collect()

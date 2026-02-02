@@ -57,18 +57,11 @@ impl EngineHandle {
         self.engine.get_resolver().get_semantic_resolver(language)
     }
 
-    pub fn get_metadata_plugin(
+    pub fn get_node_adapter(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::runtime::plugin::MetadataPlugin>> {
-        self.engine.get_resolver().get_metadata_plugin(language)
-    }
-
-    pub fn get_node_renderer(
-        &self,
-        language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::runtime::plugin::NodeRenderer>> {
-        self.engine.get_resolver().get_node_renderer(language)
+    ) -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
+        self.engine.get_resolver().get_node_adapter(language)
     }
 
     pub fn get_language_by_extension(&self, ext: &str) -> Option<crate::model::source::Language> {
@@ -86,6 +79,19 @@ impl EngineHandle {
         let lang = self.get_language_by_extension(ext)?;
         let parser = self.get_lsp_parser(lang.clone())?;
         Some((parser, lang))
+    }
+
+    /// Get naming convention for a specific language
+    pub fn get_naming_convention(
+        &self,
+        language: &str,
+    ) -> Option<Arc<dyn naviscope_plugin::NamingConvention>> {
+        self.engine.naming_conventions().get(language).cloned()
+    }
+    
+    /// Get all naming conventions (cheap Arc clone)
+    pub(crate) fn naming_conventions(&self) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
+        self.engine.naming_conventions()
     }
 
     // ---- File watching ----

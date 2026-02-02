@@ -1,4 +1,4 @@
-use lasso::{Key, Reader, Spur};
+use lasso::Key;
 use naviscope_api::models::NodeMetadata;
 use naviscope_core::model::metadata::{IndexMetadata, SymbolInterner};
 use naviscope_core::model::storage::model::StorageContext;
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GradleNodeMetadata {
     pub element: GradleStorageElement,
 }
@@ -16,22 +16,25 @@ impl GradleNodeMetadata {
         Self { element }
     }
 
-    pub fn detail_view(&self, rodeo: &dyn Reader) -> Option<String> {
+    pub fn detail_view(
+        &self,
+        fqns: &dyn naviscope_api::models::symbol::FqnReader,
+    ) -> Option<String> {
         match &self.element {
             GradleStorageElement::Dependency(d) => {
                 let mut detail = String::new();
                 if let Some(group_sid) = d.group_sid {
-                    detail.push_str(
-                        rodeo.resolve(&Spur::try_from_usize(group_sid as usize).unwrap()),
-                    );
+                    detail.push_str(fqns.resolve_atom(naviscope_api::models::symbol::Symbol(
+                        lasso::Spur::try_from_usize(group_sid as usize).unwrap(),
+                    )));
                 }
                 if let Some(version_sid) = d.version_sid {
                     if !detail.is_empty() {
                         detail.push(':');
                     }
-                    detail.push_str(
-                        rodeo.resolve(&Spur::try_from_usize(version_sid as usize).unwrap()),
-                    );
+                    detail.push_str(fqns.resolve_atom(naviscope_api::models::symbol::Symbol(
+                        lasso::Spur::try_from_usize(version_sid as usize).unwrap(),
+                    )));
                 }
                 if d.is_project {
                     detail.push_str(" (Project)");

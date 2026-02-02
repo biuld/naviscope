@@ -6,7 +6,7 @@ use crate::model::{GraphOp, ResolvedUnit};
 use rayon::prelude::*;
 use std::sync::Arc;
 
-use crate::runtime::plugin::{BuildToolPlugin, LanguagePlugin};
+use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
 /// Main resolver that dispatches to specific strategies based on file type for indexing
 pub struct IndexResolver {
@@ -57,35 +57,19 @@ impl IndexResolver {
             .map(|p| p.lsp_parser())
     }
 
-    pub fn get_metadata_plugin(
+    pub fn get_node_adapter(
         &self,
         language: Language,
-    ) -> Option<Arc<dyn crate::runtime::plugin::MetadataPlugin>> {
+    ) -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
         self.lang_plugins
             .iter()
             .find(|p| p.name() == language)
-            .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>)
+            .and_then(|p| p.get_node_adapter())
             .or_else(|| {
                 self.build_plugins
                     .iter()
                     .find(|p| p.name().as_str() == language.as_str())
-                    .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>)
-            })
-    }
-
-    pub fn get_node_renderer(
-        &self,
-        language: Language,
-    ) -> Option<Arc<dyn crate::runtime::plugin::NodeRenderer>> {
-        self.lang_plugins
-            .iter()
-            .find(|p| p.name() == language)
-            .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::NodeRenderer>)
-            .or_else(|| {
-                self.build_plugins
-                    .iter()
-                    .find(|p| p.name().as_str() == language.as_str())
-                    .map(|p| p.clone() as Arc<dyn crate::runtime::plugin::NodeRenderer>)
+                    .and_then(|p| p.get_node_adapter())
             })
     }
 
@@ -96,6 +80,16 @@ impl IndexResolver {
             }
         }
         Language::from_extension(ext)
+    }
+
+    pub fn get_naming_convention(
+        &self,
+        language: Language,
+    ) -> Option<Arc<dyn naviscope_plugin::NamingConvention>> {
+        self.lang_plugins
+            .iter()
+            .find(|p| p.name() == language)
+            .and_then(|p| p.get_naming_convention())
     }
 
     /// Resolve all parsed files into graph operations using a two-phase process

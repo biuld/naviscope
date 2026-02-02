@@ -23,7 +23,7 @@ impl IndexParser for JavaParser {
         // Use the native AST analyzer
         let model = self.analyze(&tree, source_code);
 
-        let nodes = model
+        let nodes: Vec<naviscope_core::ingest::parser::IndexNode> = model
             .entities
             .into_iter()
             .map(|e| {
@@ -75,12 +75,12 @@ impl IndexParser for JavaParser {
             })
             .collect();
 
-        let relations = model
+        let relations: Vec<naviscope_core::ingest::parser::IndexRelation> = model
             .relations
             .into_iter()
             .map(|r| naviscope_core::ingest::parser::IndexRelation {
-                source_id: r.source_fqn,
-                target_id: r.target_name,
+                source_id: r.source_id,
+                target_id: r.target_id,
                 edge_type: r.rel_type,
                 range: r.range,
             })

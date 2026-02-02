@@ -7,7 +7,7 @@ pub mod output;
 pub mod utils;
 
 pub use naviscope_api::SymbolResolution;
-pub use output::{IndexNode, IndexRelation, ParseOutput};
+pub use output::{IndexNode, IndexRelation, NodeId, ParseOutput};
 
 pub trait LspParser: Send + Sync {
     fn parse(

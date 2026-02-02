@@ -1,42 +1,15 @@
 use crate::ingest::parser::{GlobalParseResult, LspParser};
 use crate::ingest::resolver::SemanticResolver;
 use crate::model::source::{BuildTool, Language};
-use crate::model::{GraphNode, NodeMetadata};
-use naviscope_api::models::DisplayGraphNode;
+pub use naviscope_api::models::DisplayGraphNode;
+pub use naviscope_plugin::{
+    NamingConvention, NodeAdapter, PluginHandle, PluginInfo, PluginInstance,
+};
 use std::path::Path;
 use std::sync::Arc;
 
-/// Interface for custom metadata encoding/decoding during storage.
-pub trait MetadataPlugin: Send + Sync {
-    /// Intern rich metadata into an optimized binary version for storage.
-    fn intern(
-        &self,
-        _metadata: &dyn NodeMetadata,
-        _ctx: &mut dyn crate::model::storage::model::StorageContext,
-    ) -> Vec<u8> {
-        // Default implementation could return empty bytes if no metadata is needed
-        Vec::new()
-    }
-
-    /// Resolve optimized storage binary back into rich memory metadata.
-    fn resolve(
-        &self,
-        bytes: &[u8],
-        _ctx: &dyn crate::model::storage::model::StorageContext,
-    ) -> Arc<dyn NodeMetadata>;
-}
-
-/// Interface for rendering internal nodes to display nodes.
-pub trait NodeRenderer: Send + Sync {
-    /// Convert internal GraphNode to DisplayGraphNode.
-    fn render_display_node(&self, node: &GraphNode, rodeo: &dyn lasso::Reader) -> DisplayGraphNode;
-
-    /// Hydrate an existing DisplayGraphNode with rich information.
-    fn hydrate_display_node(&self, node: &mut DisplayGraphNode);
-}
-
 /// Unified interface for language-specific support.
-pub trait LanguagePlugin: MetadataPlugin + NodeRenderer + Send + Sync {
+pub trait LanguagePlugin: PluginInstance + Send + Sync {
     /// Plugin name, e.g., Language::JAVA
     fn name(&self) -> Language;
 
@@ -57,7 +30,7 @@ pub trait LanguagePlugin: MetadataPlugin + NodeRenderer + Send + Sync {
 }
 
 /// Unified interface for build tool support.
-pub trait BuildToolPlugin: MetadataPlugin + NodeRenderer + Send + Sync {
+pub trait BuildToolPlugin: PluginInstance + Send + Sync {
     /// Plugin name, e.g., BuildTool::GRADLE
     fn name(&self) -> BuildTool;
 

@@ -1,6 +1,7 @@
 mod common;
 
 use common::setup_java_test_graph;
+use naviscope_core::features::CodeGraphLike;
 use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
 
@@ -43,7 +44,7 @@ fn test_goto_implementation_interface() {
 
     let fqns: Vec<_> = impls
         .iter()
-        .map(|&i| index.topology()[i].fqn(index.symbols()).to_string())
+        .map(|&i| index.render_fqn(&index.topology()[i], Some(&naviscope_java::naming::JavaNamingConvention)).to_string())
         .collect();
     assert!(fqns.contains(&"ImplA".to_string()));
     assert!(fqns.contains(&"ImplB".to_string()));
@@ -73,5 +74,5 @@ fn test_goto_implementation_method() {
 
     let impls = resolver.find_implementations(&index, &res);
     assert_eq!(impls.len(), 1);
-    assert_eq!(index.topology()[impls[0]].fqn(index.symbols()), "Impl.act");
+    assert_eq!(index.render_fqn(&index.topology()[impls[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "Impl#act");
 }

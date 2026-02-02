@@ -9,6 +9,7 @@ members = [
     "crates/mcp",
     "crates/api",
     "crates/runtime",
+    "crates/plugin",
 ]
 
 [workspace.dependencies]
@@ -19,6 +20,7 @@ naviscope-lsp = { path = "crates/lsp" }
 naviscope-mcp = { path = "crates/mcp" }
 naviscope-api = { path = "crates/api" }
 naviscope-runtime = { path = "crates/runtime" }
+naviscope-plugin = { path = "crates/plugin" }
 
 petgraph = { version = "0.8", features = ["serde-1"] }
 tree-sitter = "0.26"

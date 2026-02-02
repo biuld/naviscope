@@ -1,4 +1,5 @@
 use crate::facade::EngineHandle;
+use crate::features::CodeGraphLike;
 use crate::features::discovery::DiscoveryEngine;
 use crate::util::utf16_col_to_byte_col;
 use async_trait::async_trait;
@@ -183,7 +184,8 @@ impl ReferenceAnalyzer for EngineHandle {
         let graph = self.graph().await;
 
         let matches = resolver.find_matches(&graph, &query.resolution);
-        let discovery = DiscoveryEngine::new(&graph);
+        let conventions = (*self.naming_conventions()).clone();
+        let discovery = DiscoveryEngine::new(&graph, conventions.clone());
         let candidate_paths = discovery.scout_references(&matches);
 
         let mut tasks = tokio::task::JoinSet::new();
@@ -193,6 +195,7 @@ impl ReferenceAnalyzer for EngineHandle {
             let handle = self.clone();
             let resolution = query.resolution.clone();
             let graph_snap = Arc::clone(&shared_graph);
+            let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
                 let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
@@ -210,7 +213,7 @@ impl ReferenceAnalyzer for EngineHandle {
                     Err(_) => return Vec::new(),
                 };
 
-                let discovery = DiscoveryEngine::new(graph_snap.as_ref());
+                let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
 
                 let uri_str = format!("file://{}", path.display());
                 let uri = match url::Url::parse(&uri_str) {
@@ -281,7 +284,8 @@ impl CallHierarchyAnalyzer for EngineHandle {
         }
 
         // 1. Meso-level scouting for candidate files
-        let discovery = DiscoveryEngine::new(&graph);
+        let conventions = (*self.naming_conventions()).clone();
+        let discovery = DiscoveryEngine::new(&graph, conventions.clone());
         let candidate_paths = discovery.scout_references(&target_indices);
 
         // 2. Micro-level scanning
@@ -293,6 +297,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             let handle = self.clone();
             let res = resolution.clone();
             let graph_snap = Arc::clone(&shared_graph);
+            let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
                 let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
@@ -310,7 +315,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
                     Err(_) => return vec![],
                 };
 
-                let discovery = DiscoveryEngine::new(graph_snap.as_ref());
+                let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
                 let uri_str = format!("file://{}", path.display());
                 let uri = match url::Url::parse(&uri_str) {
                     Ok(u) => u,
@@ -360,12 +365,13 @@ impl CallHierarchyAnalyzer for EngineHandle {
         }
 
         let mut results = Vec::new();
-        let symbols = graph.symbols();
         for (idx, ranges) in caller_map {
             let node = &graph.topology()[idx];
-            let fqn = node.fqn(symbols);
+            let lang_str = graph.symbols().resolve(&node.lang.0);
+            let convention = conventions.get(lang_str).map(|c: &Arc<dyn naviscope_plugin::NamingConvention>| c.as_ref());
+            let fqn_str = graph.render_fqn(node, convention);
             if let Some(display_node) = self
-                .get_node_display(fqn)
+                .get_node_display(&fqn_str)
                 .await
                 .map_err(|e| SemanticError::Internal(e.to_string()))?
             {
@@ -384,6 +390,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
         fqn: &str,
     ) -> SemanticResult<Vec<CallHierarchyOutgoingCall>> {
         let graph = self.graph().await;
+        let conventions = (*self.naming_conventions()).clone();
         let node_idx = match graph.find_node(fqn) {
             Some(idx) => idx,
             None => return Ok(vec![]),
@@ -471,9 +478,11 @@ impl CallHierarchyAnalyzer for EngineHandle {
         let mut results = Vec::new();
         for (idx, ranges) in outgoing_calls {
             let m_node = &graph.topology()[idx];
-            let fqn = m_node.fqn(symbols);
+            let lang_str = graph.symbols().resolve(&m_node.lang.0);
+            let convention = conventions.get(lang_str).map(|c: &Arc<dyn naviscope_plugin::NamingConvention>| c.as_ref());
+            let fqn_str = graph.render_fqn(m_node, convention);
             if let Some(display_node) = self
-                .get_node_display(fqn)
+                .get_node_display(&fqn_str)
                 .await
                 .map_err(|e| SemanticError::Internal(e.to_string()))?
             {
