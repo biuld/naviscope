@@ -13,7 +13,7 @@ const BINARY_NAME = 'naviscope';
 const REPO_OWNER = 'biuld';
 const REPO_NAME = 'naviscope';
 // Update this version when bundling a new version of the extension
-const EXPECTED_VERSION = '0.5.0';
+const EXPECTED_VERSION = '0.5.5';
 
 /**
  * Check if naviscope is available in PATH
