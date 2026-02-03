@@ -1,15 +1,17 @@
 pub mod model;
+pub mod naming;
 pub mod parser;
 pub mod queries;
 pub mod resolver;
 
 use lasso::Key;
-use naviscope_api::models::DisplayGraphNode;
-use naviscope_core::error::Result;
-use naviscope_core::ingest::parser::{GlobalParseResult, LspParser};
-use naviscope_core::ingest::resolver::SemanticResolver;
-use naviscope_core::model::source::Language;
-use naviscope_core::runtime::plugin::{LanguagePlugin, MetadataPlugin, NodeRenderer};
+use naviscope_api::models::graph::{EmptyMetadata, GraphNode, NodeKind};
+use naviscope_api::models::symbol::{FqnReader, Symbol, SymbolResolution};
+use naviscope_api::models::{DisplayGraphNode, Language};
+use naviscope_plugin::{
+    GlobalParseResult, LangResolver, LanguagePlugin, LspParser, NamingConvention, NodeAdapter,
+    PluginInstance, SemanticResolver, StorageContext,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -19,18 +21,14 @@ pub struct JavaPlugin {
     resolver: Arc<resolver::JavaResolver>,
 }
 
-impl NodeRenderer for JavaPlugin {
-    fn render_display_node(
-        &self,
-        node: &naviscope_core::model::GraphNode,
-        rodeo: &dyn lasso::Reader,
-    ) -> DisplayGraphNode {
+impl NodeAdapter for JavaPlugin {
+    fn render_display_node(&self, node: &GraphNode, fqns: &dyn FqnReader) -> DisplayGraphNode {
         let mut display = DisplayGraphNode {
-            id: node.fqn(rodeo).to_string(),
-            name: node.name(rodeo).to_string(),
+            id: crate::naming::JavaNamingConvention.render_fqn(node.id, fqns),
+            name: fqns.resolve_atom(node.name).to_string(),
             kind: node.kind.clone(),
             lang: "java".to_string(),
-            location: node.location.as_ref().map(|l| l.to_display(rodeo)),
+            location: node.location.as_ref().map(|l| l.to_display(fqns)),
             detail: None,
             signature: None,
             modifiers: vec![],
@@ -57,14 +55,15 @@ impl NodeRenderer for JavaPlugin {
                     display.modifiers = modifiers_sids
                         .iter()
                         .map(|&s| {
-                            rodeo
-                                .resolve(&lasso::Spur::try_from_usize(s as usize).unwrap())
-                                .to_string()
+                            fqns.resolve_atom(Symbol(
+                                lasso::Spur::try_from_usize(s as usize).unwrap(),
+                            ))
+                            .to_string()
                         })
                         .collect();
                     let prefix = match node.kind {
-                        naviscope_core::model::NodeKind::Interface => "interface",
-                        naviscope_core::model::NodeKind::Annotation => "@interface",
+                        NodeKind::Interface => "interface",
+                        NodeKind::Annotation => "@interface",
                         _ => "class",
                     };
                     display.signature = Some(format!("{} {}", prefix, display.name));
@@ -78,9 +77,10 @@ impl NodeRenderer for JavaPlugin {
                     display.modifiers = modifiers_sids
                         .iter()
                         .map(|&s| {
-                            rodeo
-                                .resolve(&lasso::Spur::try_from_usize(s as usize).unwrap())
-                                .to_string()
+                            fqns.resolve_atom(Symbol(
+                                lasso::Spur::try_from_usize(s as usize).unwrap(),
+                            ))
+                            .to_string()
                         })
                         .collect();
                     let params_str = parameters
@@ -88,10 +88,10 @@ impl NodeRenderer for JavaPlugin {
                         .map(|p| {
                             format!(
                                 "{}: {}",
-                                rodeo.resolve(
-                                    &lasso::Spur::try_from_usize(p.name_sid as usize).unwrap()
-                                ),
-                                crate::model::fmt_type(return_type, rodeo)
+                                fqns.resolve_atom(Symbol(
+                                    lasso::Spur::try_from_usize(p.name_sid as usize).unwrap(),
+                                )),
+                                crate::model::fmt_type(&p.type_ref)
                             )
                         })
                         .collect::<Vec<_>>()
@@ -103,7 +103,7 @@ impl NodeRenderer for JavaPlugin {
                             "{}({}) -> {}",
                             display.name,
                             params_str,
-                            crate::model::fmt_type(return_type, rodeo)
+                            crate::model::fmt_type(return_type)
                         ));
                     }
                 }
@@ -114,27 +114,17 @@ impl NodeRenderer for JavaPlugin {
                     display.modifiers = modifiers_sids
                         .iter()
                         .map(|&s| {
-                            rodeo
-                                .resolve(&lasso::Spur::try_from_usize(s as usize).unwrap())
-                                .to_string()
+                            fqns.resolve_atom(Symbol(
+                                lasso::Spur::try_from_usize(s as usize).unwrap(),
+                            ))
+                            .to_string()
                         })
                         .collect();
                     display.signature = Some(format!(
                         "{}: {}",
                         display.name,
-                        crate::model::fmt_type(type_ref, rodeo)
+                        crate::model::fmt_type(type_ref)
                     ));
-                }
-                crate::model::JavaNodeMetadata::Enum { modifiers_sids, .. } => {
-                    display.modifiers = modifiers_sids
-                        .iter()
-                        .map(|&s| {
-                            rodeo
-                                .resolve(&lasso::Spur::try_from_usize(s as usize).unwrap())
-                                .to_string()
-                        })
-                        .collect();
-                    display.signature = Some(format!("enum {}", display.name));
                 }
                 _ => {}
             }
@@ -150,8 +140,8 @@ impl NodeRenderer for JavaPlugin {
                 | crate::model::JavaIndexMetadata::Annotation { modifiers } => {
                     display.modifiers = modifiers.clone();
                     let prefix = match node.kind {
-                        naviscope_core::model::NodeKind::Interface => "interface",
-                        naviscope_core::model::NodeKind::Annotation => "@interface",
+                        NodeKind::Interface => "interface",
+                        NodeKind::Annotation => "@interface",
                         _ => "class",
                     };
                     display.signature = Some(format!("{} {}", prefix, display.name));
@@ -207,27 +197,10 @@ impl NodeRenderer for JavaPlugin {
         display
     }
 
-    fn hydrate_display_node(&self, _node: &mut DisplayGraphNode) {
-        // Hydration logic is currently disabled as DisplayGraphNode no longer carries raw metadata.
-        // LSP symbols are now baked during extraction.
-    }
-}
-
-impl JavaPlugin {
-    pub fn new() -> Result<Self> {
-        let parser = Arc::new(parser::JavaParser::new()?);
-        let resolver = Arc::new(resolver::JavaResolver {
-            parser: (*parser).clone(),
-        });
-        Ok(Self { parser, resolver })
-    }
-}
-
-impl MetadataPlugin for JavaPlugin {
-    fn intern(
+    fn encode_metadata(
         &self,
-        metadata: &dyn naviscope_core::model::NodeMetadata,
-        ctx: &mut dyn naviscope_core::model::storage::model::StorageContext,
+        metadata: &dyn naviscope_api::models::graph::NodeMetadata,
+        _ctx: &mut dyn StorageContext,
     ) -> Vec<u8> {
         if let Some(java_meta) = metadata
             .as_any()
@@ -238,24 +211,42 @@ impl MetadataPlugin for JavaPlugin {
             .as_any()
             .downcast_ref::<crate::model::JavaIndexMetadata>()
         {
-            // Convert uninterned JavaIndexMetadata to optimized storage
-            let storage_metadata = java_idx_meta.to_storage(ctx);
-            rmp_serde::to_vec(&storage_metadata).unwrap_or_default()
+            rmp_serde::to_vec(&java_idx_meta).unwrap_or_default()
         } else {
             Vec::new()
         }
     }
 
-    fn resolve(
+    fn decode_metadata(
         &self,
         bytes: &[u8],
-        _ctx: &dyn naviscope_core::model::storage::model::StorageContext,
-    ) -> Arc<dyn naviscope_core::model::NodeMetadata> {
+        _ctx: &dyn StorageContext,
+    ) -> Arc<dyn naviscope_api::models::graph::NodeMetadata> {
         if let Ok(element) = rmp_serde::from_slice::<crate::model::JavaNodeMetadata>(bytes) {
             Arc::new(element)
         } else {
-            Arc::new(naviscope_core::model::EmptyMetadata)
+            Arc::new(EmptyMetadata)
         }
+    }
+}
+
+impl JavaPlugin {
+    pub fn new() -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let parser = Arc::new(parser::JavaParser::new()?);
+        let resolver = Arc::new(resolver::JavaResolver {
+            parser: (*parser).clone(),
+        });
+        Ok(Self { parser, resolver })
+    }
+}
+
+impl PluginInstance for JavaPlugin {
+    fn get_naming_convention(&self) -> Option<Arc<dyn naviscope_plugin::NamingConvention>> {
+        Some(Arc::new(crate::naming::JavaNamingConvention))
+    }
+
+    fn get_node_adapter(&self) -> Option<Arc<dyn NodeAdapter>> {
+        Some(Arc::new(self.clone()))
     }
 }
 
@@ -268,8 +259,11 @@ impl LanguagePlugin for JavaPlugin {
         &["java"]
     }
 
-    fn parse_file(&self, source: &str, path: &Path) -> Result<GlobalParseResult> {
-        use naviscope_core::ingest::parser::IndexParser;
+    fn parse_file(
+        &self,
+        source: &str,
+        path: &Path,
+    ) -> std::result::Result<GlobalParseResult, Box<dyn std::error::Error + Send + Sync>> {
         self.parser.parse_file(source, Some(path))
     }
 
@@ -277,13 +271,11 @@ impl LanguagePlugin for JavaPlugin {
         self.resolver.clone()
     }
 
-    fn lang_resolver(&self) -> Arc<dyn naviscope_core::ingest::resolver::LangResolver> {
+    fn lang_resolver(&self) -> Arc<dyn LangResolver> {
         self.resolver.clone()
     }
 
     fn lsp_parser(&self) -> Arc<dyn LspParser> {
-        // Return self because JavaPlugin implements LspParser
-        // and provides the "Complete" (hydrated) view.
         Arc::new(self.clone())
     }
 }
@@ -298,14 +290,10 @@ impl LspParser for JavaPlugin {
     }
 
     fn extract_symbols(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<DisplayGraphNode> {
-        let mut symbols = self.parser.extract_symbols(tree, source);
-        for sym in &mut symbols {
-            self.hydrate_display_node(sym);
-        }
-        symbols
+        self.parser.extract_symbols(tree, source)
     }
 
-    fn symbol_kind(&self, kind: &naviscope_core::model::NodeKind) -> lsp_types::SymbolKind {
+    fn symbol_kind(&self, kind: &naviscope_api::models::graph::NodeKind) -> lsp_types::SymbolKind {
         self.parser.symbol_kind(kind)
     }
 
@@ -313,8 +301,8 @@ impl LspParser for JavaPlugin {
         &self,
         source: &str,
         tree: &tree_sitter::Tree,
-        target: &naviscope_core::ingest::parser::SymbolResolution,
-    ) -> Vec<naviscope_core::model::Range> {
+        target: &SymbolResolution,
+    ) -> Vec<naviscope_api::models::Range> {
         self.parser.find_occurrences(source, tree, target)
     }
 }

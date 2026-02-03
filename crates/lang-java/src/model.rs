@@ -1,6 +1,5 @@
-use lasso::Reader;
 use naviscope_api::models::{NodeMetadata, TypeRef};
-use naviscope_core::model::metadata::{IndexMetadata, SymbolInterner};
+use naviscope_plugin::{IndexMetadata, SymbolInterner};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::sync::Arc;
@@ -139,23 +138,23 @@ pub struct JavaParameterStorage {
     pub type_ref: TypeRef,
 }
 
-pub fn fmt_type(t: &TypeRef, rodeo: &dyn Reader) -> String {
+pub fn fmt_type(t: &TypeRef) -> String {
     match t {
         TypeRef::Raw(s) => s.clone(),
         TypeRef::Id(s) => s.split('.').last().unwrap_or(s).to_string(),
         TypeRef::Generic { base, args } => {
             let args_str = args
                 .iter()
-                .map(|a| fmt_type(a, rodeo))
+                .map(|a| fmt_type(a))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("{}<{}>", fmt_type(base, rodeo), args_str)
+            format!("{}<{}>", fmt_type(base), args_str)
         }
         TypeRef::Array {
             element,
             dimensions,
         } => {
-            format!("{}{}", fmt_type(element, rodeo), "[]".repeat(*dimensions))
+            format!("{}{}", fmt_type(element), "[]".repeat(*dimensions))
         }
         _ => "?".to_string(),
     }

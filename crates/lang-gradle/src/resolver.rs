@@ -1,8 +1,9 @@
-use naviscope_core::error::Result;
-use naviscope_core::ingest::resolver::{BuildResolver, ProjectContext};
-use naviscope_core::ingest::scanner::{ParsedContent, ParsedFile};
-use naviscope_core::model::{
-    DisplaySymbolLocation, EdgeType, GraphEdge, NodeKind, Range, ResolvedUnit,
+use naviscope_api::models::graph::{
+    DisplaySymbolLocation, EdgeType, EmptyMetadata, GraphEdge, NodeKind,
+};
+use naviscope_api::models::symbol::{NodeId, Range};
+use naviscope_plugin::{
+    BuildResolver, IndexNode, ParsedContent, ParsedFile, ProjectContext, ResolvedUnit,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,7 +23,11 @@ impl GradleResolver {
 }
 
 impl BuildResolver for GradleResolver {
-    fn resolve(&self, files: &[&ParsedFile]) -> Result<(ResolvedUnit, ProjectContext)> {
+    fn resolve(
+        &self,
+        files: &[&ParsedFile],
+    ) -> std::result::Result<(ResolvedUnit, ProjectContext), Box<dyn std::error::Error + Send + Sync>>
+    {
         let mut unit = ResolvedUnit::new();
         let mut context = ProjectContext::new();
 
@@ -40,7 +45,7 @@ impl BuildResolver for GradleResolver {
                 });
 
             match &file.content {
-                ParsedContent::MetaData(value) => {
+                ParsedContent::Metadata(value) => {
                     // Try to deserialize as GradleParseResult first
                     if let Ok(gradle_result) =
                         serde_json::from_value::<crate::model::GradleParseResult>(value.clone())
@@ -53,7 +58,7 @@ impl BuildResolver for GradleResolver {
                     }
                 }
                 ParsedContent::Unparsed(content_str) => {
-                    let path = &file.file.path.clone();
+                    let path = &file.file.path;
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         if name == "build.gradle" || name == "build.gradle.kts" {
                             if let Ok(deps) = crate::parser::parse_dependencies(content_str) {
@@ -113,10 +118,11 @@ impl BuildResolver for GradleResolver {
                 .to_string()
         };
 
-        let project_id = format!("project:{}", project_name);
+        let project_id_str = format!("project:{}", project_name);
+        let project_id = NodeId::Flat(project_id_str.clone());
 
         // Add Project node
-        unit.add_node(naviscope_core::ingest::parser::IndexNode {
+        unit.add_node(IndexNode {
             id: project_id.clone(),
             name: project_name.clone(),
             kind: NodeKind::Project,
@@ -131,16 +137,16 @@ impl BuildResolver for GradleResolver {
                 },
                 selection_range: None,
             }),
-            metadata: Arc::new(naviscope_core::model::EmptyMetadata),
+            metadata: Arc::new(EmptyMetadata),
         });
 
         // --- Step 4: Assign Module IDs ---
-        let mut path_to_id: HashMap<PathBuf, String> = HashMap::new();
+        let mut path_to_id: HashMap<PathBuf, NodeId> = HashMap::new();
 
         for path in &sorted_paths {
-            let id = if path == &root_path {
+            let id_str = if path == &root_path {
                 // Root module is now a child of project
-                format!("{}::module:{}", project_id, project_name)
+                format!("{}::module:{}", project_id_str, project_name)
             } else if path.starts_with(&root_path) {
                 let rel = path.strip_prefix(&root_path).unwrap();
                 let logical = rel
@@ -148,16 +154,16 @@ impl BuildResolver for GradleResolver {
                     .map(|c| c.as_os_str().to_string_lossy())
                     .collect::<Vec<_>>()
                     .join("/");
-                format!("{}::module:{}", project_id, logical)
+                format!("{}::module:{}", project_id_str, logical)
             } else {
                 // External modules (e.g., buildSrc)
                 format!(
                     "{}::module:{}",
-                    project_id,
+                    project_id_str,
                     path.file_name().unwrap_or_default().to_string_lossy()
                 )
             };
-            path_to_id.insert(path.clone(), id);
+            path_to_id.insert(path.clone(), NodeId::Flat(id_str));
         }
 
         // --- Step 5: Construct Module Nodes and Hierarchy ---
@@ -166,12 +172,13 @@ impl BuildResolver for GradleResolver {
         // Add root module and link to project
         {
             let data = module_map.get(&root_path).unwrap();
-            let display_name = root_module_id
+            let root_module_id_str = root_module_id.to_string();
+            let display_name = root_module_id_str
                 .split("::module:")
                 .nth(1)
                 .unwrap_or(&project_name);
 
-            unit.add_node(naviscope_core::ingest::parser::IndexNode {
+            unit.add_node(IndexNode {
                 id: root_module_id.clone(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
@@ -195,18 +202,18 @@ impl BuildResolver for GradleResolver {
                         },
                         selection_range: None,
                     }),
-                metadata: Arc::new(naviscope_core::model::EmptyMetadata),
+                metadata: Arc::new(EmptyMetadata),
             });
 
             unit.add_edge(
-                Arc::from(project_id.as_str()),
-                Arc::from(root_module_id.as_str()),
+                project_id.clone(),
+                root_module_id.clone(),
                 GraphEdge::new(EdgeType::Contains),
             );
 
             context
                 .path_to_module
-                .insert(root_path.clone(), root_module_id.clone());
+                .insert(root_path.clone(), root_module_id.to_string());
         }
 
         // Add other modules
@@ -217,9 +224,10 @@ impl BuildResolver for GradleResolver {
 
             let data = module_map.get(path).unwrap();
             let id = path_to_id.get(path).unwrap();
-            let display_name = id.split("::module:").nth(1).unwrap_or(id);
+            let id_str = id.to_string();
+            let display_name = id_str.split("::module:").nth(1).unwrap_or(&id_str);
 
-            unit.add_node(naviscope_core::ingest::parser::IndexNode {
+            unit.add_node(IndexNode {
                 id: id.clone(),
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
@@ -243,10 +251,10 @@ impl BuildResolver for GradleResolver {
                         },
                         selection_range: None,
                     }),
-                metadata: Arc::new(naviscope_core::model::EmptyMetadata),
+                metadata: Arc::new(EmptyMetadata),
             });
 
-            context.path_to_module.insert(path.clone(), id.clone());
+            context.path_to_module.insert(path.clone(), id.to_string());
 
             // Establish hierarchy
             let mut found_parent = false;
@@ -256,8 +264,8 @@ impl BuildResolver for GradleResolver {
                 let normalized_p = self.normalize_path(p);
                 if let Some(parent_id) = path_to_id.get(&normalized_p) {
                     unit.add_edge(
-                        Arc::from(parent_id.as_str()),
-                        Arc::from(id.as_str()),
+                        parent_id.clone(),
+                        id.clone(),
                         GraphEdge::new(EdgeType::Contains),
                     );
                     found_parent = true;
@@ -272,8 +280,8 @@ impl BuildResolver for GradleResolver {
             // Fallback: link to root module if no parent found
             if !found_parent && path.starts_with(&root_path) {
                 unit.add_edge(
-                    Arc::from(root_module_id.as_str()),
-                    Arc::from(id.as_str()),
+                    root_module_id.clone(),
+                    id.clone(),
                     GraphEdge::new(EdgeType::Contains),
                 );
             }
@@ -286,25 +294,21 @@ impl BuildResolver for GradleResolver {
 
             if let Some((_, content)) = &data.build_file {
                 for dep in &content.dependencies {
-                    let target_id = if dep.is_project {
+                    let target_id_str = if dep.is_project {
                         let clean_name = dep
                             .name
                             .trim_matches(|c| c == ':' || c == '\"' || c == '\'')
                             .replace(':', "/");
-                        format!("{}::module:{}", project_id, clean_name)
+                        format!("{}::module:{}", project_id_str, clean_name)
                     } else {
                         let group = dep.group.as_deref().unwrap_or("");
                         let version = dep.version.as_deref().unwrap_or("");
                         format!("dep:{}:{}:{}", group, dep.name, version)
                     };
+                    let target_id = NodeId::Flat(target_id_str);
 
                     if !dep.is_project {
-                        let _dep_node = crate::model::GradleDependency {
-                            group: dep.group.clone(),
-                            version: dep.version.clone(),
-                            is_project: dep.is_project,
-                        };
-                        unit.add_node(naviscope_core::ingest::parser::IndexNode {
+                        unit.add_node(IndexNode {
                             id: target_id.clone(),
                             name: dep.name.clone(),
                             kind: NodeKind::Dependency,
@@ -327,13 +331,13 @@ impl BuildResolver for GradleResolver {
                                 },
                                 selection_range: None,
                             }),
-                            metadata: Arc::new(naviscope_core::model::EmptyMetadata),
+                            metadata: Arc::new(EmptyMetadata),
                         });
                     }
 
                     unit.add_edge(
-                        Arc::from(id.as_str()),
-                        Arc::from(target_id.as_str()),
+                        id.clone(),
+                        target_id,
                         GraphEdge::new(EdgeType::UsesDependency),
                     );
                 }
@@ -352,8 +356,7 @@ struct ModuleData<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_core::model::GraphOp;
-    use naviscope_core::model::source::SourceFile;
+    use naviscope_plugin::{GraphOp, SourceFile};
 
     fn create_mock_file(path: &str, content: ParsedContent) -> ParsedFile {
         ParsedFile {
@@ -372,7 +375,7 @@ mod tests {
 
         let root_settings = create_mock_file(
             "/repo/settings.gradle",
-            ParsedContent::MetaData(
+            ParsedContent::Metadata(
                 serde_json::to_value(crate::model::GradleSettings {
                     root_project_name: Some("spring-boot-build".to_string()),
                     included_projects: vec![],
@@ -382,7 +385,7 @@ mod tests {
         );
         let sub_project_build = create_mock_file(
             "/repo/spring-boot-project/build.gradle",
-            ParsedContent::MetaData(
+            ParsedContent::Metadata(
                 serde_json::to_value(crate::model::GradleParseResult {
                     dependencies: vec![],
                 })
@@ -391,7 +394,7 @@ mod tests {
         );
         let core_build = create_mock_file(
             "/repo/spring-boot-project/spring-boot/build.gradle",
-            ParsedContent::MetaData(
+            ParsedContent::Metadata(
                 serde_json::to_value(crate::model::GradleParseResult {
                     dependencies: vec![],
                 })
@@ -413,7 +416,12 @@ mod tests {
                 } = op
                 {
                     if edge.edge_type == EdgeType::Contains {
-                        Some((from_id.as_ref(), to_id.as_ref()))
+                        let from = from_id.to_string();
+                        let to = to_id.to_string();
+                        // Strip quotes if they exist (NodeId Display adds them for Flat)
+                        let clean_from = from.trim_matches('\"');
+                        let clean_to = to.trim_matches('\"');
+                        Some((clean_from.to_string(), clean_to.to_string()))
                     } else {
                         None
                     }
@@ -424,17 +432,13 @@ mod tests {
             .collect();
 
         // Should have: project -> root_module -> sub_modules
-        assert!(edges.contains(&(
-            "project:spring-boot-build",
-            "project:spring-boot-build::module:spring-boot-build"
-        )));
-        assert!(edges.contains(&(
-            "project:spring-boot-build::module:spring-boot-build",
-            "project:spring-boot-build::module:spring-boot-project"
-        )));
-        assert!(edges.contains(&(
-            "project:spring-boot-build::module:spring-boot-project",
-            "project:spring-boot-build::module:spring-boot-project/spring-boot"
-        )));
+        assert!(edges.iter().any(|(f, t)| f == "project:spring-boot-build"
+            && t == "project:spring-boot-build::module:spring-boot-build"));
+        assert!(edges.iter().any(|(f, t)| f
+            == "project:spring-boot-build::module:spring-boot-build"
+            && t == "project:spring-boot-build::module:spring-boot-project"));
+        assert!(edges.iter().any(|(f, t)| f
+            == "project:spring-boot-build::module:spring-boot-project"
+            && t == "project:spring-boot-build::module:spring-boot-project/spring-boot"));
     }
 }

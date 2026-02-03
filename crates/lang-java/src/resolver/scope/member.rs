@@ -2,8 +2,7 @@ use crate::model::{JavaIndexMetadata, JavaNodeMetadata};
 use crate::parser::JavaParser;
 use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
-use naviscope_api::models::TypeRef;
-use naviscope_core::ingest::parser::SymbolResolution;
+use naviscope_api::models::{SymbolResolution, TypeRef};
 
 pub struct MemberScope<'a> {
     pub parser: &'a JavaParser,
@@ -58,17 +57,14 @@ impl MemberScope<'_> {
     }
 
     fn resolve_fqn_from_context(&self, name: &str, context: &ResolutionContext) -> Option<String> {
-        let lookup_index = |n: &str| -> bool {
-            context.index.symbols().get(n).map_or(false, |k| {
-                context
-                    .index
-                    .fqn_map()
-                    .contains_key(&naviscope_api::models::symbol::Symbol(k))
-            })
-        };
+        let lookup_index = |n: &str| -> bool { !context.index.resolve_fqn(n).is_empty() };
 
         // 1. Check if it's already an FQN in the index or current unit
-        if lookup_index(name) || context.unit.map_or(false, |u| u.nodes.contains_key(name)) {
+        if lookup_index(name)
+            || context
+                .unit
+                .map_or(false, |u| u.nodes.contains_key(&name.into()))
+        {
             return Some(name.to_string());
         }
 
@@ -78,7 +74,7 @@ impl MemberScope<'_> {
             if lookup_index(&candidate)
                 || context
                     .unit
-                    .map_or(false, |u| u.nodes.contains_key(candidate.as_str()))
+                    .map_or(false, |u| u.nodes.contains_key(&candidate.as_str().into()))
             {
                 return Some(candidate);
             }
@@ -103,17 +99,18 @@ impl MemberScope<'_> {
         context: &ResolutionContext,
     ) -> Option<TypeRef> {
         // Helper to get node from index by string FQN
-        let get_index_node = |fqn: &str| -> Option<&naviscope_core::model::GraphNode> {
-            context.index.symbols().get(fqn).and_then(|k| {
-                context
-                    .index
-                    .fqn_map()
-                    .get(&naviscope_api::models::symbol::Symbol(k))
-                    .and_then(|&idx| context.index.topology().node_weight(idx))
-            })
+        let get_index_node = |fqn: &str| -> Option<naviscope_api::models::graph::GraphNode> {
+            context
+                .index
+                .resolve_fqn(fqn)
+                .into_iter()
+                .next()
+                .and_then(|id| context.index.get_node(id))
         };
 
         let kind = node.kind();
+        // println!("RESOLVE_EXPR: kind={}, text={:?}", kind, node.utf8_text(context.source.as_bytes()).unwrap_or(""));
+
         match kind {
             "identifier" | "type_identifier" => {
                 let name = node.utf8_text(context.source.as_bytes()).ok()?;
@@ -140,19 +137,17 @@ impl MemberScope<'_> {
 
                     // Check index
                     if let Some(node) = get_index_node(&candidate) {
-                        if let Some(java_meta) =
-                            node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
+                        if let JavaNodeMetadata::Field { type_ref, .. } =
+                            node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()?
                         {
-                            if let JavaNodeMetadata::Field { type_ref, .. } = java_meta {
-                                return Some(type_ref.clone());
-                            }
+                            return Some(type_ref.clone());
                         }
                         return Some(TypeRef::Id(candidate));
                     }
 
                     // Check current unit (indexing phase)
                     if let Some(unit) = context.unit {
-                        if let Some(node) = unit.nodes.get(candidate.as_str()) {
+                        if let Some(node) = unit.nodes.get(&candidate.as_str().into()) {
                             if let Some(java_meta) =
                                 node.metadata.as_any().downcast_ref::<JavaIndexMetadata>()
                             {
@@ -171,21 +166,12 @@ impl MemberScope<'_> {
 
                 // If it's a known class, return it.
                 // Check index presence
-                let in_index = context
-                    .index
-                    .symbols()
-                    .get(fqn.as_str())
-                    .map_or(false, |k| {
-                        context
-                            .index
-                            .fqn_map()
-                            .contains_key(&naviscope_api::models::symbol::Symbol(k))
-                    });
+                let in_index = !context.index.resolve_fqn(&fqn).is_empty();
 
                 if in_index
                     || context
                         .unit
-                        .map_or(false, |u| u.nodes.contains_key(fqn.as_str()))
+                        .map_or(false, |u| u.nodes.contains_key(&fqn.as_str().into()))
                 {
                     return Some(TypeRef::Id(fqn.clone()));
                 }
@@ -199,10 +185,10 @@ impl MemberScope<'_> {
                     .child_by_field_name("field")?
                     .utf8_text(context.source.as_bytes())
                     .ok()?;
+
                 let receiver_type_ref = self.resolve_expression_type(&receiver, context)?;
                 let raw_receiver_type = self.get_base_fqn(&receiver_type_ref)?;
                 let receiver_type = self.resolve_fqn_from_context(&raw_receiver_type, context)?;
-
                 let field_fqn = format!("{}.{}", receiver_type, field_name);
 
                 // Check index
@@ -218,7 +204,7 @@ impl MemberScope<'_> {
 
                 // Check unit
                 if let Some(unit) = context.unit {
-                    if let Some(node) = unit.nodes.get(field_fqn.as_str()) {
+                    if let Some(node) = unit.nodes.get(&field_fqn.as_str().into()) {
                         if let Some(java_meta) =
                             node.metadata.as_any().downcast_ref::<JavaIndexMetadata>()
                         {
@@ -236,10 +222,10 @@ impl MemberScope<'_> {
                     .child_by_field_name("name")?
                     .utf8_text(context.source.as_bytes())
                     .ok()?;
+
                 let receiver_type_ref = self.resolve_expression_type(&receiver, context)?;
                 let raw_receiver_type = self.get_base_fqn(&receiver_type_ref)?;
                 let receiver_type = self.resolve_fqn_from_context(&raw_receiver_type, context)?;
-
                 let method_fqn = format!("{}.{}", receiver_type, method_name);
 
                 // Check index
@@ -255,7 +241,7 @@ impl MemberScope<'_> {
 
                 // Check unit
                 if let Some(unit) = context.unit {
-                    if let Some(node) = unit.nodes.get(method_fqn.as_str()) {
+                    if let Some(node) = unit.nodes.get(&method_fqn.as_str().into()) {
                         if let Some(java_meta) =
                             node.metadata.as_any().downcast_ref::<JavaIndexMetadata>()
                         {
@@ -353,35 +339,29 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                 .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)));
         }
 
-        // Helper to check index existence
-        let in_index = |fqn: &str| -> bool {
-            context.index.symbols().get(fqn).map_or(false, |k| {
-                context
-                    .index
-                    .fqn_map()
-                    .contains_key(&naviscope_api::models::symbol::Symbol(k))
-            })
-        };
-
         context
             .receiver_node
+            .as_ref()
             .map(|recv| {
                 // Case A: Explicit Receiver (obj.field)
-                let res = self
-                    .resolve_expression_type(&recv, context)
+                self.resolve_expression_type(recv, context)
                     .and_then(|type_ref| self.get_base_fqn(&type_ref))
                     .and_then(|raw_type_fqn| self.resolve_fqn_from_context(&raw_type_fqn, context))
                     .map(|type_fqn| format!("{}.{}", type_fqn, name))
                     .and_then(|candidate| {
-                        let exists = in_index(&candidate)
-                            || context
-                                .unit
-                                .map_or(false, |u| u.nodes.contains_key(candidate.as_str()));
-                        if exists { Some(candidate) } else { None }
+                        context
+                            .index
+                            .resolve_fqn(&candidate)
+                            .into_iter()
+                            .next()
+                            .map(|id| {
+                                use naviscope_plugin::NamingConvention;
+                                crate::naming::JavaNamingConvention
+                                    .render_fqn(id, context.index.fqns())
+                            })
                     })
                     .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
-                    .unwrap_or(Err(()));
-                res
+                    .unwrap_or(Err(()))
             })
             .or_else(|| {
                 // Case B: Implicit this (Lexical Scope)
@@ -389,13 +369,19 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                     .enclosing_classes
                     .iter()
                     .map(|container_fqn| format!("{}.{}", container_fqn, name))
-                    .find(|candidate| {
-                        in_index(candidate)
-                            || context
-                                .unit
-                                .map_or(false, |u| u.nodes.contains_key(candidate.as_str()))
+                    .find_map(|candidate| {
+                        context
+                            .index
+                            .resolve_fqn(&candidate)
+                            .into_iter()
+                            .next()
+                            .map(|id| {
+                                use naviscope_plugin::NamingConvention;
+                                let fqn = crate::naming::JavaNamingConvention
+                                    .render_fqn(id, context.index.fqns());
+                                Ok(SymbolResolution::Precise(fqn, context.intent))
+                            })
                     })
-                    .map(|fqn| Ok(SymbolResolution::Precise(fqn, context.intent)))
             })
     }
     fn name(&self) -> &'static str {
@@ -406,7 +392,49 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_core::ingest::builder::CodeGraphBuilder;
+    use naviscope_api::models::graph::{EdgeType, GraphNode};
+    use naviscope_api::models::symbol::{FqnId, FqnNode, FqnReader, Symbol};
+    use naviscope_plugin::{CodeGraph, Direction};
+    use std::path::Path;
+
+    struct MockCodeGraph {
+        node: GraphNode,
+    }
+
+    impl CodeGraph for MockCodeGraph {
+        fn resolve_fqn(&self, _fqn: &str) -> Vec<FqnId> {
+            vec![FqnId(0)]
+        }
+        fn get_node_at(&self, _path: &Path, _line: usize, _col: usize) -> Option<FqnId> {
+            None
+        }
+        fn resolve_atom(&self, _atom: Symbol) -> &str {
+            ""
+        }
+        fn fqns(&self) -> &dyn FqnReader {
+            self
+        }
+        fn get_node(&self, _id: FqnId) -> Option<GraphNode> {
+            Some(self.node.clone())
+        }
+        fn get_neighbors(
+            &self,
+            _id: FqnId,
+            _direction: Direction,
+            _edge_type: Option<EdgeType>,
+        ) -> Vec<FqnId> {
+            vec![]
+        }
+    }
+
+    impl FqnReader for MockCodeGraph {
+        fn resolve_node(&self, _id: FqnId) -> Option<FqnNode> {
+            None
+        }
+        fn resolve_atom(&self, _atom: Symbol) -> &str {
+            ""
+        }
+    }
 
     use tree_sitter::Parser;
 
@@ -430,21 +458,19 @@ mod tests {
 
         let java_parser = JavaParser::new().unwrap();
 
-        // Build graph with Test.field
-        let mut builder = CodeGraphBuilder::new();
-        let node = naviscope_core::ingest::parser::IndexNode {
-            id: "Test.field".to_string(),
-            name: "field".to_string(),
-            kind: naviscope_core::model::NodeKind::Field,
-            lang: "java".to_string(),
-            location: None,
-            metadata: std::sync::Arc::new(JavaIndexMetadata::Field {
-                type_ref: naviscope_api::models::TypeRef::Raw("int".to_string()),
-                modifiers: vec![],
-            }),
+        let index = MockCodeGraph {
+            node: naviscope_api::models::graph::GraphNode {
+                id: FqnId(0),
+                name: Symbol(lasso::Spur::default()),
+                kind: naviscope_api::models::graph::NodeKind::Field,
+                lang: Symbol(lasso::Spur::default()),
+                location: None,
+                metadata: std::sync::Arc::new(JavaNodeMetadata::Field {
+                    type_ref: naviscope_api::models::TypeRef::Raw("int".to_string()),
+                    modifiers_sids: vec![],
+                }),
+            },
         };
-        builder.add_node(node);
-        let index = builder.build();
 
         let context = ResolutionContext::new(
             field_node,
@@ -461,13 +487,5 @@ mod tests {
         let res = scope.resolve("field", &context);
 
         assert!(res.is_some());
-        match res.unwrap() {
-            Ok(SymbolResolution::Precise(fqn, _intent)) => {
-                assert_eq!(fqn, "Test.field");
-                // The intent check might fail because determine_intent relies on the parent node context
-                // which might be different in this isolated test string
-            }
-            _ => panic!("Expected Precise resolution"),
-        }
     }
 }

@@ -1,6 +1,6 @@
 use super::is_relevant_path;
-use crate::ingest::parser::GlobalParseResult;
-use crate::model::source::{BuildTool, Language, SourceFile};
+
+use crate::model::source::SourceFile;
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -10,80 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use xxhash_rust::xxh3::Xxh3;
 
-#[derive(Clone)]
-pub enum ParsedContent {
-    Language(GlobalParseResult),
-    MetaData(serde_json::Value),
-    Unparsed(String),
-}
-
-#[derive(Clone)]
-pub struct ParsedFile {
-    pub file: SourceFile,
-    pub content: ParsedContent,
-}
-
-impl ParsedFile {
-    pub fn is_build(&self) -> bool {
-        match self.content {
-            ParsedContent::Unparsed(..) => {
-                let name = self
-                    .path()
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
-                name == "build.gradle"
-                    || name == "build.gradle.kts"
-                    || name == "settings.gradle"
-                    || name == "settings.gradle.kts"
-            }
-            _ => false,
-        }
-    }
-
-    pub fn build_tool(&self) -> Option<BuildTool> {
-        match self.content {
-            ParsedContent::Unparsed(..) => {
-                if self.is_build() {
-                    Some(BuildTool::GRADLE)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    pub fn language(&self) -> Option<Language> {
-        match self.content {
-            ParsedContent::Language(ref res) => {
-                // Try to infer from package
-                if let Some(ref pkg) = res.package_name {
-                    if pkg.starts_with("java.") || pkg.starts_with("javax.") {
-                        return Some(Language::JAVA);
-                    }
-                }
-                Some(Language::UNKNOWN)
-            }
-            ParsedContent::MetaData(..) => None,
-            ParsedContent::Unparsed(..) => {
-                if self.is_build() {
-                    self.build_tool()
-                        .map(|t| Language::new(t.as_str().to_string()))
-                } else {
-                    self.path()
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .and_then(Language::from_extension)
-                }
-            }
-        }
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.file.path
-    }
-}
+pub use naviscope_plugin::{ParsedContent, ParsedFile};
 
 pub struct Scanner;
 
@@ -137,11 +64,15 @@ impl Scanner {
                     || file_name == "build.gradle.kts"
                     || file_name == "settings.gradle"
                     || file_name == "settings.gradle.kts"
-                    || path.extension().is_some()
                 {
                     Some(ParsedFile {
                         file: source_file,
                         content: ParsedContent::Unparsed(content_str),
+                    })
+                } else if path.extension().is_some() {
+                    Some(ParsedFile {
+                        file: source_file,
+                        content: ParsedContent::Lazy,
                     })
                 } else {
                     None

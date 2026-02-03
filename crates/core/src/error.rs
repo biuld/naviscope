@@ -10,8 +10,16 @@ pub enum NaviscopeError {
     Parsing(String),
     #[error("Internal error: {0}")]
     Internal(String),
+    #[error("Plugin error: {0}")]
+    Plugin(String),
     #[error("Unknown error")]
     Unknown,
+}
+
+impl From<Box<dyn std::error::Error + Send + Sync>> for NaviscopeError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        NaviscopeError::Plugin(err.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, NaviscopeError>;

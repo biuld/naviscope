@@ -1,4 +1,4 @@
-use naviscope_core::error::Result;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 use std::sync::Arc;
 use tree_sitter::{Query, StreamingIterator, Tree};
 
@@ -37,13 +37,13 @@ impl JavaParser {
     pub fn new() -> Result<Self> {
         let language: tree_sitter::Language = tree_sitter_java::LANGUAGE.into();
 
-        let definition_query = naviscope_core::ingest::parser::utils::load_query(
+        let definition_query = naviscope_plugin::utils::load_query(
             &language,
             crate::queries::java_definitions::JAVA_DEFINITIONS_SCM,
         )?;
         let indices = JavaIndices::new(&definition_query)?;
 
-        let occurrence_query = naviscope_core::ingest::parser::utils::load_query(
+        let occurrence_query = naviscope_plugin::utils::load_query(
             &language,
             crate::queries::java_occurrences::JAVA_OCCURRENCES_SCM,
         )?;

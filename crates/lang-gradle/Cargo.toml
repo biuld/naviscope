@@ -1,11 +1,12 @@
 [package]
 name = "naviscope-gradle"
-version = "0.5.0"
+version = "0.5.5"
 edition = "2024"
 
 [dependencies]
 naviscope-core = { workspace = true }
 naviscope-api = { workspace = true }
+naviscope-plugin = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true }
 tree-sitter-groovy = { workspace = true }

@@ -1,8 +1,8 @@
 use super::super::JavaParser;
 use super::{JavaEntity, JavaRelation};
 use crate::model::{JavaIndexMetadata, JavaParameter};
-use naviscope_core::ingest::parser::utils::range_from_ts;
-use naviscope_core::model::EdgeType;
+use naviscope_api::models::graph::EdgeType;
+use naviscope_plugin::utils::range_from_ts;
 use std::collections::HashMap;
 use tree_sitter::QueryCapture;
 
@@ -14,7 +14,7 @@ impl JavaParser {
         package: &Option<String>,
         entities: &mut [JavaEntity<'a>],
         relations: &mut Vec<JavaRelation>,
-        entities_map: &HashMap<String, usize>,
+        entities_map: &HashMap<naviscope_api::models::symbol::NodeId, usize>,
     ) {
         for captures in all_matches {
             if let Some(meta_cap) = captures.iter().find(|c| {
@@ -30,19 +30,24 @@ impl JavaParser {
             }) {
                 if let Some(parent_node) = self.find_next_enclosing_definition(meta_cap.node) {
                     if let Some(parent_name_node) = parent_node.child_by_field_name("name") {
-                        let enclosing_fqn = self.get_fqn_for_definition(
-                            &parent_name_node,
-                            source,
-                            package.as_deref(),
-                        );
-                        if let Some(&idx) = entities_map.get(&enclosing_fqn) {
-                            self.attach_metadata_to_model(
-                                captures,
+                        let pk = Self::tree_sitter_kind_to_node_kind(parent_node.kind());
+                        if let Some(pk) = pk {
+                            let enclosing_id = self.get_node_id_for_definition(
+                                &parent_name_node,
                                 source,
-                                enclosing_fqn,
-                                &mut entities[idx].element,
-                                relations,
+                                package.as_deref(),
+                                pk,
                             );
+                            if let Some(&idx) = entities_map.get(&enclosing_id) {
+                                let fqn_id = entities[idx].fqn.clone();
+                                self.attach_metadata_to_model(
+                                    captures,
+                                    source,
+                                    fqn_id,
+                                    &mut entities[idx].element,
+                                    relations,
+                                );
+                            }
                         }
                     }
                 }
@@ -54,7 +59,7 @@ impl JavaParser {
         &self,
         captures: &[QueryCapture<'a>],
         source: &'a str,
-        fqn: String,
+        fqn_id: naviscope_api::models::symbol::NodeId,
         element: &mut JavaIndexMetadata,
         relations: &mut Vec<JavaRelation>,
     ) {
@@ -75,8 +80,8 @@ impl JavaParser {
                             name_str = name_str[1..].to_string();
                         }
                         relations.push(JavaRelation {
-                            source_fqn: fqn.clone(),
-                            target_name: name_str,
+                            source_id: fqn_id.clone(),
+                            target_id: naviscope_api::models::symbol::NodeId::Flat(name_str),
                             rel_type: EdgeType::DecoratedBy,
                             range: Some(range_from_ts(name_node.range())),
                         });
@@ -115,8 +120,8 @@ impl JavaParser {
                         }
                     }
                     relations.push(JavaRelation {
-                        source_fqn: fqn.clone(),
-                        target_name: s_name,
+                        source_id: fqn_id.clone(),
+                        target_id: naviscope_api::models::symbol::NodeId::Flat(s_name),
                         rel_type: EdgeType::InheritsFrom,
                         range: None,
                     });
@@ -131,8 +136,8 @@ impl JavaParser {
                         .unwrap_or_default()
                         .to_string();
                     relations.push(JavaRelation {
-                        source_fqn: fqn.clone(),
-                        target_name: i,
+                        source_id: fqn_id.clone(),
+                        target_id: naviscope_api::models::symbol::NodeId::Flat(i),
                         rel_type: EdgeType::Implements,
                         range: None,
                     });
@@ -149,8 +154,8 @@ impl JavaParser {
                         .unwrap_or_default()
                         .to_string();
                     relations.push(JavaRelation {
-                        source_fqn: fqn.clone(),
-                        target_name: e,
+                        source_id: fqn_id.clone(),
+                        target_id: naviscope_api::models::symbol::NodeId::Flat(e),
                         rel_type: EdgeType::InheritsFrom,
                         range: None,
                     });
@@ -170,8 +175,8 @@ impl JavaParser {
                         .unwrap_or_default()
                         .to_string();
                     relations.push(JavaRelation {
-                        source_fqn: fqn.clone(),
-                        target_name: i,
+                        source_id: fqn_id.clone(),
+                        target_id: naviscope_api::models::symbol::NodeId::Flat(i),
                         rel_type: EdgeType::Implements,
                         range: None,
                     });
@@ -185,7 +190,7 @@ impl JavaParser {
             } => {
                 if let Some(ret) = captures.iter().find(|c| c.index == self.indices.method_ret) {
                     *return_type = self.parse_type_node(ret.node, source);
-                    self.generate_typed_as_edges(ret.node, source, &fqn, relations);
+                    self.generate_typed_as_edges(ret.node, source, &fqn_id, relations);
                 }
                 if let (Some(t_node), Some(n_node)) = (
                     captures
@@ -211,7 +216,7 @@ impl JavaParser {
                             name: n,
                         });
                     }
-                    self.generate_typed_as_edges(t_node, source, &fqn, relations);
+                    self.generate_typed_as_edges(t_node, source, &fqn_id, relations);
                 }
             }
             JavaIndexMetadata::Field {
@@ -220,7 +225,7 @@ impl JavaParser {
             } => {
                 if let Some(t) = captures.iter().find(|c| c.index == self.indices.field_type) {
                     *type_ref = self.parse_type_node(t.node, source);
-                    self.generate_typed_as_edges(t.node, source, &fqn, relations);
+                    self.generate_typed_as_edges(t.node, source, &fqn_id, relations);
                 }
             }
             _ => {}

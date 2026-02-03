@@ -95,7 +95,7 @@ impl GraphEdge {
     }
 }
 
-use super::symbol::Symbol;
+use super::symbol::{FqnId, Symbol};
 use lasso::Reader;
 use std::any::Any;
 use std::fmt::Debug;
@@ -118,8 +118,8 @@ impl NodeMetadata for EmptyMetadata {
 
 #[derive(Debug, Clone)]
 pub struct GraphNode {
-    /// Unique Identifier (Symbol)
-    pub id: Symbol,
+    /// Unique Identifier (Structured FQN)
+    pub id: FqnId,
     /// Short display name (Symbol)
     pub name: Symbol,
     /// Abstract categorization
@@ -135,7 +135,7 @@ pub struct GraphNode {
 impl Default for GraphNode {
     fn default() -> Self {
         Self {
-            id: Symbol(lasso::Spur::default()),
+            id: FqnId(0),
             name: Symbol(lasso::Spur::default()),
             kind: NodeKind::Custom("unknown".to_string()),
             lang: Symbol(lasso::Spur::default()),
@@ -148,10 +148,6 @@ impl Default for GraphNode {
 impl GraphNode {
     pub fn language<'a>(&self, rodeo: &'a dyn Reader) -> Language {
         Language::new(rodeo.resolve(&self.lang.0).to_string())
-    }
-
-    pub fn fqn<'a>(&self, rodeo: &'a dyn Reader) -> &'a str {
-        rodeo.resolve(&self.id.0)
     }
 
     pub fn name<'a>(&self, rodeo: &'a dyn Reader) -> &'a str {
@@ -185,16 +181,6 @@ pub struct DisplaySymbolLocation {
     pub selection_range: Option<Range>,
 }
 
-impl DisplaySymbolLocation {
-    pub fn to_internal(&self, rodeo: &mut lasso::Rodeo) -> super::symbol::InternedLocation {
-        super::symbol::InternedLocation {
-            path: Symbol(rodeo.get_or_intern(&self.path)),
-            range: self.range,
-            selection_range: self.selection_range,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct DisplayGraphNode {
     pub id: String,
@@ -211,19 +197,6 @@ pub struct DisplayGraphNode {
 
     // Hierarchy support
     pub children: Option<Vec<DisplayGraphNode>>,
-}
-
-impl DisplayGraphNode {
-    pub fn to_internal(&self, rodeo: &mut lasso::Rodeo) -> GraphNode {
-        GraphNode {
-            id: Symbol(rodeo.get_or_intern(&self.id)),
-            name: Symbol(rodeo.get_or_intern(&self.name)),
-            kind: self.kind.clone(),
-            lang: Symbol(rodeo.get_or_intern(&self.lang)),
-            location: self.location.as_ref().map(|l| l.to_internal(rodeo)),
-            metadata: Arc::new(EmptyMetadata),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]

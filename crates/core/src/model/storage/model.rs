@@ -1,6 +1,10 @@
+use crate::model::FqnStorage;
 use crate::model::{GraphEdge, NodeKind, Range};
-use lasso::{Key, Rodeo};
+use lasso::{Key, ThreadedRodeo};
+use naviscope_api::models::symbol::Symbol;
+use naviscope_plugin::FqnInterner;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Context for interning and resolving symbols during storage conversion.
 pub trait StorageContext: crate::model::metadata::SymbolInterner {
@@ -9,17 +13,66 @@ pub trait StorageContext: crate::model::metadata::SymbolInterner {
     fn resolve_path(&self, pid: u32) -> &std::path::Path;
 }
 
-pub struct GenericStorageContext<'a> {
-    pub rodeo: &'a mut Rodeo,
+pub struct GenericStorageContext {
+    pub rodeo: Arc<ThreadedRodeo>,
 }
 
-impl crate::model::metadata::SymbolInterner for GenericStorageContext<'_> {
+impl naviscope_plugin::StorageContext for GenericStorageContext {
+    fn interner(&mut self) -> &mut dyn FqnInterner {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+impl naviscope_api::models::symbol::FqnReader for GenericStorageContext {
+    fn resolve_node(
+        &self,
+        _id: naviscope_api::models::symbol::FqnId,
+    ) -> Option<naviscope_api::models::symbol::FqnNode> {
+        // Storage context doesn't need to resolve FQN nodes
+        None
+    }
+
+    fn resolve_atom(&self, atom: Symbol) -> &str {
+        self.rodeo.resolve(&atom.0)
+    }
+}
+
+impl FqnInterner for GenericStorageContext {
+    fn intern_atom(&self, name: &str) -> Symbol {
+        Symbol(self.rodeo.get_or_intern(name))
+    }
+
+    fn intern_node(
+        &self,
+        _parent: Option<naviscope_api::models::symbol::FqnId>,
+        _name: &str,
+        _kind: naviscope_api::models::graph::NodeKind,
+    ) -> naviscope_api::models::symbol::FqnId {
+        // This is a simplified implementation for storage context
+        // In practice, this should delegate to the actual FqnManager
+        // For now, we just create a flat ID
+        naviscope_api::models::symbol::FqnId(0)
+    }
+
+    fn intern_node_id(
+        &self,
+        _id: &naviscope_api::models::symbol::NodeId,
+    ) -> naviscope_api::models::symbol::FqnId {
+        naviscope_api::models::symbol::FqnId(0)
+    }
+}
+
+impl crate::model::metadata::SymbolInterner for GenericStorageContext {
     fn intern_str(&mut self, s: &str) -> u32 {
         self.rodeo.get_or_intern(s).into_usize() as u32
     }
 }
 
-impl<'a> StorageContext for GenericStorageContext<'a> {
+impl StorageContext for GenericStorageContext {
     fn intern_path(&mut self, p: &std::path::Path) -> u32 {
         let s = p.to_string_lossy();
         crate::model::metadata::SymbolInterner::intern_str(self, s.as_ref())
@@ -28,23 +81,31 @@ impl<'a> StorageContext for GenericStorageContext<'a> {
     fn resolve_str(&self, sid: u32) -> &str {
         use lasso::{Key, Spur};
         let spur = Spur::try_from_usize(sid as usize).unwrap();
-        self.rodeo.resolve(&spur)
+        // SAFE: ThreadedRodeo's resolve returns a &str that lives as long as the rodeo.
+        // Since we hold the Arc, this is fine conceptually, but we need to cheat the borrow checker
+        // or return an owned String.
+        // Actually, resolve returns &'static str if we're not careful? No.
+        // For simplicity during transition, let's use an unsafe cast or return String if needed.
+        // But ThreadedRodeo::resolve returns &'a str.
+        let s: &str = self.rodeo.resolve(&spur);
+        unsafe { std::mem::transmute(s) }
     }
 
     fn resolve_path(&self, pid: u32) -> &std::path::Path {
         use lasso::{Key, Spur};
         let spur = Spur::try_from_usize(pid as usize).unwrap();
-        std::path::Path::new(self.rodeo.resolve(&spur))
+        let s: &str = self.rodeo.resolve(&spur);
+        std::path::Path::new(unsafe { std::mem::transmute::<&str, &'static str>(s) })
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct StorageGraph {
     pub version: u32,
-    pub rodeo: Rodeo,
+    pub fqns: FqnStorage,
     pub nodes: Vec<StorageNode>,
     pub edges: Vec<StorageEdge>,
-    pub fqn_index: Vec<(u32, u32)>,               // (Symbol, NodeIdx)
+    pub fqn_index: Vec<(u32, u32)>,               // (FqnId, NodeIdx)
     pub name_index: Vec<(u32, Vec<u32>)>,         // (Symbol, Vec<NodeIdx>)
     pub file_index: Vec<(u32, StorageFileEntry)>, // (Symbol, Entry)
     pub reference_index: Vec<(u32, Vec<u32>)>,    // (Symbol, Vec<Symbol>)

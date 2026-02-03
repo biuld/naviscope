@@ -1,7 +1,7 @@
 use crate::parser::JavaParser;
 use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
-use naviscope_core::ingest::parser::SymbolResolution;
+use naviscope_api::models::SymbolResolution;
 
 pub struct LocalScope<'a> {
     pub parser: &'a JavaParser,
@@ -30,7 +30,7 @@ impl SemanticScope<ResolutionContext<'_>> for LocalScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_core::model::CodeGraph;
+
     use tree_sitter::Parser;
 
     #[test]
@@ -54,7 +54,7 @@ mod tests {
         assert_eq!(x_node.utf8_text(source.as_bytes()).unwrap(), "x");
 
         let java_parser = JavaParser::new().unwrap();
-        let index = CodeGraph::empty();
+        let index = naviscope_plugin::EmptyCodeGraph;
         let context =
             ResolutionContext::new(x_node, "x".to_string(), &index, source, &tree, &java_parser);
 

@@ -1,7 +1,7 @@
 use crate::error::{NaviscopeError, Result};
 use crate::model::source::Language;
 use crate::model::{DisplayGraphNode, EdgeType, NodeKind};
-use crate::runtime::plugin::NodeRenderer;
+use crate::plugin::NodeAdapter;
 pub use naviscope_api::models::{GraphQuery, QueryResult, QueryResultEdge};
 use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
@@ -12,22 +12,31 @@ use super::CodeGraphLike;
 pub struct QueryEngine<G, L> {
     graph: G,
     lookup: L,
+    naming_conventions: std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>,
 }
 
 impl<G, L> QueryEngine<G, L>
 where
     G: CodeGraphLike,
-    L: Fn(Language) -> Option<Arc<dyn NodeRenderer>>,
+    L: Fn(Language) -> Option<Arc<dyn NodeAdapter>>,
 {
-    pub fn new(graph: G, lookup: L) -> Self {
-        Self { graph, lookup }
+    pub fn new(
+        graph: G,
+        lookup: L,
+        naming_conventions: std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>,
+    ) -> Self {
+        Self {
+            graph,
+            lookup,
+            naming_conventions,
+        }
     }
 
     fn render_node(&self, node: &crate::model::GraphNode) -> DisplayGraphNode {
         let symbols = self.graph.symbols();
         let lang = node.language(symbols);
         if let Some(renderer) = (self.lookup)(lang.clone()) {
-            renderer.render_display_node(node, symbols)
+            renderer.render_display_node(node, self.graph.fqns())
         } else {
             panic!(
                 "CRITICAL: No renderer found for language '{}'. This indicates a missing plugin for indexed data.",
@@ -52,7 +61,10 @@ where
                 let mut nodes = Vec::new();
 
                 for node in self.graph.topology().node_weights() {
-                    if regex.is_match(node.fqn(symbols)) || regex.is_match(node.name(symbols)) {
+                    let lang_str = symbols.resolve(&node.lang.0);
+                    let convention = self.naming_conventions.get(lang_str).map(|c| c.as_ref());
+                    let fqn_str = self.graph.render_fqn(node, convention);
+                    if regex.is_match(&fqn_str) || regex.is_match(node.name(symbols)) {
                         if kind.is_empty() || kind.contains(&node.kind) {
                             nodes.push(self.render_node(node));
                         }
@@ -156,7 +168,6 @@ where
         let mut edges_result = Vec::new();
         let topology = self.graph.topology();
         let mut edges = topology.neighbors_directed(start_idx, dir).detach();
-        let symbols = self.graph.symbols();
 
         while let Some((edge_idx, neighbor_idx)) = edges.next(topology) {
             let edge_data = &topology[edge_idx];
@@ -167,15 +178,21 @@ where
                 if kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind) {
                     nodes.push(self.render_node(neighbor_node));
 
+                    let symbols = self.graph.symbols();
+                    let start_lang = symbols.resolve(&start_node.lang.0);
+                    let neighbor_lang = symbols.resolve(&neighbor_node.lang.0);
+                    let start_convention = self.naming_conventions.get(start_lang).map(|c| c.as_ref());
+                    let neighbor_convention = self.naming_conventions.get(neighbor_lang).map(|c| c.as_ref());
+
                     let (from, to) = if dir == PetDirection::Outgoing {
                         (
-                            Arc::from(start_node.fqn(symbols)),
-                            Arc::from(neighbor_node.fqn(symbols)),
+                            Arc::from(self.graph.render_fqn(start_node, start_convention)),
+                            Arc::from(self.graph.render_fqn(neighbor_node, neighbor_convention)),
                         )
                     } else {
                         (
-                            Arc::from(neighbor_node.fqn(symbols)),
-                            Arc::from(start_node.fqn(symbols)),
+                            Arc::from(self.graph.render_fqn(neighbor_node, neighbor_convention)),
+                            Arc::from(self.graph.render_fqn(start_node, start_convention)),
                         )
                     };
 

@@ -1,5 +1,6 @@
 use super::JavaParser;
-use naviscope_core::model::{EdgeType, Range};
+use naviscope_api::models::graph::EdgeType;
+use naviscope_api::models::symbol::Range;
 use std::collections::HashMap;
 use tree_sitter::{Node, QueryCapture, StreamingIterator, Tree};
 
@@ -19,13 +20,13 @@ pub struct JavaFileModel<'a> {
 pub struct JavaEntity<'a> {
     pub element: crate::model::JavaIndexMetadata,
     pub node: Node<'a>,
-    pub fqn: String,
+    pub fqn: naviscope_api::models::symbol::NodeId,
     pub name: String,
 }
 
 pub struct JavaRelation {
-    pub source_fqn: String,
-    pub target_name: String,
+    pub source_id: naviscope_api::models::symbol::NodeId,
+    pub target_id: naviscope_api::models::symbol::NodeId,
     pub rel_type: EdgeType,
     pub range: Option<Range>,
 }
@@ -38,7 +39,7 @@ impl JavaParser {
 
         let mut entities = Vec::new();
         let mut relations = Vec::new();
-        let mut entities_map = HashMap::new();
+        let mut entities_map = HashMap::<naviscope_api::models::symbol::NodeId, usize>::new();
 
         // Stage 1: Identify all named entities (Classes, Methods, Fields)
         self.identify_entities(

@@ -1,7 +1,7 @@
 use super::super::JavaParser;
 use super::JavaRelation;
-use naviscope_core::ingest::parser::utils::range_from_ts;
-use naviscope_core::model::EdgeType;
+use naviscope_api::models::graph::EdgeType;
+use naviscope_plugin::utils::range_from_ts;
 use tree_sitter::Node;
 
 impl JavaParser {
@@ -9,7 +9,7 @@ impl JavaParser {
         &self,
         type_node: Node<'a>,
         source: &'a str,
-        source_fqn: &str,
+        source_id: &naviscope_api::models::symbol::NodeId,
         relations: &mut Vec<JavaRelation>,
     ) {
         let kind = type_node.kind();
@@ -20,8 +20,8 @@ impl JavaParser {
                 .to_string();
             if !self.is_primitive(&type_name) {
                 relations.push(JavaRelation {
-                    source_fqn: source_fqn.to_string(),
-                    target_name: type_name,
+                    source_id: source_id.clone(),
+                    target_id: naviscope_api::models::symbol::NodeId::Flat(type_name),
                     rel_type: EdgeType::TypedAs,
                     range: Some(range_from_ts(type_node.range())),
                 });
@@ -35,7 +35,7 @@ impl JavaParser {
                 child.kind(),
                 "type_identifier" | "generic_type" | "type_arguments" | "wildcard" | "array_type"
             ) {
-                self.generate_typed_as_edges(child, source, source_fqn, relations);
+                self.generate_typed_as_edges(child, source, source_id, relations);
             }
         }
     }

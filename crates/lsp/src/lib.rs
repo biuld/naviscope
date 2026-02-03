@@ -93,7 +93,10 @@ impl LspServer {
 #[tower_lsp::async_trait]
 impl LanguageServer for LspServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        let root_path = params.root_uri.and_then(|uri| uri.to_file_path().ok());
+        let root_path = params
+            .root_uri
+            .and_then(|uri| uri.to_file_path().ok())
+            .map(|p| p.canonicalize().unwrap_or(p));
 
         if let Some(path) = root_path {
             {

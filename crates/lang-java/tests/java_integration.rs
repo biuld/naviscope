@@ -50,7 +50,7 @@ fn test_cross_file_resolution() {
     let res = resolver.resolve_at(b_tree, b_content, 0, hello_pos, &index);
     assert!(res.is_some(), "Failed to resolve 'hello' at {}", hello_pos);
     if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.example.A.hello");
+        assert_eq!(fqn, "com.example.A#hello");
     } else {
         panic!(
             "Expected precise resolution to com.example.A.hello, got {:?}",
@@ -87,8 +87,15 @@ fn test_inheritance_and_implementations() {
     let impls = resolver.find_implementations(&index, &res);
     assert_eq!(impls.len(), 1);
 
-    let node = &index.topology()[impls[0]];
-    assert_eq!(node.fqn(index.symbols()), "C");
+    let node_idx = *index.fqn_map().get(&impls[0]).expect("Node not found");
+    let node = &index.topology()[node_idx];
+    assert_eq!(
+        {
+            use naviscope_plugin::NamingConvention;
+            naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns())
+        },
+        "C"
+    );
 }
 
 #[test]
@@ -161,7 +168,7 @@ fn test_chained_calls_resolution() {
     let res = resolver.resolve_at(main_tree, main_content, 0, get_c_pos, &index);
     assert!(res.is_some(), "Failed to resolve 'getC' at {}", get_c_pos);
     if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.chain.B.getC");
+        assert_eq!(fqn, "com.chain.B#getC");
     } else {
         panic!(
             "Expected precise resolution to com.chain.B.getC, got {:?}",
@@ -180,7 +187,7 @@ fn test_chained_calls_resolution() {
         execute_pos
     );
     if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.chain.C.execute");
+        assert_eq!(fqn, "com.chain.C#execute");
     } else {
         panic!(
             "Expected precise resolution to com.chain.C.execute, got {:?}",
@@ -252,7 +259,7 @@ fn test_lambda_explicit_type_resolution() {
         hello_pos
     );
     if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.A.hello");
+        assert_eq!(fqn, "com.A#hello");
     } else {
         panic!("Expected precise resolution for it.hello(), got {:?}", res);
     }
@@ -287,7 +294,7 @@ fn test_lambda_heuristic_type_inference() {
         hello_pos
     );
     if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.A.hello");
+        assert_eq!(fqn, "com.A#hello");
     } else {
         panic!(
             "Expected precise resolution for it.hello() via heuristic, got {:?}",
@@ -428,13 +435,18 @@ public class DefaultApplicationArguments {
     if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(
             fqn,
-            "org.springframework.boot.DefaultApplicationArguments.Source.getNonOptionArgs"
+            "org.springframework.boot.DefaultApplicationArguments.Source#getNonOptionArgs"
         );
     } else {
         println!("Graph nodes:");
         for (fqn, idx) in index.fqn_map() {
             let node = &index.topology()[*idx];
-            println!(" - {} ({:?})", index.symbols().resolve(&fqn.0), node.kind());
+            use naviscope_plugin::NamingConvention;
+            println!(
+                " - {} ({:?})",
+                naviscope_plugin::DotPathConvention.render_fqn(*fqn, index.fqns()),
+                node.kind()
+            );
         }
         panic!("Failed to resolve Spring Boot scenario, got {:?}", res);
     }
@@ -479,7 +491,7 @@ fn test_field_method_call_resolution() {
         col
     );
     if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "B.doB");
+        assert_eq!(fqn, "B#doB");
     } else {
         panic!("Expected precise resolution to B.doB, got {:?}", res);
     }

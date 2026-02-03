@@ -1,6 +1,6 @@
 [package]
 name = "naviscope-cli"
-version = "0.5.0"
+version = "0.5.5"
 edition = "2024"
 
 [[bin]]
@@ -25,3 +25,4 @@ serde_json = { workspace = true }
 indexmap = { workspace = true }
 petgraph = { workspace = true }
 naviscope-api = { workspace = true }
+mimalloc = { workspace = true }

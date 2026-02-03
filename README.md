@@ -42,6 +42,7 @@ graph TD
     classDef interface fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:5,ry:5
     classDef runtime fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,rx:5,ry:5
     classDef language fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,rx:5,ry:5
+    classDef plugin fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,rx:5,ry:5
     classDef core fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:5,ry:5
     classDef api fill:#fafafa,stroke:#616161,stroke-width:2px,rx:5,ry:5
 
@@ -58,6 +59,10 @@ graph TD
     subgraph Strategies [Language Layer]
         Java["naviscope-java<br/>(Java Analysis)"]:::language
         Gradle["naviscope-gradle<br/>(Gradle Analysis)"]:::language
+    end
+
+    subgraph Abstraction [Plugin Layer]
+        Plugin["naviscope-plugin<br/>(Traits & Contracts)"]:::plugin
     end
 
     subgraph Engine [Core Layer]
@@ -84,21 +89,25 @@ graph TD
     Runtime --> Core
     Runtime --> API
 
-    Java --> Core
+    Java --> Plugin
     Java --> API
 
-    Gradle --> Core
+    Gradle --> Plugin
     Gradle --> API
 
+    Core --> Plugin
     Core --> API
+
+    Plugin --> API
 ```
 
 Naviscope is built on a **layered crate architecture** that separates concerns across multiple Rust crates:
 
 - **Interface Layer** (`naviscope-cli`, `naviscope-lsp`, `naviscope-mcp`): Entry points for different use cases (CLI shell, LSP for editors, MCP for AI agents).
 - **Runtime Layer** (`naviscope-runtime`): Orchestrates the engine assembly, registering language plugins and providing a unified factory.
-- **Language Layer** (`naviscope-java`, `naviscope-gradle`): Language-specific analysis plugins that parse and resolve symbols.
-- **Core Layer** (`naviscope-core`): The heart of the system - graph storage, indexing, file scanning, and persistence.
+- **Language Layer** (`naviscope-java`, `naviscope-gradle`): Language-specific implementations that implement the standard plugin contracts.
+- **Plugin Layer** (`naviscope-plugin`): Defines the standard contracts and traits (`LanguagePlugin`, `BuildToolPlugin`, `Resolver`) effectively decoupling the core engine from specific language logic.
+- **Core Layer** (`naviscope-core`): The heart of the system - graph storage, indexing, file scanning, and persistence. It consumes the plugin traits to process files.
 - **API Layer** (`naviscope-api`): Common traits and models shared across all crates, ensuring a consistent interface.
 
 The core is a language-agnostic graph structure populated by language-specific strategies (currently Java/Gradle via Tree-sitter), exposing a unified query engine to both AI agents and developer tools.
@@ -117,15 +126,13 @@ This hybrid approach combines the speed of inverted indexing with the precision 
 
 ### Prerequisites
 - Rust (2024 edition)
-- C Compiler (required for compiling Tree-sitter grammars)
 
 ### Installation from source code
 
 ```bash
-# 1. Clone & Update Submodules (Required for tree-sitter grammars)
+# 1. Clone
 git clone https://github.com/biuld/naviscope.git
 cd naviscope
-git submodule update --init --recursive
 
 # 2. Install the Naviscope CLI
 cargo install --path crates/cli

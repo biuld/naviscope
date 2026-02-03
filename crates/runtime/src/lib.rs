@@ -27,8 +27,8 @@ pub fn build_default_engine(path: PathBuf) -> Arc<dyn NaviscopeEngine> {
 
 /// Initializes the logging system for a specific component.
 /// This delegates to the core logging module.
-pub fn init_logging(component: &str) -> Option<impl Drop> {
-    Some(naviscope_core::logging::init_logging(component))
+pub fn init_logging(component: &str, to_stderr: bool) -> Option<impl Drop> {
+    Some(naviscope_core::logging::init_logging(component, to_stderr))
 }
 
 /// Utility to clear all indices stored on the local system.

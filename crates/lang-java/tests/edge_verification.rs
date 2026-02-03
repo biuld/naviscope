@@ -1,5 +1,6 @@
 mod common;
 use common::setup_java_test_graph;
+use naviscope_core::features::CodeGraphLike;
 use naviscope_core::model::CodeGraph;
 use naviscope_core::model::EdgeType;
 
@@ -11,14 +12,16 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
     if from_idx.is_none() {
         println!("Available nodes:");
         for (id, _) in graph.fqn_map() {
-            println!(" - {}", graph.symbols().resolve(&id.0));
+            use naviscope_plugin::NamingConvention;
+            println!(" - {}", naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns()));
         }
         panic!("Source node not found: {}", from_fqn);
     }
     if to_idx.is_none() {
         println!("Available nodes:");
         for (id, _) in graph.fqn_map() {
-            println!(" - {}", graph.symbols().resolve(&id.0));
+            use naviscope_plugin::NamingConvention;
+            println!(" - {}", naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns()));
         }
         panic!("Target node not found: {}", to_fqn);
     }
@@ -30,7 +33,8 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
     if edge_idx.is_none() {
         println!("Graph nodes:");
         for (id, _) in graph.fqn_map() {
-            println!(" - {}", graph.symbols().resolve(&id.0));
+            use naviscope_plugin::NamingConvention;
+            println!(" - {}", naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns()));
         }
         println!("Edges from {}:", from_fqn);
         let mut edges = graph
@@ -42,7 +46,7 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
             let edge = &graph.topology()[e_idx];
             println!(
                 " -> {} ({:?})",
-                target_node.fqn(graph.symbols()),
+                graph.render_fqn(target_node, None),
                 edge.edge_type
             );
         }
@@ -59,7 +63,7 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
 
 fn assert_reference_scouted(graph: &CodeGraph, target_fqn: &str, expected_file: &str) {
     let target_idx = graph.find_node(target_fqn).expect("Target node not found");
-    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(graph);
+    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(graph, std::collections::HashMap::new());
     let candidate_files = discovery.scout_references(&[target_idx]);
     assert!(
         candidate_files.contains(&std::path::PathBuf::from(expected_file)),

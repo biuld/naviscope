@@ -1,54 +1,100 @@
 use super::model::*;
 use crate::model::graph::{CodeGraphInner, FileEntry};
 use crate::model::{EmptyMetadata, GraphNode, InternedLocation, NodeMetadata};
-use crate::runtime::plugin::MetadataPlugin;
-use lasso::{Key, Rodeo, Spur};
-use naviscope_api::models::symbol::Symbol;
+use crate::plugin::NodeAdapter;
+use lasso::{Key, Spur, ThreadedRodeo};
+use naviscope_api::models::symbol::{FqnId, Symbol};
 use petgraph::stable_graph::NodeIndex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Fallback plugin that uses empty metadata
-struct DefaultMetadataPlugin;
-impl MetadataPlugin for DefaultMetadataPlugin {
-    fn resolve(&self, _bytes: &[u8], _ctx: &dyn StorageContext) -> Arc<dyn NodeMetadata> {
+/// Fallback adapter that uses empty metadata
+struct DefaultNodeAdapter;
+impl NodeAdapter for DefaultNodeAdapter {
+    fn render_display_node(
+        &self,
+        _node: &GraphNode,
+        _fqns: &dyn naviscope_api::models::symbol::FqnReader,
+    ) -> naviscope_api::models::DisplayGraphNode {
+        unimplemented!("DefaultNodeAdapter should not be used for rendering")
+    }
+
+    fn encode_metadata(
+        &self,
+        _metadata: &dyn NodeMetadata,
+        _ctx: &mut dyn naviscope_plugin::StorageContext,
+    ) -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn decode_metadata(
+        &self,
+        _bytes: &[u8],
+        _ctx: &dyn naviscope_plugin::StorageContext,
+    ) -> Arc<dyn NodeMetadata> {
         Arc::new(EmptyMetadata)
     }
 }
 
 /// Read-only context used during deserialization
-struct ReadOnlyStorageContext<'a>(&'a Rodeo);
+struct ReadOnlyStorageContext(Arc<ThreadedRodeo>);
 
-impl crate::model::metadata::SymbolInterner for ReadOnlyStorageContext<'_> {
+impl crate::model::metadata::SymbolInterner for ReadOnlyStorageContext {
     fn intern_str(&mut self, _s: &str) -> u32 {
         unreachable!("Read-only context cannot intern strings")
     }
 }
 
-impl<'a> StorageContext for ReadOnlyStorageContext<'a> {
+impl naviscope_plugin::StorageContext for ReadOnlyStorageContext {
+    fn interner(&mut self) -> &mut dyn naviscope_plugin::FqnInterner {
+        unreachable!("Read-only context cannot intern")
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+impl naviscope_api::models::symbol::FqnReader for ReadOnlyStorageContext {
+    fn resolve_node(
+        &self,
+        _id: naviscope_api::models::symbol::FqnId,
+    ) -> Option<naviscope_api::models::symbol::FqnNode> {
+        None
+    }
+
+    fn resolve_atom(&self, atom: naviscope_api::models::symbol::Symbol) -> &str {
+        self.0.resolve(&atom.0)
+    }
+}
+
+impl StorageContext for ReadOnlyStorageContext {
     fn intern_path(&mut self, _p: &Path) -> u32 {
         unreachable!("Read-only context")
     }
     fn resolve_str(&self, sid: u32) -> &str {
+        use lasso::{Key, Spur};
         let spur = Spur::try_from_usize(sid as usize).unwrap();
-        self.0.resolve(&spur)
+        let s = self.0.resolve(&spur);
+        unsafe { std::mem::transmute(s) }
     }
     fn resolve_path(&self, pid: u32) -> &Path {
+        use lasso::{Key, Spur};
         let spur = Spur::try_from_usize(pid as usize).unwrap();
-        Path::new(self.0.resolve(&spur))
+        let s = Path::new(self.0.resolve(&spur));
+        unsafe { std::mem::transmute(s) }
     }
 }
 
 pub fn to_storage(
     inner: &CodeGraphInner,
-    get_plugin: impl Fn(&str) -> Option<Arc<dyn MetadataPlugin>>,
+    get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
 ) -> StorageGraph {
-    let mut rodeo = inner.symbols.clone();
+    let rodeo_ref = inner.symbols.clone();
+    let mut ctx = GenericStorageContext { rodeo: rodeo_ref };
 
-    let mut ctx = GenericStorageContext { rodeo: &mut rodeo };
-
-    let default_plugin = Arc::new(DefaultMetadataPlugin);
+    let default_plugin = Arc::new(DefaultNodeAdapter);
     let mut node_id_map = HashMap::new();
     let mut nodes = Vec::new();
 
@@ -60,10 +106,10 @@ pub fn to_storage(
         // Resolve language string for plugin lookup
         let lang_str = ctx.resolve_str(node.lang.0.into_usize() as u32).to_string();
         let plugin = get_plugin(&lang_str).unwrap_or_else(|| default_plugin.clone());
-        let metadata = plugin.intern(&*node.metadata, &mut ctx);
+        let metadata = plugin.encode_metadata(&*node.metadata, &mut ctx);
 
         nodes.push(StorageNode {
-            id_sid: node.id.0.into_usize() as u32,
+            id_sid: node.id.0,
             name_sid: node.name.0.into_usize() as u32,
             kind: node.kind.clone(),
             lang_sid: node.lang.0.into_usize() as u32,
@@ -92,7 +138,7 @@ pub fn to_storage(
     let mut fqn_index: Vec<(u32, u32)> = inner
         .fqn_index
         .iter()
-        .map(|(fqn, idx)| (fqn.0.into_usize() as u32, *node_id_map.get(idx).unwrap()))
+        .map(|(fqn, idx)| (fqn.0, *node_id_map.get(idx).unwrap()))
         .collect();
     fqn_index.sort_unstable_by_key(|k| k.0);
 
@@ -144,7 +190,7 @@ pub fn to_storage(
 
     StorageGraph {
         version: inner.version,
-        rodeo,
+        fqns: inner.fqns.clone(),
         nodes,
         edges,
         fqn_index,
@@ -156,21 +202,21 @@ pub fn to_storage(
 
 pub fn from_storage(
     storage: StorageGraph,
-    get_plugin: impl Fn(&str) -> Option<Arc<dyn MetadataPlugin>>,
+    get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
 ) -> CodeGraphInner {
     let mut topology = petgraph::stable_graph::StableDiGraph::new();
-    let default_plugin = Arc::new(DefaultMetadataPlugin);
+    let default_plugin = Arc::new(DefaultNodeAdapter);
 
-    let rodeo = storage.rodeo;
-    let ctx = ReadOnlyStorageContext(&rodeo);
+    let rodeo = storage.fqns.rodeo.clone();
+    let ctx = ReadOnlyStorageContext(rodeo.clone());
 
     for snode in &storage.nodes {
         let lang_str = ctx.resolve_str(snode.lang_sid).to_string();
         let plugin = get_plugin(&lang_str).unwrap_or_else(|| default_plugin.clone());
-        let metadata = plugin.resolve(&snode.metadata, &ctx);
+        let metadata = plugin.decode_metadata(&snode.metadata, &ctx);
 
         let node = GraphNode {
-            id: Symbol(Spur::try_from_usize(snode.id_sid as usize).unwrap()),
+            id: FqnId(snode.id_sid),
             name: Symbol(Spur::try_from_usize(snode.name_sid as usize).unwrap()),
             kind: snode.kind.clone(),
             lang: Symbol(Spur::try_from_usize(snode.lang_sid as usize).unwrap()),
@@ -195,12 +241,7 @@ pub fn from_storage(
     let fqn_index = storage
         .fqn_index
         .into_iter()
-        .map(|(sid, idx)| {
-            (
-                Symbol(Spur::try_from_usize(sid as usize).unwrap()),
-                NodeIndex::new(idx as usize),
-            )
-        })
+        .map(|(sid, idx)| (FqnId(sid), NodeIndex::new(idx as usize)))
         .collect();
 
     let name_index = storage
@@ -253,6 +294,7 @@ pub fn from_storage(
         instance_id: 0, // Will be updated when wrapped in CodeGraph
         version: storage.version,
         topology,
+        fqns: storage.fqns,
         symbols: rodeo,
         fqn_index,
         name_index,

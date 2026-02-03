@@ -1,5 +1,6 @@
 pub mod builder;
 pub mod parser;
+pub mod pipeline;
 pub mod resolver;
 pub mod scanner;
 

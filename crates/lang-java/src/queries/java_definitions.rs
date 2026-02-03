@@ -1,4 +1,4 @@
-naviscope_core::decl_indices!(JavaIndices, {
+naviscope_plugin::decl_indices!(JavaIndices, {
     pkg => "package_name",
     class_def => "class_def",
     class_name => "class_name",

@@ -1,8 +1,10 @@
 use crate::facade::EngineHandle;
+use crate::features::CodeGraphLike;
 use crate::features::discovery::DiscoveryEngine;
 use crate::util::utf16_col_to_byte_col;
 use async_trait::async_trait;
 use naviscope_api::graph::GraphService;
+
 use naviscope_api::models::{
     CallHierarchyIncomingCall, CallHierarchyOutgoingCall, DisplayGraphNode, Language, NodeKind,
     PositionContext, Range, ReferenceQuery, SymbolLocation, SymbolQuery, SymbolResolution,
@@ -99,15 +101,17 @@ impl SymbolNavigator for EngineHandle {
         let topology = graph.topology();
         let mut locations = Vec::new();
 
-        for idx in matches {
-            let node = &topology[idx];
-            if let Some(loc) = &node.location {
-                let path_str = graph.symbols().resolve(&loc.path.0);
-                locations.push(SymbolLocation {
-                    path: Arc::from(PathBuf::from(path_str)),
-                    range: loc.range,
-                    selection_range: loc.selection_range,
-                });
+        for fqn_id in matches {
+            if let Some(&idx) = graph.fqn_map().get(&fqn_id) {
+                let node = &topology[idx];
+                if let Some(loc) = &node.location {
+                    let path_str = graph.symbols().resolve(&loc.path.0);
+                    locations.push(SymbolLocation {
+                        path: Arc::from(PathBuf::from(path_str)),
+                        range: loc.range,
+                        selection_range: loc.selection_range,
+                    });
+                }
             }
         }
         Ok(locations)
@@ -129,15 +133,17 @@ impl SymbolNavigator for EngineHandle {
 
         for res in type_resolutions {
             let matches = resolver.find_matches(&graph, &res);
-            for idx in matches {
-                let node = &topology[idx];
-                if let Some(loc) = &node.location {
-                    let path_str = graph.symbols().resolve(&loc.path.0);
-                    locations.push(SymbolLocation {
-                        path: Arc::from(PathBuf::from(path_str)),
-                        range: loc.range,
-                        selection_range: loc.selection_range,
-                    });
+            for fqn_id in matches {
+                if let Some(&idx) = graph.fqn_map().get(&fqn_id) {
+                    let node = &topology[idx];
+                    if let Some(loc) = &node.location {
+                        let path_str = graph.symbols().resolve(&loc.path.0);
+                        locations.push(SymbolLocation {
+                            path: Arc::from(PathBuf::from(path_str)),
+                            range: loc.range,
+                            selection_range: loc.selection_range,
+                        });
+                    }
                 }
             }
         }
@@ -158,15 +164,17 @@ impl SymbolNavigator for EngineHandle {
         let topology = graph.topology();
         let mut locations = Vec::new();
 
-        for idx in matches {
-            let node = &topology[idx];
-            if let Some(loc) = &node.location {
-                let path_str = graph.symbols().resolve(&loc.path.0);
-                locations.push(SymbolLocation {
-                    path: Arc::from(PathBuf::from(path_str)),
-                    range: loc.range,
-                    selection_range: loc.selection_range,
-                });
+        for fqn_id in matches {
+            if let Some(&idx) = graph.fqn_map().get(&fqn_id) {
+                let node = &topology[idx];
+                if let Some(loc) = &node.location {
+                    let path_str = graph.symbols().resolve(&loc.path.0);
+                    locations.push(SymbolLocation {
+                        path: Arc::from(PathBuf::from(path_str)),
+                        range: loc.range,
+                        selection_range: loc.selection_range,
+                    });
+                }
             }
         }
         Ok(locations)
@@ -183,8 +191,13 @@ impl ReferenceAnalyzer for EngineHandle {
         let graph = self.graph().await;
 
         let matches = resolver.find_matches(&graph, &query.resolution);
-        let discovery = DiscoveryEngine::new(&graph);
-        let candidate_paths = discovery.scout_references(&matches);
+        let match_indices: Vec<_> = matches
+            .iter()
+            .filter_map(|id| graph.fqn_map().get(id).copied())
+            .collect();
+        let conventions = (*self.naming_conventions()).clone();
+        let discovery = DiscoveryEngine::new(&graph, conventions.clone());
+        let candidate_paths = discovery.scout_references(&match_indices);
 
         let mut tasks = tokio::task::JoinSet::new();
         let shared_graph = Arc::new(graph);
@@ -193,6 +206,7 @@ impl ReferenceAnalyzer for EngineHandle {
             let handle = self.clone();
             let resolution = query.resolution.clone();
             let graph_snap = Arc::clone(&shared_graph);
+            let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
                 let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
@@ -210,7 +224,7 @@ impl ReferenceAnalyzer for EngineHandle {
                     Err(_) => return Vec::new(),
                 };
 
-                let discovery = DiscoveryEngine::new(graph_snap.as_ref());
+                let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
 
                 let uri_str = format!("file://{}", path.display());
                 let uri = match url::Url::parse(&uri_str) {
@@ -281,7 +295,8 @@ impl CallHierarchyAnalyzer for EngineHandle {
         }
 
         // 1. Meso-level scouting for candidate files
-        let discovery = DiscoveryEngine::new(&graph);
+        let conventions = (*self.naming_conventions()).clone();
+        let discovery = DiscoveryEngine::new(&graph, conventions.clone());
         let candidate_paths = discovery.scout_references(&target_indices);
 
         // 2. Micro-level scanning
@@ -293,6 +308,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             let handle = self.clone();
             let res = resolution.clone();
             let graph_snap = Arc::clone(&shared_graph);
+            let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
                 let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
@@ -310,7 +326,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
                     Err(_) => return vec![],
                 };
 
-                let discovery = DiscoveryEngine::new(graph_snap.as_ref());
+                let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
                 let uri_str = format!("file://{}", path.display());
                 let uri = match url::Url::parse(&uri_str) {
                     Ok(u) => u,
@@ -360,12 +376,15 @@ impl CallHierarchyAnalyzer for EngineHandle {
         }
 
         let mut results = Vec::new();
-        let symbols = graph.symbols();
         for (idx, ranges) in caller_map {
             let node = &graph.topology()[idx];
-            let fqn = node.fqn(symbols);
+            let lang_str = graph.symbols().resolve(&node.lang.0);
+            let convention = conventions
+                .get(lang_str)
+                .map(|c: &Arc<dyn naviscope_plugin::NamingConvention>| c.as_ref());
+            let fqn_str = graph.render_fqn(node, convention);
             if let Some(display_node) = self
-                .get_node_display(fqn)
+                .get_node_display(&fqn_str)
                 .await
                 .map_err(|e| SemanticError::Internal(e.to_string()))?
             {
@@ -384,6 +403,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
         fqn: &str,
     ) -> SemanticResult<Vec<CallHierarchyOutgoingCall>> {
         let graph = self.graph().await;
+        let conventions = (*self.naming_conventions()).clone();
         let node_idx = match graph.find_node(fqn) {
             Some(idx) => idx,
             None => return Ok(vec![]),
@@ -448,15 +468,17 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
                 if let Ok(Some(res)) = self.resolve_symbol_at(&pos_ctx).await {
                     let matches = resolver.find_matches(&graph, &res);
-                    for &m_idx in &matches {
-                        let m_node = &graph.topology()[m_idx];
-                        if matches!(m_node.kind(), NodeKind::Method | NodeKind::Constructor) {
-                            outgoing_calls.entry(m_idx).or_default().push(Range {
-                                start_line: n_range.start_point.row,
-                                start_col: n_range.start_point.column,
-                                end_line: n_range.end_point.row,
-                                end_col: n_range.end_point.column,
-                            });
+                    for fqn_id in matches {
+                        if let Some(&m_idx) = graph.fqn_map().get(&fqn_id) {
+                            let m_node = &graph.topology()[m_idx];
+                            if matches!(m_node.kind(), NodeKind::Method | NodeKind::Constructor) {
+                                outgoing_calls.entry(m_idx).or_default().push(Range {
+                                    start_line: n_range.start_point.row,
+                                    start_col: n_range.start_point.column,
+                                    end_line: n_range.end_point.row,
+                                    end_col: n_range.end_point.column,
+                                });
+                            }
                         }
                     }
                 }
@@ -471,9 +493,13 @@ impl CallHierarchyAnalyzer for EngineHandle {
         let mut results = Vec::new();
         for (idx, ranges) in outgoing_calls {
             let m_node = &graph.topology()[idx];
-            let fqn = m_node.fqn(symbols);
+            let lang_str = graph.symbols().resolve(&m_node.lang.0);
+            let convention = conventions
+                .get(lang_str)
+                .map(|c: &Arc<dyn naviscope_plugin::NamingConvention>| c.as_ref());
+            let fqn_str = graph.render_fqn(m_node, convention);
             if let Some(display_node) = self
-                .get_node_display(fqn)
+                .get_node_display(&fqn_str)
                 .await
                 .map_err(|e| SemanticError::Internal(e.to_string()))?
             {

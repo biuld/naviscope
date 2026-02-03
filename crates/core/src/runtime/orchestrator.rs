@@ -3,15 +3,17 @@
 use crate::error::{NaviscopeError, Result};
 use crate::ingest::builder::CodeGraphBuilder;
 use crate::ingest::resolver::engine::IndexResolver;
-use crate::ingest::scanner::{ParsedFile, Scanner};
+use crate::ingest::scanner::Scanner;
 use crate::model::CodeGraph;
 use crate::model::GraphOp;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use xxhash_rust::xxh3::xxh3_64;
+use std::collections::HashMap;
+use naviscope_plugin::NamingConvention;
 
-use crate::runtime::plugin::{BuildToolPlugin, LanguagePlugin};
+use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
 /// Naviscope indexing engine
 ///
@@ -33,6 +35,9 @@ pub struct NaviscopeEngine {
     build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
     lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
 
+    /// Runtime registry: language name -> naming convention
+    naming_conventions: Arc<HashMap<String, Arc<dyn NamingConvention>>>,
+
     /// Cancellation token for background tasks (like watcher)
     cancel_token: tokio_util::sync::CancellationToken,
 }
@@ -46,25 +51,43 @@ impl Drop for NaviscopeEngine {
 impl NaviscopeEngine {
     /// Create a new engine
     pub fn new(project_root: PathBuf) -> Self {
-        let index_path = Self::compute_index_path(&project_root);
+        let canonical_root = project_root
+            .canonicalize()
+            .unwrap_or_else(|_| project_root.clone());
+        let index_path = Self::compute_index_path(&canonical_root);
 
         Self {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
-            project_root,
+            project_root: canonical_root,
             index_path,
             build_plugins: Arc::new(Vec::new()),
             lang_plugins: Arc::new(Vec::new()),
+            naming_conventions: Arc::new(std::collections::HashMap::new()),
             cancel_token: tokio_util::sync::CancellationToken::new(),
         }
     }
 
     pub fn register_language(&mut self, plugin: Arc<dyn LanguagePlugin>) {
+        // Register naming convention if available
+        if let Some(nc) = plugin.get_naming_convention() {
+            let mut conventions = (*self.naming_conventions).clone();
+            conventions.insert(plugin.name().to_string(), nc);
+            self.naming_conventions = Arc::new(conventions);
+        }
+
         let mut plugins = (*self.lang_plugins).clone();
         plugins.push(plugin);
         self.lang_plugins = Arc::new(plugins);
     }
 
     pub fn register_build_tool(&mut self, plugin: Arc<dyn BuildToolPlugin>) {
+        // Register naming convention if available
+        if let Some(nc) = plugin.get_naming_convention() {
+            let mut conventions = (*self.naming_conventions).clone();
+            conventions.insert(plugin.name().to_string(), nc);
+            self.naming_conventions = Arc::new(conventions);
+        }
+
         let mut plugins = (*self.build_plugins).clone();
         plugins.push(plugin);
         self.build_plugins = Arc::new(plugins);
@@ -78,6 +101,11 @@ impl NaviscopeEngine {
     /// Get the index resolver configured with current plugins
     pub fn get_resolver(&self) -> IndexResolver {
         IndexResolver::with_plugins((*self.build_plugins).clone(), (*self.lang_plugins).clone())
+    }
+
+    /// Get naming conventions registry (cheap Arc clone)
+    pub(crate) fn naming_conventions(&self) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
+        self.naming_conventions.clone()
     }
 
     /// Compute index storage path for a project
@@ -173,66 +201,95 @@ impl NaviscopeEngine {
             );
         }
 
+        let current_lock = self.current.clone();
+
         // Processing in blocking pool
-        let result = tokio::task::spawn_blocking(
-            move || -> Result<Option<(Vec<GraphOp>, Vec<ParsedFile>)>> {
-                let mut manual_ops = Vec::new();
-                let mut to_scan = Vec::new();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut manual_ops = Vec::new();
+            let mut to_scan = Vec::new();
 
-                for path in files {
-                    if path.exists() {
-                        to_scan.push(path);
-                    } else {
-                        // File was deleted
-                        manual_ops.push(GraphOp::RemovePath {
-                            path: Arc::from(path.as_path()),
-                        });
-                    }
-                }
-
-                let parse_results = Scanner::scan_files(to_scan, &existing_metadata);
-
-                // If nothing changed and no deletions, return early
-                if parse_results.is_empty() && manual_ops.is_empty() {
-                    return Ok(None);
-                }
-
-                let resolver =
-                    IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
-                let mut ops = resolver.resolve(parse_results.clone())?;
-
-                // Add manual deletion ops
-                ops.extend(manual_ops);
-
-                Ok(Some((ops, parse_results)))
-            },
-        )
-        .await
-        .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
-
-        if let Some((ops, _parse_results)) = result {
-            // Atomically update current, checking for concurrent updates
-            {
-                let mut lock = self.current.write().await;
-                let current_graph = &**lock;
-
-                if current_graph.instance_id() != base_graph.instance_id() {
-                    tracing::info!(
-                        "Concurrent update detected, re-applying changes to latest graph..."
-                    );
-                    let mut builder = current_graph.to_builder();
-                    builder.apply_ops(ops)?;
-                    *lock = Arc::new(builder.build());
+            for path in files {
+                if path.exists() {
+                    to_scan.push(path);
                 } else {
-                    let mut builder = base_graph.to_builder();
-                    builder.apply_ops(ops)?;
-                    *lock = Arc::new(builder.build());
+                    // File was deleted
+                    manual_ops.push(GraphOp::RemovePath {
+                        path: Arc::from(path.as_path()),
+                    });
                 }
             }
 
-            // Save to disk
-            self.save().await?;
-        }
+            // 1. Initial scan to identify file types and changes
+            let scan_results = Scanner::scan_files(to_scan, &existing_metadata);
+            if scan_results.is_empty() && manual_ops.is_empty() {
+                return Ok(());
+            }
+
+            // Partition into build and source
+            let (build_files, source_files): (Vec<_>, Vec<_>) =
+                scan_results.into_iter().partition(|f| f.is_build());
+
+            let resolver =
+                IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
+
+            // 2. Phase 1: Heavy Build Resolution (Global Context)
+            let mut project_context = crate::ingest::resolver::ProjectContext::new();
+            let mut initial_ops = manual_ops;
+
+            // IMPORTANT: RemovePath MUST come before AddNode for the same paths.
+            // Add RemovePath and UpdateFile for build files up front.
+            for bf in &build_files {
+                initial_ops.push(GraphOp::RemovePath {
+                    path: Arc::from(bf.path()),
+                });
+                initial_ops.push(GraphOp::UpdateFile {
+                    metadata: bf.file.clone(),
+                });
+            }
+
+            // For build files, we still process them up front because they define the structure
+            let build_ops = resolver.resolve_build_batch(&build_files, &mut project_context)?;
+            initial_ops.extend(build_ops);
+
+            // 3. Phase 2: Pipeline Batch Processing for source files
+            let pipeline = crate::ingest::pipeline::IngestPipeline::new(500); // 500 files per batch
+            let source_paths: Vec<PathBuf> = source_files
+                .into_iter()
+                .map(|f| f.path().to_path_buf())
+                .collect();
+
+            let mut builder = base_graph.to_builder();
+
+            // Register naming conventions
+            for plugin in lang_plugins.iter() {
+                if let Some(nc) = plugin.get_naming_convention() {
+                    builder.naming_conventions.insert(plugin.name(), nc);
+                }
+            }
+
+            builder.apply_ops(initial_ops)?;
+
+            // Note: We are in a blocking thread, resolver and context are Thread-safe.
+            pipeline.execute(&project_context, source_paths, &resolver, |batch_ops| {
+                builder.apply_ops(batch_ops)?;
+                Ok(())
+            })?;
+
+            // 4. Final Swap
+            let final_graph = Arc::new(builder.build());
+            let rt = tokio::runtime::Handle::current();
+            rt.block_on(async {
+                let mut lock = current_lock.write().await;
+                *lock = final_graph;
+            });
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| crate::error::NaviscopeError::Internal(e.to_string()))??;
+
+        // Save at the very end
+        self.save().await?;
 
         Ok(())
     }
@@ -355,15 +412,15 @@ impl NaviscopeEngine {
 
         let bytes = std::fs::read(path)?;
 
-        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::runtime::plugin::MetadataPlugin>> {
+        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
             for p in lang_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             for p in build_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             None
@@ -407,15 +464,15 @@ impl NaviscopeEngine {
             std::fs::create_dir_all(parent)?;
         }
 
-        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::runtime::plugin::MetadataPlugin>> {
+        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
             for p in lang_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             for p in build_plugins.iter() {
                 if p.name().as_str() == lang {
-                    return Some(p.clone() as Arc<dyn crate::runtime::plugin::MetadataPlugin>);
+                    return p.get_node_adapter();
                 }
             }
             None
@@ -450,6 +507,14 @@ impl NaviscopeEngine {
 
         // Build graph
         let mut builder = CodeGraphBuilder::new();
+
+        // Register naming conventions
+        for plugin in lang_plugins.iter() {
+            if let Some(nc) = plugin.get_naming_convention() {
+                builder.naming_conventions.insert(plugin.name(), nc);
+            }
+        }
+
         builder.apply_ops(ops)?;
 
         Ok(builder.build())

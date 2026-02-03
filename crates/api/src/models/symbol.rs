@@ -17,12 +17,103 @@ impl JsonSchema for Symbol {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+pub enum NodeId {
+    Flat(String),
+    Structured(Vec<(super::graph::NodeKind, String)>),
+}
+
+impl From<String> for NodeId {
+    fn from(s: String) -> Self {
+        NodeId::Flat(s)
+    }
+}
+
+impl From<&str> for NodeId {
+    fn from(s: &str) -> Self {
+        NodeId::Flat(s.to_string())
+    }
+}
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeId::Flat(s) => write!(f, "{}", s),
+            NodeId::Structured(parts) => {
+                for (i, (kind, name)) in parts.iter().enumerate() {
+                    if i > 0 {
+                        match kind {
+                            super::graph::NodeKind::Method
+                            | super::graph::NodeKind::Constructor
+                            | super::graph::NodeKind::Field => {
+                                write!(f, "#")?;
+                            }
+                            _ => {
+                                write!(f, ".")?;
+                            }
+                        }
+                    }
+                    write!(f, "{}", name)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl NodeId {
+    pub fn as_str(&self) -> &str {
+        match self {
+            NodeId::Flat(s) => s.as_str(),
+            NodeId::Structured(_) => "structured_id",
+        }
+    }
+}
+
+pub type SymbolAtom = Symbol;
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FqnId(pub u32);
+
+impl JsonSchema for FqnId {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("FqnId")
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        u32::json_schema(generator)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+pub struct FqnNode {
+    pub parent: Option<FqnId>,
+    pub name: Symbol,
+    pub kind: NodeKind,
+}
+
+pub trait FqnReader {
+    fn resolve_node(&self, id: FqnId) -> Option<FqnNode>;
+    fn resolve_atom(&self, atom: Symbol) -> &str;
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
 pub struct Range {
     pub start_line: usize,
     pub start_col: usize,
     pub end_line: usize,
     pub end_col: usize,
+}
+
+impl Default for Range {
+    fn default() -> Self {
+        Self {
+            start_line: 0,
+            start_col: 0,
+            end_line: 0,
+            end_col: 0,
+        }
+    }
 }
 
 impl Range {
@@ -105,9 +196,9 @@ pub struct InternedLocation {
 }
 
 impl InternedLocation {
-    pub fn to_display(&self, rodeo: &dyn lasso::Reader) -> super::graph::DisplaySymbolLocation {
+    pub fn to_display(&self, fqns: &dyn FqnReader) -> super::graph::DisplaySymbolLocation {
         super::graph::DisplaySymbolLocation {
-            path: rodeo.resolve(&self.path.0).to_string(),
+            path: fqns.resolve_atom(self.path).to_string(),
             range: self.range,
             selection_range: self.selection_range,
         }

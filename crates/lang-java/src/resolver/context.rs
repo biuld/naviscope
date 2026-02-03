@@ -1,13 +1,12 @@
 use crate::parser::JavaParser;
 use naviscope_api::models::SymbolIntent;
-use naviscope_core::features::CodeGraphLike;
-use naviscope_core::model::ResolvedUnit;
+use naviscope_plugin::{CodeGraph, ResolvedUnit};
 use tree_sitter::{Node, Tree};
 
 pub struct ResolutionContext<'a> {
     pub node: Node<'a>,
     pub name: String,
-    pub index: &'a dyn CodeGraphLike, // Updated type
+    pub index: &'a dyn CodeGraph,
     pub unit: Option<&'a ResolvedUnit>,
     pub source: &'a str,
     pub tree: &'a Tree,
@@ -22,7 +21,7 @@ impl<'a> ResolutionContext<'a> {
     pub fn new(
         node: Node<'a>,
         name: String,
-        index: &'a dyn CodeGraphLike, // Updated type
+        index: &'a dyn CodeGraph,
         source: &'a str,
         tree: &'a Tree,
         parser: &JavaParser,
@@ -33,7 +32,7 @@ impl<'a> ResolutionContext<'a> {
     pub fn new_with_unit(
         node: Node<'a>,
         name: String,
-        index: &'a dyn CodeGraphLike, // Updated type
+        index: &'a dyn CodeGraph,
         unit: Option<&'a ResolvedUnit>,
         source: &'a str,
         tree: &'a Tree,

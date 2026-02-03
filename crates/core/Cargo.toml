@@ -1,6 +1,6 @@
 [package]
 name = "naviscope-core"
-version = "0.5.0"
+version = "0.5.5"
 edition = "2024"
 
 [dependencies]
@@ -8,6 +8,7 @@ petgraph = { workspace = true }
 tree-sitter = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+dashmap = { workspace = true }
 thiserror = { workspace = true }
 walkdir = { workspace = true }
 log = { workspace = true }
@@ -28,8 +29,10 @@ lsp-types = { workspace = true }
 lasso = { workspace = true }
 zstd = { workspace = true }
 naviscope-api = { workspace = true }
+naviscope-plugin = { workspace = true }
 async-trait = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
 tree-sitter-java = { workspace = true }
+tempfile = { workspace = true }
