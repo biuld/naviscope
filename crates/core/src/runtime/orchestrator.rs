@@ -51,11 +51,14 @@ impl Drop for NaviscopeEngine {
 impl NaviscopeEngine {
     /// Create a new engine
     pub fn new(project_root: PathBuf) -> Self {
-        let index_path = Self::compute_index_path(&project_root);
+        let canonical_root = project_root
+            .canonicalize()
+            .unwrap_or_else(|_| project_root.clone());
+        let index_path = Self::compute_index_path(&canonical_root);
 
         Self {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
-            project_root,
+            project_root: canonical_root,
             index_path,
             build_plugins: Arc::new(Vec::new()),
             lang_plugins: Arc::new(Vec::new()),

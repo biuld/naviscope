@@ -222,8 +222,10 @@ impl ReplServer {
 }
 
 pub async fn run(path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let project_path =
-        path.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let project_path = match path {
+        Some(p) => p,
+        None => std::env::current_dir()?.canonicalize()?,
+    };
     let server = ReplServer::new(project_path);
     server.run().await
 }

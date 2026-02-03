@@ -76,24 +76,26 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     // Initialize logging based on command
-    let component = match &cli.command {
-        Commands::Lsp => "lsp",
-        Commands::Mcp { .. } => "mcp",
-        _ => "cli",
+    let (component, to_stderr) = match &cli.command {
+        Commands::Lsp => ("lsp", false),
+        Commands::Mcp { .. } => ("mcp", false),
+        Commands::Shell { .. } => ("cli", false),
+        _ => ("cli", true),
     };
-    let _guard = naviscope_runtime::init_logging(component);
+    let _guard = naviscope_runtime::init_logging(component, to_stderr);
 
     let rt = tokio::runtime::Runtime::new()?;
 
     match cli.command {
-        Commands::Index { path } => rt.block_on(index::run(path)),
-        Commands::Shell { path } => rt.block_on(shell::run(path)),
-        Commands::Watch { path } => rt.block_on(watch::run(path)),
-        Commands::Clear { path } => rt.block_on(clear::run(path)),
+        Commands::Index { path } => rt.block_on(index::run(path.canonicalize()?)),
+        Commands::Shell { path } => rt.block_on(shell::run(path.map(|p| p.canonicalize()).transpose()?)),
+        Commands::Watch { path } => rt.block_on(watch::run(path.canonicalize()?)),
+        Commands::Clear { path } => rt.block_on(clear::run(path.map(|p| p.canonicalize()).transpose()?)),
         Commands::Mcp { path } => {
-            let project_path = path
-                .clone()
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let project_path = match path {
+                Some(p) => p.canonicalize()?,
+                None => std::env::current_dir()?.canonicalize()?,
+            };
 
             // Connect to LSP via proxy mode (waits for LSP if not started)
             rt.block_on(async { naviscope_mcp::proxy::run_mcp_proxy(&project_path).await })?;

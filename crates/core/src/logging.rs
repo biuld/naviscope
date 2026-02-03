@@ -2,7 +2,7 @@ use std::path::Path;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-pub fn init_logging(component: &str) -> WorkerGuard {
+pub fn init_logging(component: &str, to_stderr: bool) -> WorkerGuard {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let log_dir = Path::new(&home).join(".naviscope/logs");
     let _ = std::fs::create_dir_all(&log_dir);
@@ -20,24 +20,18 @@ pub fn init_logging(component: &str) -> WorkerGuard {
         .with_ansi(false)
         .with_target(true);
 
-    // Stderr layer: only enable for CLI (terminal), disable for LSP/MCP to avoid interfering with protocol
-    // LSP/MCP modes should only log to file to avoid interfering with stdio protocol
-    if component == "cli" {
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(file_layer);
+
+    if to_stderr {
         let stderr_layer = fmt::layer()
             .with_writer(std::io::stderr)
             .with_ansi(true)
             .with_target(false);
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(file_layer)
-            .with(stderr_layer)
-            .init();
+        registry.with(stderr_layer).init();
     } else {
-        // LSP/MCP: only log to file, no stderr output
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(file_layer)
-            .init();
+        registry.init();
     }
 
     guard

@@ -180,7 +180,7 @@ impl Serialize for FqnManager {
         S: Serializer,
     {
         use serde::ser::SerializeStruct;
-        eprintln!(
+        tracing::debug!(
             "Serializing FqnManager: rodeo_len={}, nodes={}",
             self.rodeo.len(),
             self.nodes.len()
@@ -215,7 +215,7 @@ impl<'de> Deserialize<'de> for FqnManager {
         }
 
         let raw = RawData::deserialize(deserializer)?;
-        eprintln!(
+        tracing::debug!(
             "Deserialized FqnManager: rodeo_len={}, nodes={}",
             raw.rodeo.len(),
             raw.nodes.len()
