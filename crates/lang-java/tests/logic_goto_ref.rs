@@ -32,10 +32,14 @@ fn test_goto_references_method() {
         .resolve_at(a_tree, a_content, line, col, &index)
         .expect("Should resolve target");
     let matches = resolver.find_matches(&index, &res);
-    let target_idx = matches[0];
+    let target_fqn = matches[0];
+    let target_idx = *index.fqn_map().get(&target_fqn).expect("Node not found");
 
     // Check for candidate files via DiscoveryEngine (Meso-scouting)
-    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(&index, std::collections::HashMap::new());
+    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(
+        &index,
+        std::collections::HashMap::new(),
+    );
     let candidate_files = discovery.scout_references(&[target_idx]);
 
     assert_eq!(candidate_files.len(), 3);

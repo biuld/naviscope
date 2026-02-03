@@ -1,6 +1,6 @@
 use super::is_relevant_path;
-use crate::ingest::parser::GlobalParseResult;
-use crate::model::source::{BuildTool, Language, SourceFile};
+
+use crate::model::source::SourceFile;
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -10,93 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use xxhash_rust::xxh3::Xxh3;
 
-#[derive(Clone)]
-pub enum ParsedContent {
-    Language(GlobalParseResult),
-    MetaData(serde_json::Value),
-    Unparsed(String),
-    /// Content not yet loaded into memory
-    Lazy,
-}
-
-#[derive(Clone)]
-pub struct ParsedFile {
-    pub file: SourceFile,
-    pub content: ParsedContent,
-}
-
-impl ParsedFile {
-    pub fn is_build(&self) -> bool {
-        match self.content {
-            ParsedContent::Unparsed(..) | ParsedContent::Lazy => {
-                let name = self
-                    .path()
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
-                name == "build.gradle"
-                    || name == "build.gradle.kts"
-                    || name == "settings.gradle"
-                    || name == "settings.gradle.kts"
-            }
-            _ => false,
-        }
-    }
-
-    pub fn build_tool(&self) -> Option<BuildTool> {
-        match self.content {
-            ParsedContent::Unparsed(..) | ParsedContent::Lazy => {
-                if self.is_build() {
-                    Some(BuildTool::GRADLE)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    pub fn language(&self) -> Option<Language> {
-        match self.content {
-            ParsedContent::Language(ref res) => {
-                // Try to infer from package
-                if let Some(ref pkg) = res.package_name {
-                    if pkg.starts_with("java.") || pkg.starts_with("javax.") {
-                        return Some(Language::JAVA);
-                    }
-                }
-                Some(Language::UNKNOWN)
-            }
-            ParsedContent::MetaData(..) => None,
-            ParsedContent::Unparsed(..) | ParsedContent::Lazy => {
-                if self.is_build() {
-                    self.build_tool()
-                        .map(|t| Language::new(t.as_str().to_string()))
-                } else {
-                    self.path()
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .and_then(Language::from_extension)
-                }
-            }
-        }
-    }
-
-    pub fn read_content(&self) -> std::io::Result<String> {
-        match &self.content {
-            ParsedContent::Unparsed(s) => Ok(s.clone()),
-            ParsedContent::Lazy => std::fs::read_to_string(self.path()),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Content is already parsed or metadata",
-            )),
-        }
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.file.path
-    }
-}
+pub use naviscope_plugin::{ParsedContent, ParsedFile};
 
 pub struct Scanner;
 

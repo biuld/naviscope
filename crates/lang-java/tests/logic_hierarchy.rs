@@ -38,7 +38,8 @@ fn test_call_hierarchy_incoming() {
     let res = resolver
         .resolve_at(tree, content, line, col, &index)
         .expect("Should resolve leaf");
-    let target_idx = resolver.find_matches(&index, &res)[0];
+    let target_fqn = resolver.find_matches(&index, &res)[0];
+    let target_idx = *index.fqn_map().get(&target_fqn).expect("Node not found");
 
     // Check callers using DiscoveryEngine
     let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
@@ -65,7 +66,9 @@ fn test_call_hierarchy_incoming() {
                     }
                 }
                 let node = &index.topology()[container_idx];
-                let fqn = index.render_fqn(node, Some(&naviscope_java::naming::JavaNamingConvention)).to_string();
+                let fqn = index
+                    .render_fqn(node, Some(&naviscope_java::naming::JavaNamingConvention))
+                    .to_string();
                 if !callers.contains(&fqn) {
                     callers.push(fqn);
                 }
@@ -100,7 +103,8 @@ fn test_call_hierarchy_outgoing() {
     let res = resolver
         .resolve_at(tree, content, line, col, &index)
         .expect("Should resolve root");
-    let target_idx = resolver.find_matches(&index, &res)[0];
+    let target_fqn = resolver.find_matches(&index, &res)[0];
+    let target_idx = *index.fqn_map().get(&target_fqn).expect("Node not found");
 
     // Check callees using manual walk (similar to outgoing_calls in LSP)
     let container_range = index.topology()[target_idx].range().unwrap();
@@ -167,7 +171,8 @@ fn test_call_hierarchy_recursion() {
     let res = resolver
         .resolve_at(tree, content, line, col, &index)
         .unwrap();
-    let idx = resolver.find_matches(&index, &res)[0];
+    let target_fqn = resolver.find_matches(&index, &res)[0];
+    let idx = *index.fqn_map().get(&target_fqn).expect("Node not found");
 
     // Incoming should contain itself
     let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
@@ -191,7 +196,9 @@ fn test_call_hierarchy_recursion() {
                 }
             }
             let node = &index.topology()[c_idx];
-            let fqn = index.render_fqn(node, Some(&naviscope_java::naming::JavaNamingConvention)).to_string();
+            let fqn = index
+                .render_fqn(node, Some(&naviscope_java::naming::JavaNamingConvention))
+                .to_string();
             if !callers.contains(&fqn) {
                 callers.push(fqn);
             }

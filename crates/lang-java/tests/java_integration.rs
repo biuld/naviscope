@@ -4,11 +4,6 @@ use common::setup_java_test_graph;
 use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
 
-// Helper to get Java naming convention for tests
-fn java_convention() -> &'static dyn naviscope_plugin::NamingConvention {
-    &naviscope_java::naming::JavaNamingConvention
-}
-
 #[test]
 fn test_cross_file_resolution() {
     let files = vec![
@@ -92,8 +87,15 @@ fn test_inheritance_and_implementations() {
     let impls = resolver.find_implementations(&index, &res);
     assert_eq!(impls.len(), 1);
 
-    let node = &index.topology()[impls[0]];
-    assert_eq!({ use naviscope_plugin::NamingConvention; naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns()) }, "C");
+    let node_idx = *index.fqn_map().get(&impls[0]).expect("Node not found");
+    let node = &index.topology()[node_idx];
+    assert_eq!(
+        {
+            use naviscope_plugin::NamingConvention;
+            naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns())
+        },
+        "C"
+    );
 }
 
 #[test]
@@ -440,7 +442,11 @@ public class DefaultApplicationArguments {
         for (fqn, idx) in index.fqn_map() {
             let node = &index.topology()[*idx];
             use naviscope_plugin::NamingConvention;
-            println!(" - {} ({:?})", naviscope_plugin::DotPathConvention.render_fqn(*fqn, index.fqns()), node.kind());
+            println!(
+                " - {} ({:?})",
+                naviscope_plugin::DotPathConvention.render_fqn(*fqn, index.fqns()),
+                node.kind()
+            );
         }
         panic!("Failed to resolve Spring Boot scenario, got {:?}", res);
     }

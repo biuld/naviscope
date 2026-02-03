@@ -1,4 +1,4 @@
-naviscope_core::decl_indices!(OccurrenceIndices, {
+naviscope_plugin::decl_indices!(OccurrenceIndices, {
     ident => "ident",
     method => "method_occurrence",
     type_alias => "type_occurrence",

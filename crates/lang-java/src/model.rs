@@ -1,5 +1,5 @@
 use naviscope_api::models::{NodeMetadata, TypeRef};
-use naviscope_core::model::metadata::{IndexMetadata, SymbolInterner};
+use naviscope_plugin::{IndexMetadata, SymbolInterner};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::sync::Arc;

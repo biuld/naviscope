@@ -1,26 +1,31 @@
+use naviscope_api::models::Language;
 use naviscope_core::ingest::builder::CodeGraphBuilder;
-use naviscope_core::ingest::parser::IndexParser;
-use naviscope_core::ingest::resolver::ProjectContext;
-use naviscope_core::ingest::scanner::{ParsedContent, ParsedFile};
-use naviscope_core::model::source::SourceFile;
-use naviscope_core::model::{CodeGraph, GraphOp};
 use naviscope_java::parser::JavaParser;
 use naviscope_java::resolver::JavaResolver;
+use naviscope_plugin::{
+    GraphOp, LangResolver, ParsedContent, ParsedFile, ProjectContext, SourceFile,
+};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tree_sitter::Parser;
 
 pub fn setup_java_test_graph(
     files: Vec<(&str, &str)>,
-) -> (CodeGraph, Vec<(PathBuf, String, tree_sitter::Tree)>) {
+) -> (
+    naviscope_core::model::CodeGraph,
+    Vec<(PathBuf, String, tree_sitter::Tree)>,
+) {
     let mut builder = CodeGraphBuilder::new();
     builder.naming_conventions.insert(
-        naviscope_core::model::Language::JAVA,
-        std::sync::Arc::new(naviscope_java::naming::JavaNamingConvention),
+        Language::JAVA,
+        Arc::new(naviscope_java::naming::JavaNamingConvention),
     );
     let mut parsed_files = Vec::new();
     let java_parser = JavaParser::new().unwrap();
     let mut ts_parser = Parser::new();
-    ts_parser.set_language(&java_parser.language).unwrap();
+    ts_parser
+        .set_language(&java_parser.language.clone().into())
+        .unwrap();
 
     // Phase 1: Parse all files to get entities and build the graph
     let mut all_parsed_files = Vec::new();
@@ -37,16 +42,16 @@ pub fn setup_java_test_graph(
 
     // Phase 2: Resolve (using JavaResolver's LangResolver implementation)
     let resolver = JavaResolver::new();
-    let context = ProjectContext::new(); // Empty context for simple tests
+    let context = ProjectContext::new(); // Uses default V2 context
 
     let mut all_ops = Vec::new();
 
     for (pf, content) in all_parsed_files {
         let tree = ts_parser.parse(&content, None).unwrap();
 
-        // Use LangResolver to get graph operations
-        use naviscope_core::ingest::resolver::LangResolver;
+        // Use JavaResolver to get resolved unit
         let unit = resolver.resolve(&pf, &context).unwrap();
+
         all_ops.extend(unit.ops);
 
         parsed_files.push((pf.file.path.clone(), content.to_string(), tree));

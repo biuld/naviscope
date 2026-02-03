@@ -69,7 +69,14 @@ fn test_goto_definition_cross_file() {
         .expect("Should resolve A");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "com.A");
+    let idx = *index.fqn_map().get(&matches[0]).expect("Node not found");
+    assert_eq!(
+        index.render_fqn(
+            &index.topology()[idx],
+            Some(&naviscope_java::naming::JavaNamingConvention)
+        ),
+        "com.A"
+    );
 
     // 2. Resolve Method hello
     let hello_usage = b_content.find("hello()").unwrap();
@@ -79,8 +86,12 @@ fn test_goto_definition_cross_file() {
         .expect("Should resolve hello");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
+    let idx = *index.fqn_map().get(&matches[0]).expect("Node not found");
     assert_eq!(
-        index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)),
+        index.render_fqn(
+            &index.topology()[idx],
+            Some(&naviscope_java::naming::JavaNamingConvention)
+        ),
         "com.A#hello"
     );
 }
@@ -135,9 +146,13 @@ fn test_goto_definition_constructor() {
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
     // In our model, constructor might be the class or the method depending on implementation
+    let idx = *index.fqn_map().get(&matches[0]).expect("Node not found");
     assert!(
         index
-            .render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention))
+            .render_fqn(
+                &index.topology()[idx],
+                Some(&naviscope_java::naming::JavaNamingConvention)
+            )
             .contains("A")
     );
 }
@@ -163,5 +178,12 @@ fn test_goto_definition_static() {
         .expect("Should resolve static field");
     let matches = resolver.find_matches(&index, &res);
     assert!(!matches.is_empty());
-    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "A#VAL");
+    let idx = *index.fqn_map().get(&matches[0]).expect("Node not found");
+    assert_eq!(
+        index.render_fqn(
+            &index.topology()[idx],
+            Some(&naviscope_java::naming::JavaNamingConvention)
+        ),
+        "A#VAL"
+    );
 }

@@ -97,13 +97,6 @@ pub trait FqnReader {
     fn resolve_atom(&self, atom: Symbol) -> &str;
 }
 
-pub trait FqnInterner: FqnReader {
-    fn intern_atom(&self, name: &str) -> Symbol;
-    fn intern_node(&self, parent: Option<FqnId>, name: &str, kind: super::graph::NodeKind)
-    -> FqnId;
-    fn intern_node_id(&self, id: &NodeId) -> FqnId;
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
 pub struct Range {
     pub start_line: usize,

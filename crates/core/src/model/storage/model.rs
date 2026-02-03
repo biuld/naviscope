@@ -1,7 +1,8 @@
-use crate::model::{GraphEdge, NodeKind, Range};
 use crate::model::FqnStorage;
+use crate::model::{GraphEdge, NodeKind, Range};
 use lasso::{Key, ThreadedRodeo};
-use naviscope_api::models::symbol::{FqnInterner, Symbol};
+use naviscope_api::models::symbol::Symbol;
+use naviscope_plugin::FqnInterner;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -16,11 +17,11 @@ pub struct GenericStorageContext {
     pub rodeo: Arc<ThreadedRodeo>,
 }
 
-impl naviscope_api::models::graph::StorageContext for GenericStorageContext {
+impl naviscope_plugin::StorageContext for GenericStorageContext {
     fn interner(&mut self) -> &mut dyn FqnInterner {
         self
     }
-    
+
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }

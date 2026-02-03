@@ -1,11 +1,11 @@
+use naviscope_api::models::graph::NodeKind;
 use naviscope_api::models::{BuildTool, EmptyMetadata, Range};
 use naviscope_core::ingest::parser::IndexNode;
-use naviscope_core::ingest::resolver::{BuildResolver, ProjectContext};
-use naviscope_core::ingest::scanner::ParsedFile;
-use naviscope_core::model::{NodeKind, ResolvedUnit};
+use naviscope_core::ingest::resolver::BuildResolver;
 use naviscope_core::runtime::orchestrator::NaviscopeEngine;
-use naviscope_core::plugin::{
-    BuildParseResult, BuildToolPlugin, NodeAdapter, PluginInstance,
+use naviscope_plugin::{
+    BuildParseResult, BuildToolPlugin, NodeAdapter, ParsedFile, PluginInstance, ProjectContext,
+    ResolvedUnit, StorageContext,
 };
 use std::fs;
 use std::sync::Arc;
@@ -31,7 +31,7 @@ impl NodeAdapter for MockBuildPlugin {
     fn decode_metadata(
         &self,
         _bytes: &[u8],
-        _ctx: &dyn naviscope_api::models::graph::StorageContext,
+        _ctx: &dyn StorageContext,
     ) -> Arc<dyn naviscope_api::models::NodeMetadata> {
         Arc::new(EmptyMetadata)
     }
@@ -44,7 +44,10 @@ impl BuildToolPlugin for MockBuildPlugin {
     fn recognize(&self, name: &str) -> bool {
         name == "build.gradle"
     }
-    fn parse_build_file(&self, _source: &str) -> naviscope_core::error::Result<BuildParseResult> {
+    fn parse_build_file(
+        &self,
+        _source: &str,
+    ) -> Result<BuildParseResult, Box<dyn std::error::Error + Send + Sync>> {
         unimplemented!()
     }
     fn build_resolver(&self) -> Arc<dyn BuildResolver> {
@@ -58,7 +61,7 @@ impl BuildResolver for MockBuildResolver {
     fn resolve(
         &self,
         files: &[&ParsedFile],
-    ) -> naviscope_core::error::Result<(ResolvedUnit, ProjectContext)> {
+    ) -> Result<(ResolvedUnit, ProjectContext), Box<dyn std::error::Error + Send + Sync>> {
         let mut unit = ResolvedUnit::new();
         let mut context = ProjectContext::new();
         if let Some(f) = files.first() {

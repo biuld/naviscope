@@ -1,8 +1,8 @@
 use super::super::JavaParser;
 use super::{JavaEntity, JavaRelation};
 use crate::model::{JavaIndexMetadata, JavaParameter};
-use naviscope_core::ingest::parser::utils::range_from_ts;
-use naviscope_core::model::EdgeType;
+use naviscope_api::models::graph::EdgeType;
+use naviscope_plugin::utils::range_from_ts;
 use std::collections::HashMap;
 use tree_sitter::QueryCapture;
 

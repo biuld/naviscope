@@ -1,4 +1,5 @@
 use naviscope_api::models::graph::NodeKind;
+use naviscope_api::models::symbol::{FqnId, FqnReader};
 use std::fmt::Debug;
 
 /// Defines language-specific naming rules for Fully Qualified Names (FQNs).
@@ -28,11 +29,7 @@ pub trait NamingConvention: Send + Sync + Debug {
     ) -> Vec<(NodeKind, String)>;
 
     /// Render a structured FQN into a string using this convention.
-    fn render_fqn(
-        &self,
-        id: naviscope_api::models::symbol::FqnId,
-        reader: &dyn naviscope_api::models::symbol::FqnReader,
-    ) -> String {
+    fn render_fqn(&self, id: FqnId, reader: &dyn FqnReader) -> String {
         let mut parts = Vec::new();
         let mut current = Some(id);
 

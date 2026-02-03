@@ -9,7 +9,8 @@ use crate::model::graph::CodeGraphInner;
 use crate::model::source::SourceFile;
 // StorageContext unused
 use crate::model::{GraphEdge, GraphOp};
-use naviscope_api::models::symbol::{FqnInterner, Symbol};
+use naviscope_api::models::symbol::Symbol;
+use naviscope_plugin::{FqnInterner, ModelConverter};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use std::collections::HashMap;
 use std::path::Path;

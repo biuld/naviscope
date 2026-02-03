@@ -23,7 +23,7 @@ impl NodeAdapter for DefaultNodeAdapter {
     fn encode_metadata(
         &self,
         _metadata: &dyn NodeMetadata,
-        _ctx: &mut dyn naviscope_api::models::graph::StorageContext,
+        _ctx: &mut dyn naviscope_plugin::StorageContext,
     ) -> Vec<u8> {
         Vec::new()
     }
@@ -31,7 +31,7 @@ impl NodeAdapter for DefaultNodeAdapter {
     fn decode_metadata(
         &self,
         _bytes: &[u8],
-        _ctx: &dyn naviscope_api::models::graph::StorageContext,
+        _ctx: &dyn naviscope_plugin::StorageContext,
     ) -> Arc<dyn NodeMetadata> {
         Arc::new(EmptyMetadata)
     }
@@ -46,11 +46,11 @@ impl crate::model::metadata::SymbolInterner for ReadOnlyStorageContext {
     }
 }
 
-impl naviscope_api::models::graph::StorageContext for ReadOnlyStorageContext {
-    fn interner(&mut self) -> &mut dyn naviscope_api::models::symbol::FqnInterner {
+impl naviscope_plugin::StorageContext for ReadOnlyStorageContext {
+    fn interner(&mut self) -> &mut dyn naviscope_plugin::FqnInterner {
         unreachable!("Read-only context cannot intern")
     }
-    
+
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }

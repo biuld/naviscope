@@ -100,16 +100,6 @@ use lasso::Reader;
 use std::any::Any;
 use std::fmt::Debug;
 
-/// Context for metadata serialization/deserialization operations.
-/// Provides access to shared string interners and other storage facilities.
-pub trait StorageContext: Send + Sync {
-    /// Get the string interner for converting strings to symbols.
-    fn interner(&mut self) -> &mut dyn super::symbol::FqnInterner;
-    
-    /// Downcast to Any for plugin-specific context access.
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
-}
-
 /// Trait for language-specific metadata.
 pub trait NodeMetadata: Send + Sync + Debug {
     /// Cast to Any for downcasting to concrete types.
@@ -191,19 +181,6 @@ pub struct DisplaySymbolLocation {
     pub selection_range: Option<Range>,
 }
 
-impl DisplaySymbolLocation {
-    pub fn to_internal(
-        &self,
-        interner: &dyn super::symbol::FqnInterner,
-    ) -> super::symbol::InternedLocation {
-        super::symbol::InternedLocation {
-            path: interner.intern_atom(&self.path),
-            range: self.range,
-            selection_range: self.selection_range,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct DisplayGraphNode {
     pub id: String,
@@ -220,22 +197,6 @@ pub struct DisplayGraphNode {
 
     // Hierarchy support
     pub children: Option<Vec<DisplayGraphNode>>,
-}
-
-impl DisplayGraphNode {
-    pub fn to_internal(&self, interner: &dyn super::symbol::FqnInterner) -> GraphNode {
-        // NOTE: This assumes high-level display node ID is a flat FQN for now.
-        // In a real migration, we'd want to pass the structured parts.
-        let fqn_id = interner.intern_node(None, &self.id, self.kind.clone());
-        GraphNode {
-            id: fqn_id,
-            name: interner.intern_atom(&self.name),
-            kind: self.kind.clone(),
-            lang: interner.intern_atom(&self.lang),
-            location: self.location.as_ref().map(|l| l.to_internal(interner)),
-            metadata: Arc::new(EmptyMetadata),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]

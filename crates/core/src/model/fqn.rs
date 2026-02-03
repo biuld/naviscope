@@ -2,7 +2,8 @@ use dashmap::DashMap;
 use lasso::ThreadedRodeo;
 use naviscope_api::models::graph::NodeKind;
 use naviscope_api::models::symbol::NodeId;
-pub use naviscope_api::models::symbol::{FqnId, FqnInterner, FqnNode, FqnReader, Symbol};
+pub use naviscope_api::models::symbol::{FqnId, FqnNode, FqnReader, Symbol};
+pub use naviscope_plugin::FqnInterner;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::Arc;
 

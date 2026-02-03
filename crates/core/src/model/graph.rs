@@ -6,12 +6,12 @@ use crate::error::{NaviscopeError, Result};
 use crate::ingest::builder::CodeGraphBuilder;
 
 use crate::features::CodeGraphLike;
+use crate::model::FqnManager;
 use crate::model::source::SourceFile;
 use crate::model::{GraphEdge, GraphNode};
 use crate::plugin::NodeAdapter;
-use crate::model::FqnManager;
 use lasso::ThreadedRodeo;
-use naviscope_api::models::symbol::{FqnId, Symbol};
+use naviscope_api::models::symbol::{FqnId, FqnReader, Symbol};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use std::collections::HashMap;
 use std::path::Path;
@@ -326,9 +326,12 @@ impl CodeGraphLike for CodeGraph {
     fn symbols(&self) -> &lasso::ThreadedRodeo {
         &self.inner.symbols
     }
-
     fn fqns(&self) -> &FqnManager {
         &self.inner.fqns
+    }
+
+    fn as_plugin_graph(&self) -> &dyn naviscope_plugin::CodeGraph {
+        self
     }
 
     fn find_node(&self, fqn: &str) -> Option<petgraph::stable_graph::NodeIndex> {
@@ -337,6 +340,68 @@ impl CodeGraphLike for CodeGraph {
 
     fn find_matches_by_fqn(&self, fqn: &str) -> Vec<petgraph::stable_graph::NodeIndex> {
         Self::find_matches_by_fqn(self, fqn)
+    }
+}
+
+impl naviscope_plugin::CodeGraph for CodeGraph {
+    fn resolve_fqn(&self, fqn: &str) -> Vec<FqnId> {
+        self.inner.fqns.resolve_fqn_string(fqn)
+    }
+
+    fn get_node_at(&self, path: &Path, line: usize, col: usize) -> Option<FqnId> {
+        self.find_container_node_at(path, line, col)
+            .map(|idx| self.inner.topology[idx].id)
+    }
+
+    fn resolve_atom(&self, atom: Symbol) -> &str {
+        self.inner.fqns.resolve_atom(atom)
+    }
+
+    fn fqns(&self) -> &dyn naviscope_api::models::symbol::FqnReader {
+        &self.inner.fqns
+    }
+
+    fn get_node(&self, id: FqnId) -> Option<naviscope_api::models::graph::GraphNode> {
+        self.inner
+            .fqn_index
+            .get(&id)
+            .and_then(|&idx| self.inner.topology.node_weight(idx).cloned())
+    }
+
+    fn get_neighbors(
+        &self,
+        id: FqnId,
+        direction: naviscope_plugin::Direction,
+        edge_type: Option<naviscope_api::models::graph::EdgeType>,
+    ) -> Vec<FqnId> {
+        let pet_dir = match direction {
+            naviscope_plugin::Direction::Incoming => petgraph::Direction::Incoming,
+            naviscope_plugin::Direction::Outgoing => petgraph::Direction::Outgoing,
+        };
+
+        if let Some(&idx) = self.inner.fqn_index.get(&id) {
+            use petgraph::visit::EdgeRef;
+            self.inner
+                .topology
+                .edges_directed(idx, pet_dir)
+                .filter(|e| {
+                    if let Some(et) = edge_type.clone() {
+                        e.weight().edge_type == et
+                    } else {
+                        true
+                    }
+                })
+                .map(|e| {
+                    let neighbor_idx = match direction {
+                        naviscope_plugin::Direction::Incoming => e.source(),
+                        naviscope_plugin::Direction::Outgoing => e.target(),
+                    };
+                    self.inner.topology[neighbor_idx].id
+                })
+                .collect()
+        } else {
+            vec![]
+        }
     }
 }
 #[cfg(test)]

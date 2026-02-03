@@ -1437,9 +1437,12 @@ name = "naviscope-plugin"
 version = "0.5.0"
 dependencies = [
  "async-trait",
+ "lsp-types",
  "naviscope-api",
  "serde",
+ "serde_json",
  "thiserror 2.0.17",
+ "tree-sitter",
 ]
 
 [[package]]

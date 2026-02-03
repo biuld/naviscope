@@ -40,7 +40,14 @@ fn test_goto_type_definition_variable() {
     assert!(!type_res.is_empty());
     let matches = resolver.find_matches(&index, &type_res[0]);
     assert!(!matches.is_empty());
-    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "Model");
+    let idx = *index.fqn_map().get(&matches[0]).expect("Node not found");
+    assert_eq!(
+        index.render_fqn(
+            &index.topology()[idx],
+            Some(&naviscope_java::naming::JavaNamingConvention)
+        ),
+        "Model"
+    );
 }
 
 #[test]
@@ -70,5 +77,12 @@ fn test_goto_type_definition_method_return() {
     assert!(!type_res.is_empty());
     let matches = resolver.find_matches(&index, &type_res[0]);
     assert!(!matches.is_empty());
-    assert_eq!(index.render_fqn(&index.topology()[matches[0]], Some(&naviscope_java::naming::JavaNamingConvention)), "Model");
+    let idx = *index.fqn_map().get(&matches[0]).expect("Node not found");
+    assert_eq!(
+        index.render_fqn(
+            &index.topology()[idx],
+            Some(&naviscope_java::naming::JavaNamingConvention)
+        ),
+        "Model"
+    );
 }

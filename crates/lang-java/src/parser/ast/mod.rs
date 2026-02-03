@@ -1,5 +1,6 @@
 use super::JavaParser;
-use naviscope_core::model::{EdgeType, Range};
+use naviscope_api::models::graph::EdgeType;
+use naviscope_api::models::symbol::Range;
 use std::collections::HashMap;
 use tree_sitter::{Node, QueryCapture, StreamingIterator, Tree};
 

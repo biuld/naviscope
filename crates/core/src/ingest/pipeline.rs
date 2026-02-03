@@ -3,7 +3,8 @@ use crate::model::GraphOp;
 use std::path::PathBuf;
 
 /// Ingest task context, used to share state between batches
-pub trait PipelineContext: Send + Sync {}
+pub trait PipelineContext: Send + Sync + 'static {}
+impl PipelineContext for naviscope_plugin::ProjectContext {}
 
 /// A processing stage of the pipeline
 pub trait PipelineStage<C: PipelineContext>: Send + Sync {

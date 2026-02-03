@@ -6,16 +6,12 @@ use naviscope_api::semantic::{
     CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolInfoProvider, SymbolNavigator,
 };
 use naviscope_core::facade::EngineHandle;
-use naviscope_core::features::CodeGraphLike;
-use naviscope_core::ingest::parser::{GlobalParseResult, LspParser};
-use naviscope_core::ingest::resolver::{LangResolver, ProjectContext, SemanticResolver};
-use naviscope_core::ingest::scanner::ParsedFile;
-use naviscope_core::model::ResolvedUnit;
+// naviscope_core imports removed in favor of naviscope_plugin
 use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
-use naviscope_core::plugin::{
-    LanguagePlugin, NamingConvention, NodeAdapter, PluginInstance,
+use naviscope_plugin::{
+    GlobalParseResult, LangResolver, LanguagePlugin, LspParser, NamingConvention, NodeAdapter,
+    ParsedFile, PluginInstance, ProjectContext, ResolvedUnit, SemanticResolver, StorageContext,
 };
-use petgraph::stable_graph::NodeIndex;
 use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
@@ -84,7 +80,7 @@ impl NodeAdapter for MockPlugin {
     fn encode_metadata(
         &self,
         metadata: &dyn naviscope_api::models::graph::NodeMetadata,
-        _ctx: &mut dyn naviscope_api::models::graph::StorageContext,
+        _ctx: &mut dyn StorageContext,
     ) -> Vec<u8> {
         if let Some(m) = metadata.as_any().downcast_ref::<MockMetadata>() {
             m.id.as_bytes().to_vec()
@@ -96,7 +92,7 @@ impl NodeAdapter for MockPlugin {
     fn decode_metadata(
         &self,
         bytes: &[u8],
-        _ctx: &dyn naviscope_api::models::graph::StorageContext,
+        _ctx: &dyn StorageContext,
     ) -> Arc<dyn naviscope_api::models::graph::NodeMetadata> {
         let id = String::from_utf8_lossy(bytes).to_string();
         Arc::new(MockMetadata { id })
@@ -120,7 +116,7 @@ impl LanguagePlugin for MockPlugin {
         &self,
         _source: &str,
         _path: &Path,
-    ) -> naviscope_core::error::Result<GlobalParseResult> {
+    ) -> Result<GlobalParseResult, Box<dyn std::error::Error + Send + Sync>> {
         Ok(GlobalParseResult {
             package_name: None,
             imports: vec![],
@@ -143,7 +139,6 @@ impl LanguagePlugin for MockPlugin {
     fn lsp_parser(&self) -> Arc<dyn LspParser> {
         Arc::new(MockLspParserWrapper {
             parser: self.lsp_parser.clone(),
-            plugin: Arc::new(self.clone_internal()),
         })
     }
 }
@@ -160,7 +155,6 @@ impl MockPlugin {
 
 struct MockLspParserWrapper {
     parser: Arc<MockLspParser>,
-    plugin: Arc<MockPlugin>,
 }
 
 impl LspParser for MockLspParserWrapper {
@@ -196,7 +190,7 @@ impl LangResolver for MockLangResolver {
         &self,
         file: &ParsedFile,
         _context: &ProjectContext,
-    ) -> naviscope_core::error::Result<ResolvedUnit> {
+    ) -> Result<ResolvedUnit, Box<dyn std::error::Error + Send + Sync>> {
         let mut unit = ResolvedUnit::new();
 
         let identifiers = match &file.content {
@@ -237,23 +231,25 @@ impl SemanticResolver for MockResolver {
         _source: &str,
         _line: usize,
         _byte_col: usize,
-        _index: &dyn CodeGraphLike,
+        _index: &dyn naviscope_plugin::CodeGraph,
     ) -> Option<SymbolResolution> {
         self.res_at.lock().unwrap().clone()
     }
 
-    fn find_matches(&self, index: &dyn CodeGraphLike, res: &SymbolResolution) -> Vec<NodeIndex> {
+    fn find_matches(
+        &self,
+        index: &dyn naviscope_plugin::CodeGraph,
+        res: &SymbolResolution,
+    ) -> Vec<naviscope_api::models::symbol::FqnId> {
         if let SymbolResolution::Global(id) = res {
-            if let Some(idx) = index.find_node(id.as_str()) {
-                return vec![idx];
-            }
+            return index.resolve_fqn(id.as_str());
         }
         vec![]
     }
 
     fn resolve_type_of(
         &self,
-        _index: &dyn CodeGraphLike,
+        _index: &dyn naviscope_plugin::CodeGraph,
         _res: &SymbolResolution,
     ) -> Vec<SymbolResolution> {
         vec![SymbolResolution::Global("test::Type".to_string())]
@@ -261,13 +257,10 @@ impl SemanticResolver for MockResolver {
 
     fn find_implementations(
         &self,
-        index: &dyn CodeGraphLike,
+        index: &dyn naviscope_plugin::CodeGraph,
         _res: &SymbolResolution,
-    ) -> Vec<NodeIndex> {
-        if let Some(idx) = index.find_node("test::Impl") {
-            return vec![idx];
-        }
-        vec![]
+    ) -> Vec<naviscope_api::models::symbol::FqnId> {
+        index.resolve_fqn("test::Impl")
     }
 }
 

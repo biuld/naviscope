@@ -3,7 +3,7 @@ use crate::resolver::context::ResolutionContext;
 use crate::resolver::scope::SemanticScope;
 use naviscope_api::models::SymbolIntent;
 
-use naviscope_core::ingest::parser::SymbolResolution;
+use naviscope_api::models::SymbolResolution;
 
 pub struct BuiltinScope<'a> {
     pub parser: &'a JavaParser,
@@ -23,7 +23,7 @@ impl SemanticScope<ResolutionContext<'_>> for BuiltinScope<'_> {
             .resolve_type_name_to_fqn_data(name, context.package.as_deref(), &context.imports)
             .and_then(|fqn| {
                 // Only return if it's a known FQN or a primitive or java.lang
-                let known = context.index.find_node(&fqn).is_some();
+                let known = !context.index.resolve_fqn(&fqn).is_empty();
 
                 if known || fqn.starts_with("java.lang.") || !fqn.contains('.') {
                     Some(Ok(SymbolResolution::Precise(fqn, SymbolIntent::Type)))
@@ -40,7 +40,7 @@ impl SemanticScope<ResolutionContext<'_>> for BuiltinScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_core::model::CodeGraph;
+
     use tree_sitter::Parser;
 
     #[test]
@@ -61,7 +61,7 @@ mod tests {
             .unwrap();
 
         let java_parser = JavaParser::new().unwrap();
-        let index = CodeGraph::empty();
+        let index = naviscope_plugin::EmptyCodeGraph;
 
         let context = ResolutionContext::new(
             string_node,

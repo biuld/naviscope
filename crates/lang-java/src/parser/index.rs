@@ -1,67 +1,57 @@
 use super::JavaParser;
-use naviscope_core::error::{NaviscopeError, Result};
-use naviscope_core::ingest::parser::{GlobalParseResult, IndexNode, IndexParser, ParseOutput};
-use naviscope_core::model::DisplaySymbolLocation;
+use naviscope_api::models::graph::{DisplaySymbolLocation, NodeKind};
+use naviscope_plugin::utils::range_from_ts;
+use naviscope_plugin::{GlobalParseResult, IndexNode, IndexRelation, ParseOutput};
 use std::sync::Arc;
 use tree_sitter::Parser;
 
-impl IndexParser for JavaParser {
-    fn parse_file(
+type GenericResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+impl JavaParser {
+    pub fn parse_file(
         &self,
         source_code: &str,
         file_path: Option<&std::path::Path>,
-    ) -> Result<GlobalParseResult> {
+    ) -> GenericResult<GlobalParseResult> {
         let mut parser = Parser::new();
         parser
             .set_language(&self.language)
-            .map_err(|e| NaviscopeError::Parsing(e.to_string()))?;
+            .map_err(|e| format!("Failed to set language: {}", e))?;
 
         let tree = parser
             .parse(source_code, None)
-            .ok_or_else(|| NaviscopeError::Parsing("Failed to parse Java file".to_string()))?;
+            .ok_or_else(|| "Failed to parse Java file")?;
 
         // Use the native AST analyzer
         let model = self.analyze(&tree, source_code);
 
-        let nodes: Vec<naviscope_core::ingest::parser::IndexNode> = model
+        let nodes: Vec<IndexNode> = model
             .entities
             .into_iter()
             .map(|e| {
                 let kind = match &e.element {
-                    crate::model::JavaIndexMetadata::Class { .. } => {
-                        naviscope_core::model::NodeKind::Class
-                    }
-                    crate::model::JavaIndexMetadata::Interface { .. } => {
-                        naviscope_core::model::NodeKind::Interface
-                    }
-                    crate::model::JavaIndexMetadata::Enum { .. } => {
-                        naviscope_core::model::NodeKind::Enum
-                    }
-                    crate::model::JavaIndexMetadata::Annotation { .. } => {
-                        naviscope_core::model::NodeKind::Annotation
-                    }
+                    crate::model::JavaIndexMetadata::Class { .. } => NodeKind::Class,
+                    crate::model::JavaIndexMetadata::Interface { .. } => NodeKind::Interface,
+                    crate::model::JavaIndexMetadata::Enum { .. } => NodeKind::Enum,
+                    crate::model::JavaIndexMetadata::Annotation { .. } => NodeKind::Annotation,
                     crate::model::JavaIndexMetadata::Method { is_constructor, .. } => {
                         if *is_constructor {
-                            naviscope_core::model::NodeKind::Constructor
+                            NodeKind::Constructor
                         } else {
-                            naviscope_core::model::NodeKind::Method
+                            NodeKind::Method
                         }
                     }
-                    crate::model::JavaIndexMetadata::Field { .. } => {
-                        naviscope_core::model::NodeKind::Field
-                    }
-                    crate::model::JavaIndexMetadata::Package => {
-                        naviscope_core::model::NodeKind::Package
-                    }
+                    crate::model::JavaIndexMetadata::Field { .. } => NodeKind::Field,
+                    crate::model::JavaIndexMetadata::Package => NodeKind::Package,
                 };
 
                 let location = file_path.map(|p| DisplaySymbolLocation {
                     path: p.to_string_lossy().to_string(),
-                    range: naviscope_core::ingest::parser::utils::range_from_ts(e.node.range()),
+                    range: range_from_ts(e.node.range()),
                     selection_range: e
                         .node
                         .child_by_field_name("name")
-                        .map(|n| naviscope_core::ingest::parser::utils::range_from_ts(n.range())),
+                        .map(|n| range_from_ts(n.range())),
                 });
 
                 IndexNode {
@@ -75,10 +65,10 @@ impl IndexParser for JavaParser {
             })
             .collect();
 
-        let relations: Vec<naviscope_core::ingest::parser::IndexRelation> = model
+        let relations: Vec<IndexRelation> = model
             .relations
             .into_iter()
-            .map(|r| naviscope_core::ingest::parser::IndexRelation {
+            .map(|r| IndexRelation {
                 source_id: r.source_id,
                 target_id: r.target_id,
                 edge_type: r.rel_type,

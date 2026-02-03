@@ -23,6 +23,7 @@ pub trait CodeGraphLike: Send + Sync {
     ) -> Option<petgraph::stable_graph::NodeIndex>;
     fn fqns(&self) -> &FqnManager;
     fn symbols(&self) -> &lasso::ThreadedRodeo;
+    fn as_plugin_graph(&self) -> &dyn naviscope_plugin::CodeGraph;
 
     /// Helper to render a node's full FQN with optional naming convention
     fn render_fqn(
@@ -31,7 +32,7 @@ pub trait CodeGraphLike: Send + Sync {
         convention: Option<&dyn naviscope_plugin::NamingConvention>,
     ) -> String {
         use naviscope_plugin::NamingConvention;
-        
+
         if let Some(nc) = convention {
             nc.render_fqn(node.id, self.fqns())
         } else {
@@ -97,5 +98,9 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
 
     fn fqns(&self) -> &FqnManager {
         (*self).fqns()
+    }
+
+    fn as_plugin_graph(&self) -> &dyn naviscope_plugin::CodeGraph {
+        (*self).as_plugin_graph()
     }
 }

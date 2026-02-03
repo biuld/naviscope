@@ -1,26 +1,34 @@
 use super::CodeGraphLike;
-use crate::ingest::parser::{LspParser, SymbolResolution};
+use crate::ingest::parser::LspParser;
 use lsp_types::{Location, Url};
+pub use naviscope_api::models::SymbolResolution;
 use std::collections::HashSet;
 
 /// DiscoveryEngine bridges Meso-level graph knowledge with Micro-level file scanning.
 pub struct DiscoveryEngine<'a> {
     index: &'a dyn CodeGraphLike,
-    naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
+    naming_conventions:
+        std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
 }
 
 impl<'a> DiscoveryEngine<'a> {
     pub fn new(
         index: &'a dyn CodeGraphLike,
-        naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
+        naming_conventions: std::collections::HashMap<
+            String,
+            std::sync::Arc<dyn naviscope_plugin::NamingConvention>,
+        >,
     ) -> Self {
         Self {
             index,
             naming_conventions,
         }
     }
-    
-    fn get_convention(&self, node: &crate::model::GraphNode) -> Option<&dyn naviscope_plugin::NamingConvention> {
+
+    fn get_convention(
+        &self,
+        node: &crate::model::GraphNode,
+    ) -> Option<&dyn naviscope_plugin::NamingConvention> {
         let lang_str = self.index.symbols().resolve(&node.lang.0);
         self.naming_conventions.get(lang_str).map(|c| c.as_ref())
     }
@@ -105,10 +113,7 @@ impl<'a> DiscoveryEngine<'a> {
 
     /// Smartly extract tokens for "bag of words" intersection.
     /// Returns (Primary Token, Optional Context Token)
-    fn extract_smart_tokens(
-        &self,
-        node: &crate::model::GraphNode,
-    ) -> (String, Option<String>) {
+    fn extract_smart_tokens(&self, node: &crate::model::GraphNode) -> (String, Option<String>) {
         let symbols = self.index.symbols();
         let name = node.name(symbols).to_string();
         let convention = self.get_convention(node);
@@ -163,7 +168,7 @@ impl<'a> DiscoveryEngine<'a> {
                     source,
                     range.start_line,
                     range.start_col,
-                    self.index,
+                    self.index.as_plugin_graph(),
                 ) {
                     // 3. Identity Check
                     if &resolved_at_loc == target_resolution {

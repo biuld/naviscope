@@ -1,7 +1,7 @@
 use super::JavaParser;
-use naviscope_core::ingest::parser::LspParser;
-use naviscope_core::ingest::parser::utils::{RawSymbol, build_symbol_hierarchy};
-use naviscope_core::model::NodeKind;
+use naviscope_api::models::graph::NodeKind;
+use naviscope_plugin::LspParser;
+use naviscope_plugin::utils::{RawSymbol, build_symbol_hierarchy, line_col_at_to_offset};
 use std::collections::HashMap;
 use tree_sitter::Tree;
 
@@ -16,7 +16,7 @@ impl LspParser for JavaParser {
         &self,
         tree: &Tree,
         source: &str,
-    ) -> Vec<naviscope_core::model::DisplayGraphNode> {
+    ) -> Vec<naviscope_api::models::graph::DisplayGraphNode> {
         self.extract_symbols(tree, source)
     }
 
@@ -28,8 +28,8 @@ impl LspParser for JavaParser {
         &self,
         source: &str,
         tree: &Tree,
-        target: &naviscope_core::ingest::parser::SymbolResolution,
-    ) -> Vec<naviscope_core::model::Range> {
+        target: &naviscope_api::models::SymbolResolution,
+    ) -> Vec<naviscope_api::models::symbol::Range> {
         self.find_occurrences(source, tree, target)
     }
 }
@@ -45,7 +45,7 @@ impl JavaParser {
         &self,
         tree: &Tree,
         source: &str,
-    ) -> Vec<naviscope_core::model::DisplayGraphNode> {
+    ) -> Vec<naviscope_api::models::graph::DisplayGraphNode> {
         // Only run Stage 1: Identification of entities.
         // We don't need full FQN resolution (naming) or relation resolution (Stage 3)
         // for building the local document symbol tree.
@@ -88,14 +88,12 @@ impl JavaParser {
                 RawSymbol {
                     name: e.name,
                     kind,
-                    range: naviscope_core::ingest::parser::utils::range_from_ts(e.node.range()),
+                    range: naviscope_plugin::utils::range_from_ts(e.node.range()),
                     selection_range: e
                         .node
                         .child_by_field_name("name")
-                        .map(|n| naviscope_core::ingest::parser::utils::range_from_ts(n.range()))
-                        .unwrap_or_else(|| {
-                            naviscope_core::ingest::parser::utils::range_from_ts(e.node.range())
-                        }),
+                        .map(|n| naviscope_plugin::utils::range_from_ts(n.range()))
+                        .unwrap_or_else(|| naviscope_plugin::utils::range_from_ts(e.node.range())),
                     node: e.node,
                 }
             })
@@ -123,24 +121,16 @@ impl JavaParser {
         &self,
         source: &str,
         tree: &Tree,
-        target: &naviscope_core::ingest::parser::SymbolResolution,
-    ) -> Vec<naviscope_core::model::Range> {
+        target: &naviscope_api::models::SymbolResolution,
+    ) -> Vec<naviscope_api::models::symbol::Range> {
         let mut ranges = Vec::new();
 
         // 1. Extract the identifier name and intent
         let (name, intent) = match target {
-            naviscope_core::ingest::parser::SymbolResolution::Local(range, _) => {
+            naviscope_api::models::SymbolResolution::Local(range, _) => {
                 // For local symbols, we extract the name directly from the source at the declaration range
-                let start = naviscope_core::model::util::line_col_at_to_offset(
-                    source,
-                    range.start_line,
-                    range.start_col,
-                );
-                let end = naviscope_core::model::util::line_col_at_to_offset(
-                    source,
-                    range.end_line,
-                    range.end_col,
-                );
+                let start = line_col_at_to_offset(source, range.start_line, range.start_col);
+                let end = line_col_at_to_offset(source, range.end_line, range.end_col);
 
                 if let (Some(s), Some(e)) = (start, end) {
                     if s < e && e <= source.len() {
@@ -155,14 +145,14 @@ impl JavaParser {
                     return Vec::new();
                 }
             }
-            naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, intent) => (
+            naviscope_api::models::SymbolResolution::Precise(fqn, intent) => (
                 fqn.split(|c| c == '.' || c == '#' || c == '$')
                     .last()
                     .unwrap_or(fqn)
                     .to_string(),
                 *intent,
             ),
-            naviscope_core::ingest::parser::SymbolResolution::Global(fqn) => (
+            naviscope_api::models::SymbolResolution::Global(fqn) => (
                 fqn.split(|c| c == '.' || c == '#' || c == '$')
                     .last()
                     .unwrap_or(fqn)
@@ -202,7 +192,7 @@ impl JavaParser {
                     if let Ok(text) = cap.node.utf8_text(source.as_bytes()) {
                         if text == name {
                             let r = cap.node.range();
-                            ranges.push(naviscope_core::model::Range {
+                            ranges.push(naviscope_api::models::symbol::Range {
                                 start_line: r.start_point.row,
                                 start_col: r.start_point.column,
                                 end_line: r.end_point.row,

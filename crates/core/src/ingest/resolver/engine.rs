@@ -50,7 +50,7 @@ impl IndexResolver {
     pub fn get_lsp_parser(
         &self,
         language: Language,
-    ) -> Option<Arc<dyn crate::ingest::parser::LspParser>> {
+    ) -> Option<Arc<dyn naviscope_plugin::LspParser>> {
         self.lang_plugins
             .iter()
             .find(|p| p.name() == language)
@@ -148,7 +148,9 @@ impl IndexResolver {
 
             if !tool_files.is_empty() {
                 let resolver = plugin.build_resolver();
-                let (unit, ctx) = resolver.resolve(&tool_files)?;
+                let (unit, ctx) = resolver
+                    .resolve(&tool_files)
+                    .map_err(crate::error::NaviscopeError::from)?;
                 all_ops.extend(unit.ops);
                 context.path_to_module.extend(ctx.path_to_module);
             }
@@ -169,7 +171,9 @@ impl IndexResolver {
 
                 if let Some(p) = plugin {
                     let resolver = p.lang_resolver();
-                    resolver.resolve(file, context)
+                    resolver
+                        .resolve(file, context)
+                        .map_err(crate::error::NaviscopeError::from)
                 } else {
                     Ok(ResolvedUnit::new())
                 }
