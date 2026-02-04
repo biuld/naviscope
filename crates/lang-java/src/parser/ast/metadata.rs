@@ -123,7 +123,7 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(s_name),
                         rel_type: EdgeType::InheritsFrom,
-                        range: None,
+                        range: Some(range_from_ts(s.node.range())),
                     });
                 }
                 for cc in captures
@@ -139,7 +139,7 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(i),
                         rel_type: EdgeType::Implements,
-                        range: None,
+                        range: Some(range_from_ts(cc.node.range())),
                     });
                 }
             }
@@ -157,7 +157,7 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(e),
                         rel_type: EdgeType::InheritsFrom,
-                        range: None,
+                        range: Some(range_from_ts(cc.node.range())),
                     });
                 }
             }
@@ -178,7 +178,7 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(i),
                         rel_type: EdgeType::Implements,
-                        range: None,
+                        range: Some(range_from_ts(cc.node.range())),
                     });
                 }
             }

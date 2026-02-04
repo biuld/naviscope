@@ -70,7 +70,15 @@ impl JavaParser {
                 if let Some(n_node) = parent.child_by_field_name("name") {
                     if seen_ids.insert(n_node.id()) {
                         if let Ok(n_text) = n_node.utf8_text(source.as_bytes()) {
-                            hierarchy.push((pk, n_text.to_string()));
+                            let id_pk = match pk {
+                                naviscope_api::models::graph::NodeKind::Interface
+                                | naviscope_api::models::graph::NodeKind::Enum
+                                | naviscope_api::models::graph::NodeKind::Annotation => {
+                                    naviscope_api::models::graph::NodeKind::Class
+                                }
+                                _ => pk,
+                            };
+                            hierarchy.push((id_pk, n_text.to_string()));
                         }
                     }
                 }
@@ -82,7 +90,18 @@ impl JavaParser {
         parts.extend(hierarchy);
 
         // Add self at the end
-        parts.push((kind, self_name));
+        // STABILITY NOTE: For Java, we use NodeKind::Class for all Type-like entities
+        // in the ID to ensure cross-file references (which often don't know the exact kind)
+        // can resolve correctly. The actual node.kind will still be accurate.
+        let id_kind = match kind {
+            naviscope_api::models::graph::NodeKind::Interface
+            | naviscope_api::models::graph::NodeKind::Enum
+            | naviscope_api::models::graph::NodeKind::Annotation => {
+                naviscope_api::models::graph::NodeKind::Class
+            }
+            _ => kind,
+        };
+        parts.push((id_kind, self_name));
 
         naviscope_api::models::symbol::NodeId::Structured(parts)
     }

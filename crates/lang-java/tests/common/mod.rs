@@ -74,3 +74,38 @@ pub fn setup_java_test_graph(
 
     (builder.build(), parsed_files)
 }
+
+pub fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
+    let pre_content = &content[..offset];
+    let line = pre_content.lines().count().max(1) - 1;
+    let last_newline = pre_content.rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let col = offset - last_newline;
+    (line, col)
+}
+
+pub async fn setup_java_engine(
+    temp_dir: &std::path::Path,
+    files: Vec<(&str, &str)>,
+) -> naviscope_core::facade::EngineHandle {
+    use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
+    use naviscope_java::JavaPlugin;
+
+    let mut engine = CoreEngine::new(temp_dir.to_path_buf());
+    let java_plugin = JavaPlugin::new().expect("Failed to create JavaPlugin");
+    engine.register_language(Arc::new(java_plugin));
+
+    // Create files
+    for (path_str, content) in &files {
+        let path = temp_dir.join(path_str);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, content).unwrap();
+    }
+
+    // Index files
+    let paths: Vec<_> = files.iter().map(|(p, _)| temp_dir.join(p)).collect();
+    engine.update_files(paths).await.unwrap();
+
+    naviscope_core::facade::EngineHandle::from_engine(Arc::new(engine))
+}

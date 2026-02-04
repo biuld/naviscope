@@ -1,18 +1,10 @@
 mod common;
 
-use common::setup_java_test_graph;
+use common::{offset_to_point, setup_java_test_graph};
 use naviscope_core::features::CodeGraphLike;
 use naviscope_core::ingest::parser::SymbolResolution;
 use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
-
-fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
-    let pre_content = &content[..offset];
-    let line = pre_content.lines().count().max(1) - 1;
-    let last_newline = pre_content.rfind('\n').map(|p| p + 1).unwrap_or(0);
-    let col = offset - last_newline;
-    (line, col)
-}
 
 #[test]
 fn test_goto_definition_local() {

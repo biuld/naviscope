@@ -347,7 +347,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                 self.resolve_expression_type(recv, context)
                     .and_then(|type_ref| self.get_base_fqn(&type_ref))
                     .and_then(|raw_type_fqn| self.resolve_fqn_from_context(&raw_type_fqn, context))
-                    .map(|type_fqn| format!("{}.{}", type_fqn, name))
+                    .map(|type_fqn| format!("{}#{}", type_fqn, name))
                     .and_then(|candidate| {
                         context
                             .index
@@ -368,7 +368,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
                 context
                     .enclosing_classes
                     .iter()
-                    .map(|container_fqn| format!("{}.{}", container_fqn, name))
+                    .map(|container_fqn| format!("{}#{}", container_fqn, name))
                     .find_map(|candidate| {
                         context
                             .index

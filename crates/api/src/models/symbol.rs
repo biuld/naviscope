@@ -160,6 +160,16 @@ pub enum SymbolResolution {
     Global(String),
 }
 
+impl SymbolResolution {
+    pub fn fqn(&self) -> Option<&str> {
+        match self {
+            SymbolResolution::Local(_, _) => None,
+            SymbolResolution::Precise(fqn, _) => Some(fqn),
+            SymbolResolution::Global(fqn) => Some(fqn),
+        }
+    }
+}
+
 // --- New Core API Types ---
 
 #[derive(Debug, Clone)]

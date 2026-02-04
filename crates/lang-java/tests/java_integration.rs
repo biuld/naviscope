@@ -1,6 +1,6 @@
 mod common;
 
-use common::setup_java_test_graph;
+use common::{offset_to_point, setup_java_test_graph};
 use naviscope_core::ingest::resolver::SemanticResolver;
 use naviscope_java::resolver::JavaResolver;
 
@@ -328,20 +328,11 @@ public class DefaultApplicationArguments {
     let content = &trees[0].1;
     let tree = &trees[0].2;
 
-    // Helper to convert byte offset to (line, col)
-    let offset_to_point = |offset: usize| -> (usize, usize) {
-        let pre_content = &content[..offset];
-        let line = pre_content.lines().count().max(1) - 1;
-        let last_newline = pre_content.rfind('\n').map(|p| p + 1).unwrap_or(0);
-        let col = offset - last_newline;
-        (line, col)
-    };
-
     // Resolve 'this' in 'this.source.getNonOptionArgs()'
     let this_pos = content
         .find("this.source")
         .expect("Could not find 'this.source'");
-    let (line, col) = offset_to_point(this_pos);
+    let (line, col) = offset_to_point(content, this_pos);
 
     let res = resolver.resolve_at(tree, content, line, col, &index);
 
@@ -416,15 +407,7 @@ public class DefaultApplicationArguments {
         .expect("Find expression")
         + "this.source.".len();
 
-    // Helper to get line/col from offset
-    let offset_to_point = |offset: usize| {
-        let pre = &source_content[..offset];
-        let line = pre.lines().count() - 1;
-        let col = offset - pre.rfind('\n').map(|p| p + 1).unwrap_or(0);
-        (line, col)
-    };
-
-    let (line, col) = offset_to_point(method_call_pos);
+    let (line, col) = offset_to_point(source_content, method_call_pos);
     println!(
         "Testing Spring scenario at line {}, col {} (offset {})",
         line, col, method_call_pos
@@ -471,16 +454,7 @@ fn test_field_method_call_resolution() {
     // Resolve 'doB' in 'b.doB()'
     let do_b_pos = a_content.find("doB()").expect("Could not find 'doB()'");
 
-    // We need line/col for resolve_at
-    let offset_to_point = |offset: usize| -> (usize, usize) {
-        let pre_content = &a_content[..offset];
-        let line = pre_content.lines().count().max(1) - 1;
-        let last_newline = pre_content.rfind('\n').map(|p| p + 1).unwrap_or(0);
-        let col = offset - last_newline;
-        (line, col)
-    };
-
-    let (line, col) = offset_to_point(do_b_pos);
+    let (line, col) = offset_to_point(a_content, do_b_pos);
 
     let res = resolver.resolve_at(a_tree, a_content, line, col, &index);
 

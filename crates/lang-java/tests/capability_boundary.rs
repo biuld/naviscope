@@ -15,20 +15,21 @@ fn cap_structural_nesting() {
     let (index, _) = setup_java_test_graph(files);
 
     // Assert FQNs exist
-    // Note: JavaResolver prepends "module::root." to packages when no specific module is found
-    // Assert FQNs exist
     // Note: JavaResolver uses clear package names now for FQN compatibility
     println!("Graph nodes:");
     for idx in index.topology().node_indices() {
         let node = &index.topology()[idx];
         use naviscope_plugin::NamingConvention;
-        println!(" - {:?}", naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns()));
+        println!(
+            " - {:?}",
+            naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns())
+        );
     }
 
     assert!(index.find_node("com.example").is_some());
     assert!(index.find_node("com.example.MyClass").is_some());
-    assert!(index.find_node("com.example.MyClass.field").is_some());
-    assert!(index.find_node("com.example.MyClass.method").is_some());
+    assert!(index.find_node("com.example.MyClass#field").is_some());
+    assert!(index.find_node("com.example.MyClass#method").is_some());
 
     // Assert nesting via 'Contains' edges
     let class_idx = index.find_node("com.example.MyClass").unwrap();
@@ -36,8 +37,8 @@ fn cap_structural_nesting() {
 
     assert!(index.topology().contains_edge(pkg_idx, class_idx));
 
-    let field_idx = index.find_node("com.example.MyClass.field").unwrap();
-    let method_idx = index.find_node("com.example.MyClass.method").unwrap();
+    let field_idx = index.find_node("com.example.MyClass#field").unwrap();
+    let method_idx = index.find_node("com.example.MyClass#method").unwrap();
     assert!(index.topology().contains_edge(class_idx, field_idx));
     assert!(index.topology().contains_edge(class_idx, method_idx));
 }
@@ -102,7 +103,7 @@ fn cap_cross_file_typing() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let field_idx = index.find_node("com.app.Main.field").unwrap();
+    let field_idx = index.find_node("com.app.Main#field").unwrap();
     let type_a_idx = index.find_node("com.lib.TypeA").unwrap();
 
     let has_typed_as = index
@@ -147,7 +148,7 @@ fn cap_method_call_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let a_target_idx = index.find_node("A.target").unwrap();
+    let a_target_idx = index.find_node("A#target").unwrap();
 
     // Check DiscoveryEngine "Scouting" (uses Reference Index)
     let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
@@ -219,7 +220,7 @@ fn cap_static_field_access() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let config_key_idx = index.find_node("Config.KEY").unwrap();
+    let config_key_idx = index.find_node("Config#KEY").unwrap();
 
     // Checking if Main.java is discovered as a candidate for Config.KEY
     let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
@@ -243,7 +244,7 @@ fn cap_generic_type_link() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let list_idx = index.find_node("Main.list").unwrap();
+    let list_idx = index.find_node("Main#list").unwrap();
     let type_a_idx = index.find_node("TypeA").unwrap();
 
     let has_link = index

@@ -13,7 +13,7 @@ use naviscope_api::semantic::{
     CallHierarchyAnalyzer, ReferenceAnalyzer, SemanticError, SemanticResult, SymbolInfoProvider,
     SymbolNavigator,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -266,6 +266,25 @@ impl ReferenceAnalyzer for EngineHandle {
             }
         }
 
+        // 4. Optional: Filter out declarations if requested
+        if !query.include_declaration {
+            let decl_locations: HashSet<_> = match_indices
+                .iter()
+                .filter_map(|&idx| {
+                    let node = &shared_graph.topology()[idx];
+                    let loc = node.location.as_ref()?;
+                    let path = shared_graph.symbols().resolve(&loc.path.0);
+                    let range = loc.selection_range.unwrap_or(loc.range);
+                    Some((path.to_string(), range))
+                })
+                .collect();
+
+            all_locations.retain(|loc| {
+                let path_str = loc.path.to_string_lossy().to_string();
+                !decl_locations.contains(&(path_str, loc.range))
+            });
+        }
+
         all_locations.sort_by(|a, b| {
             a.path
                 .cmp(&b.path)
@@ -363,7 +382,12 @@ impl CallHierarchyAnalyzer for EngineHandle {
                 ) {
                     let node = &graph.topology()[caller_idx];
                     // Only include methods or constructors as callers
-                    if matches!(node.kind(), NodeKind::Method | NodeKind::Constructor) {
+                    // AND avoid reflexive calls that are actually just the definition site
+                    let is_reflexive = target_indices.contains(&caller_idx);
+
+                    if matches!(node.kind(), NodeKind::Method | NodeKind::Constructor)
+                        && !is_reflexive
+                    {
                         caller_map.entry(caller_idx).or_default().push(Range {
                             start_line: loc.range.start.line as usize,
                             start_col: loc.range.start.character as usize,

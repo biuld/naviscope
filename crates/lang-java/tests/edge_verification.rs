@@ -13,7 +13,10 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
         println!("Available nodes:");
         for (id, _) in graph.fqn_map() {
             use naviscope_plugin::NamingConvention;
-            println!(" - {}", naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns()));
+            println!(
+                " - {}",
+                naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns())
+            );
         }
         panic!("Source node not found: {}", from_fqn);
     }
@@ -21,7 +24,10 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
         println!("Available nodes:");
         for (id, _) in graph.fqn_map() {
             use naviscope_plugin::NamingConvention;
-            println!(" - {}", naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns()));
+            println!(
+                " - {}",
+                naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns())
+            );
         }
         panic!("Target node not found: {}", to_fqn);
     }
@@ -34,7 +40,10 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
         println!("Graph nodes:");
         for (id, _) in graph.fqn_map() {
             use naviscope_plugin::NamingConvention;
-            println!(" - {}", naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns()));
+            println!(
+                " - {}",
+                naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns())
+            );
         }
         println!("Edges from {}:", from_fqn);
         let mut edges = graph
@@ -63,7 +72,10 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
 
 fn assert_reference_scouted(graph: &CodeGraph, target_fqn: &str, expected_file: &str) {
     let target_idx = graph.find_node(target_fqn).expect("Target node not found");
-    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(graph, std::collections::HashMap::new());
+    let discovery = naviscope_core::features::discovery::DiscoveryEngine::new(
+        graph,
+        std::collections::HashMap::new(),
+    );
     let candidate_files = discovery.scout_references(&[target_idx]);
     assert!(
         candidate_files.contains(&std::path::PathBuf::from(expected_file)),
@@ -91,14 +103,14 @@ fn test_edge_contains() {
     assert_edge(
         &index,
         "com.test.Container",
-        "com.test.Container.field",
+        "com.test.Container#field",
         EdgeType::Contains,
     );
     // Class -> Method
     assert_edge(
         &index,
         "com.test.Container",
-        "com.test.Container.method",
+        "com.test.Container#method",
         EdgeType::Contains,
     );
 }
@@ -143,7 +155,7 @@ fn test_edge_calls() {
     let (index, _) = setup_java_test_graph(files);
 
     // Using FQN in call to ensure resolution works in batch mode
-    assert_reference_scouted(&index, "com.test.Service.helper", "src/Service.java");
+    assert_reference_scouted(&index, "com.test.Service#helper", "src/Service.java");
 }
 
 #[test]
@@ -180,7 +192,7 @@ fn test_edge_typed_as() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    assert_edge(&index, "User.address", "Address", EdgeType::TypedAs);
+    assert_edge(&index, "User#address", "Address", EdgeType::TypedAs);
 }
 
 #[test]

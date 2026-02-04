@@ -239,14 +239,25 @@ impl CodeGraphBuilder {
                 to_id,
                 edge,
             } => {
-                let from_id = self.resolve_storage_id(&from_id, None);
-                let to_id = self.resolve_storage_id(&to_id, None);
+                let from_fqn = self.resolve_storage_id(&from_id, None);
+                let to_fqn = self.resolve_storage_id(&to_id, None);
 
-                if let (Some(&from), Some(&to)) = (
-                    self.inner.fqn_index.get(&from_id),
-                    self.inner.fqn_index.get(&to_id),
+                match (
+                    self.inner.fqn_index.get(&from_fqn),
+                    self.inner.fqn_index.get(&to_fqn),
                 ) {
-                    self.add_edge(from, to, edge);
+                    (Some(&from), Some(&to)) => {
+                        self.add_edge(from, to, edge);
+                    }
+                    _ => {
+                        eprintln!(
+                            "Failed to add edge: from={:?} (found={}), to={:?} (found={})",
+                            from_fqn,
+                            self.inner.fqn_index.contains_key(&from_fqn),
+                            to_fqn,
+                            self.inner.fqn_index.contains_key(&to_fqn)
+                        );
+                    }
                 }
             }
             GraphOp::RemovePath { path } => {
@@ -274,9 +285,33 @@ impl CodeGraphBuilder {
         Ok(())
     }
 
-    /// Apply multiple graph operations
+    /// Apply multiple graph operations in a single atomic-like batch.
+    /// Reorders ops to ensure correct application:
+    /// 1. Removals
+    /// 2. Node additions & updates
+    /// 3. Edge additions (Relational)
     pub fn apply_ops(&mut self, ops: Vec<GraphOp>) -> crate::error::Result<()> {
+        let mut destructive = Vec::new();
+        let mut additive = Vec::new();
+        let mut relational = Vec::new();
+
         for op in ops {
+            match op {
+                GraphOp::RemovePath { .. } => destructive.push(op),
+                GraphOp::AddNode { .. }
+                | GraphOp::UpdateFile { .. }
+                | GraphOp::UpdateIdentifiers { .. } => additive.push(op),
+                GraphOp::AddEdge { .. } => relational.push(op),
+            }
+        }
+
+        for op in destructive {
+            self.apply_op(op)?;
+        }
+        for op in additive {
+            self.apply_op(op)?;
+        }
+        for op in relational {
             self.apply_op(op)?;
         }
         Ok(())

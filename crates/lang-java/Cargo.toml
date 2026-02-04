@@ -18,3 +18,4 @@ lasso = { workspace = true }
 
 [dev-dependencies]
 naviscope-core = { workspace = true }
+tokio = { workspace = true }

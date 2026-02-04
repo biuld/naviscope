@@ -170,8 +170,23 @@ impl<'a> DiscoveryEngine<'a> {
                     range.start_col,
                     self.index.as_plugin_graph(),
                 ) {
-                    // 3. Identity Check
-                    if &resolved_at_loc == target_resolution {
+                    // 3. Identity Check (Lenient)
+                    let matched = match (&resolved_at_loc, target_resolution) {
+                        (SymbolResolution::Local(r1, _), SymbolResolution::Local(r2, _)) => {
+                            r1 == r2
+                        }
+                        _ => {
+                            if let (Some(f1), Some(f2)) =
+                                (resolved_at_loc.fqn(), target_resolution.fqn())
+                            {
+                                f1 == f2
+                            } else {
+                                false
+                            }
+                        }
+                    };
+
+                    if matched {
                         valid_locations.push(Location {
                             uri: uri.clone(),
                             range: lsp_types::Range {

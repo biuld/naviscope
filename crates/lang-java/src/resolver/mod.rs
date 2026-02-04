@@ -15,7 +15,7 @@ pub mod context;
 pub mod scope;
 
 use context::ResolutionContext;
-use scope::{BuiltinScope, ImportScope, LocalScope, MemberScope, Scope};
+use scope::{BuiltinScope, ImportScope, LocalScope, MemberScope, PackageScope, Scope};
 
 #[derive(Clone)]
 pub struct JavaResolver {
@@ -42,6 +42,9 @@ impl JavaResolver {
             parser: &self.parser,
         }));
         scopes.push(Box::new(ImportScope {
+            parser: &self.parser,
+        }));
+        scopes.push(Box::new(PackageScope {
             parser: &self.parser,
         }));
 
@@ -359,10 +362,19 @@ impl LangResolver for JavaResolver {
                 .unwrap_or_else(|| "module::root".to_string());
 
             let container_id = if let Some(pkg_name) = &parse_result.package_name {
-                let package_id = pkg_name.to_string();
+                let package_parts: Vec<_> = pkg_name
+                    .split('.')
+                    .map(|s| {
+                        (
+                            naviscope_api::models::graph::NodeKind::Package,
+                            s.to_string(),
+                        )
+                    })
+                    .collect();
+                let package_id = naviscope_api::models::symbol::NodeId::Structured(package_parts);
 
                 let package_node = IndexNode {
-                    id: package_id.clone().into(),
+                    id: package_id.clone(),
                     name: pkg_name.to_string(),
                     kind: NodeKind::Package,
                     lang: "java".to_string(),
@@ -374,7 +386,7 @@ impl LangResolver for JavaResolver {
 
                 unit.add_edge(
                     module_id.clone().into(),
-                    package_id.clone().into(),
+                    package_id.clone(),
                     GraphEdge::new(EdgeType::Contains),
                 );
 
@@ -384,7 +396,7 @@ impl LangResolver for JavaResolver {
                 // or just attach to module.
                 // For now, attaching to module seems safer to avoid colliding all default packages.
                 // But this means default package classes might be harder to find via clean FQN if module_id is weird.
-                module_id
+                module_id.into()
             };
 
             let mut known_types = std::collections::HashSet::<String>::new();
@@ -555,30 +567,19 @@ impl LangResolver for JavaResolver {
                     if !matched {
                         if is_last {
                             // Heuristics for last part if not found
-                            if rel.edge_type == EdgeType::Implements {
-                                found_kind = naviscope_api::models::graph::NodeKind::Interface;
-                            } else if rel.edge_type == EdgeType::DecoratedBy {
-                                found_kind = naviscope_api::models::graph::NodeKind::Annotation;
-                            } else if rel.edge_type == EdgeType::InheritsFrom {
-                                if let Some(src_node) = unit.nodes.get(&rel.source_id) {
-                                    match src_node.kind {
-                                        naviscope_api::models::graph::NodeKind::Interface => {
-                                            found_kind =
-                                                naviscope_api::models::graph::NodeKind::Interface
-                                        }
-                                        _ => {
-                                            found_kind =
-                                                naviscope_api::models::graph::NodeKind::Class
-                                        }
-                                    }
-                                } else {
-                                    found_kind = naviscope_api::models::graph::NodeKind::Class;
-                                }
-                            } else if rel.edge_type == EdgeType::TypedAs {
+                            // NOTE: We now use Class for all Type IDs in Java for stability
+                            if rel.edge_type == EdgeType::Implements
+                                || rel.edge_type == EdgeType::InheritsFrom
+                                || rel.edge_type == EdgeType::TypedAs
+                                || rel.edge_type == EdgeType::DecoratedBy
+                            {
                                 found_kind = naviscope_api::models::graph::NodeKind::Class;
                             } else if part.chars().next().map_or(false, |c| c.is_uppercase()) {
                                 found_kind = naviscope_api::models::graph::NodeKind::Class;
                             }
+                        } else if part.chars().next().map_or(false, |c| c.is_uppercase()) {
+                            // Not last, but uppercase? Handle inner classes / enclosing classes correctly
+                            found_kind = naviscope_api::models::graph::NodeKind::Class;
                         } else {
                             found_kind = naviscope_api::models::graph::NodeKind::Package;
                         }
@@ -589,6 +590,7 @@ impl LangResolver for JavaResolver {
 
                 let final_target_id =
                     naviscope_api::models::symbol::NodeId::Structured(structured_parts);
+
                 unit.add_edge(rel.source_id.clone(), final_target_id, edge);
             }
         }
