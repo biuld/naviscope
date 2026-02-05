@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tree_sitter::Parser;
 
+#[allow(dead_code)]
 pub fn setup_java_test_graph(
     files: Vec<(&str, &str)>,
 ) -> (
@@ -75,6 +76,7 @@ pub fn setup_java_test_graph(
     (builder.build(), parsed_files)
 }
 
+#[allow(dead_code)]
 pub fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
     let pre_content = &content[..offset];
     let line = pre_content.lines().count().max(1) - 1;
@@ -83,6 +85,7 @@ pub fn offset_to_point(content: &str, offset: usize) -> (usize, usize) {
     (line, col)
 }
 
+#[allow(dead_code)]
 pub async fn setup_java_engine(
     temp_dir: &std::path::Path,
     files: Vec<(&str, &str)>,

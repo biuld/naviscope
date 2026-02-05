@@ -113,6 +113,7 @@ pub fn to_storage(
             name_sid: node.name.0.into_usize() as u32,
             kind: node.kind.clone(),
             lang_sid: node.lang.0.into_usize() as u32,
+            source: node.source.clone(),
             location: node.location.as_ref().map(|loc| StorageLocation {
                 path_id: loc.path.0.into_usize() as u32,
                 range: loc.range,
@@ -220,6 +221,7 @@ pub fn from_storage(
             name: Symbol(Spur::try_from_usize(snode.name_sid as usize).unwrap()),
             kind: snode.kind.clone(),
             lang: Symbol(Spur::try_from_usize(snode.lang_sid as usize).unwrap()),
+            source: snode.source.clone(),
             location: snode.location.as_ref().map(|loc| InternedLocation {
                 path: Symbol(Spur::try_from_usize(loc.path_id as usize).unwrap()),
                 range: loc.range,

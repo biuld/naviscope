@@ -1,6 +1,6 @@
 use crate::interner::SymbolInterner;
 use naviscope_api::models::graph::{
-    DisplaySymbolLocation, EdgeType, EmptyMetadata, NodeKind, NodeMetadata,
+    DisplaySymbolLocation, EdgeType, EmptyMetadata, NodeKind, NodeMetadata, NodeSource,
 };
 use naviscope_api::models::symbol::{NodeId, Range};
 use std::path::{Path, PathBuf};
@@ -36,6 +36,7 @@ pub struct IndexNode {
     pub name: String,
     pub kind: NodeKind,
     pub lang: String,
+    pub source: NodeSource,
     pub location: Option<DisplaySymbolLocation>,
     pub metadata: Arc<dyn IndexMetadata>,
 }

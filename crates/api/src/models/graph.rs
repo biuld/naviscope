@@ -116,6 +116,23 @@ impl NodeMetadata for EmptyMetadata {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeSource {
+    /// Defined in the current project (source code available)
+    Project,
+    /// External dependency (library, vendor code)
+    External,
+    /// Language builtin / Primitive type
+    Builtin,
+}
+
+impl Default for NodeSource {
+    fn default() -> Self {
+        Self::Project
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GraphNode {
     /// Unique Identifier (Structured FQN)
@@ -126,6 +143,8 @@ pub struct GraphNode {
     pub kind: NodeKind,
     /// Language identifier (Symbol)
     pub lang: Symbol,
+    /// Source origin
+    pub source: NodeSource,
     /// Physical Location
     pub location: Option<super::symbol::InternedLocation>,
     /// Extension metadata
@@ -139,6 +158,7 @@ impl Default for GraphNode {
             name: Symbol(lasso::Spur::default()),
             kind: NodeKind::Custom("unknown".to_string()),
             lang: Symbol(lasso::Spur::default()),
+            source: NodeSource::Project,
             location: None,
             metadata: Arc::new(EmptyMetadata),
         }
@@ -187,6 +207,8 @@ pub struct DisplayGraphNode {
     pub name: String,
     pub kind: NodeKind,
     pub lang: String,
+    #[serde(default)]
+    pub source: NodeSource,
     pub location: Option<DisplaySymbolLocation>,
 
     // Rendering fields
@@ -209,6 +231,8 @@ pub enum GraphQuery {
         #[serde(default)]
         kind: Vec<NodeKind>,
         #[serde(default)]
+        sources: Vec<NodeSource>,
+        #[serde(default)]
         modifiers: Vec<String>,
     },
 
@@ -217,6 +241,8 @@ pub enum GraphQuery {
         pattern: String,
         #[serde(default)]
         kind: Vec<NodeKind>,
+        #[serde(default)]
+        sources: Vec<NodeSource>,
         #[serde(default = "default_limit")]
         limit: usize,
     },

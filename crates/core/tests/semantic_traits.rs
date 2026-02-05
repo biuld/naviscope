@@ -1,5 +1,5 @@
 use naviscope_api::models::{
-    DisplayGraphNode, DisplaySymbolLocation, Language, NodeKind, Range, ReferenceQuery,
+    DisplayGraphNode, DisplaySymbolLocation, Language, NodeKind, NodeSource, Range, ReferenceQuery,
     SymbolQuery, SymbolResolution,
 };
 use naviscope_api::semantic::{
@@ -61,6 +61,7 @@ impl NodeAdapter for MockPlugin {
             name: rodeo.resolve_atom(node.name).to_string(),
             kind: node.kind.clone(),
             lang: rodeo.resolve_atom(node.lang).to_string(),
+            source: node.source.clone(),
             location: node.location.as_ref().map(|l| l.to_display(rodeo)),
             detail: None,
             signature: None,
@@ -332,6 +333,7 @@ async fn test_symbol_navigator_queries() {
             name: "Symbol".to_string(),
             kind: NodeKind::Class,
             lang: "mock".to_string(),
+            source: NodeSource::Project,
             location: Some(DisplaySymbolLocation {
                 path: temp_dir.join("test.mock").to_string_lossy().to_string(),
                 range: Range {
@@ -423,6 +425,7 @@ async fn test_call_hierarchy_analyzer() {
             name: "Callee".to_string(),
             kind: NodeKind::Method,
             lang: "mock".to_string(),
+            source: NodeSource::Project,
             location: Some(DisplaySymbolLocation {
                 path: test_file_path.clone(),
                 range: Range {
@@ -443,6 +446,7 @@ async fn test_call_hierarchy_analyzer() {
             name: "Caller".to_string(),
             kind: NodeKind::Method,
             lang: "mock".to_string(),
+            source: NodeSource::Project,
             location: Some(DisplaySymbolLocation {
                 path: test_file_path.clone(),
                 range: Range {
@@ -496,6 +500,7 @@ async fn test_get_symbol_info() {
             name: "Symbol".to_string(),
             kind: NodeKind::Class,
             lang: "mock".to_string(),
+            source: NodeSource::Project,
             location: Some(DisplaySymbolLocation {
                 path: temp_dir.join("test.mock").to_string_lossy().to_string(),
                 range: Range {

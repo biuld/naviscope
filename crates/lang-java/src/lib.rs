@@ -28,6 +28,7 @@ impl NodeAdapter for JavaPlugin {
             name: fqns.resolve_atom(node.name).to_string(),
             kind: node.kind.clone(),
             lang: "java".to_string(),
+            source: node.source.clone(),
             location: node.location.as_ref().map(|l| l.to_display(fqns)),
             detail: None,
             signature: None,

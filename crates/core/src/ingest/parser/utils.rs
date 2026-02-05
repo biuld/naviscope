@@ -48,6 +48,7 @@ pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<crate::model::
             name: raw.name.clone(),
             kind: raw.kind.clone(),
             lang: String::new(), // To be filled by caller if needed
+            source: naviscope_api::models::graph::NodeSource::Project,
             location: Some(crate::model::DisplaySymbolLocation {
                 path: String::new(), // To be filled by caller
                 range: raw.range,

@@ -104,6 +104,7 @@ impl ReplServer {
             let query = naviscope_api::models::GraphQuery::Ls {
                 fqn: None,
                 kind: vec![naviscope_api::models::NodeKind::Project],
+                sources: vec![],
                 modifiers: vec![],
             };
 

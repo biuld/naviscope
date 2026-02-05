@@ -96,8 +96,10 @@ impl CommandHandler for GenericQueryHandler {
             ShellCommand::Ls {
                 fqn: Some(target),
                 kind,
+                source,
                 modifiers,
                 long,
+                all,
             } => {
                 resolved_target_fqn = match context.resolve_node(target) {
                     ResolveResult::Found(f) => Some(f),
@@ -106,8 +108,10 @@ impl CommandHandler for GenericQueryHandler {
                 ShellCommand::Ls {
                     fqn: resolved_target_fqn.clone(),
                     kind: kind.clone(),
+                    source: source.clone(),
                     modifiers: modifiers.clone(),
                     long: *long,
+                    all: *all,
                 }
             }
             ShellCommand::Deps {

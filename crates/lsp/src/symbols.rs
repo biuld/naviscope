@@ -34,10 +34,13 @@ fn convert_api_symbol(sym: DisplayGraphNode) -> DocumentSymbol {
         start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
         end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
     };
-    let selection_range = loc.selection_range.map(|sr| Range {
-        start: Position::new(sr.start_line as u32, sr.start_col as u32),
-        end: Position::new(sr.end_line as u32, sr.end_col as u32),
-    }).unwrap_or(range);
+    let selection_range = loc
+        .selection_range
+        .map(|sr| Range {
+            start: Position::new(sr.start_line as u32, sr.start_col as u32),
+            end: Position::new(sr.end_line as u32, sr.end_col as u32),
+        })
+        .unwrap_or(range);
 
     #[allow(deprecated)]
     DocumentSymbol {
@@ -91,6 +94,7 @@ pub async fn workspace_symbol(
     let query = GraphQuery::Find {
         pattern: params.query,
         kind: vec![],
+        sources: vec![],
         limit: 100,
     };
 

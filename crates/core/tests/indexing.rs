@@ -1,4 +1,4 @@
-use naviscope_api::models::graph::NodeKind;
+use naviscope_api::models::graph::{NodeKind, NodeSource};
 use naviscope_api::models::{BuildTool, EmptyMetadata, Range};
 use naviscope_core::ingest::parser::IndexNode;
 use naviscope_core::ingest::resolver::BuildResolver;
@@ -70,6 +70,7 @@ impl BuildResolver for MockBuildResolver {
                 name: "test".to_string(),
                 kind: NodeKind::Project,
                 lang: "gradle".to_string(),
+                source: NodeSource::Project,
                 location: Some(naviscope_api::models::DisplaySymbolLocation {
                     path: f.path().to_string_lossy().to_string(),
                     range: Range::default(),

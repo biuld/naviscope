@@ -464,6 +464,7 @@ mod tests {
                 name: Symbol(lasso::Spur::default()),
                 kind: naviscope_api::models::graph::NodeKind::Field,
                 lang: Symbol(lasso::Spur::default()),
+                source: naviscope_api::models::graph::NodeSource::Project,
                 location: None,
                 metadata: std::sync::Arc::new(JavaNodeMetadata::Field {
                     type_ref: naviscope_api::models::TypeRef::Raw("int".to_string()),

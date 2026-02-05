@@ -29,6 +29,7 @@ impl ModelConverter for DisplayGraphNode {
             name: interner.intern_atom(&self.name),
             kind: self.kind.clone(),
             lang: interner.intern_atom(&self.lang),
+            source: self.source.clone(),
             location: self.location.as_ref().map(|l| l.to_internal(interner)),
             metadata: Arc::new(naviscope_api::models::graph::EmptyMetadata),
         }

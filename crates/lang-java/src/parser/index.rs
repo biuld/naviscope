@@ -59,6 +59,7 @@ impl JavaParser {
                     name: e.name.clone(),
                     kind,
                     lang: "java".to_string(),
+                    source: naviscope_api::models::graph::NodeSource::Project,
                     location,
                     metadata: Arc::new(e.element),
                 }

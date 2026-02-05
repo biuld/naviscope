@@ -378,6 +378,7 @@ impl LangResolver for JavaResolver {
                     name: pkg_name.to_string(),
                     kind: NodeKind::Package,
                     lang: "java".to_string(),
+                    source: naviscope_api::models::graph::NodeSource::Project,
                     location: None,
                     metadata: Arc::new(crate::model::JavaIndexMetadata::Package),
                 };

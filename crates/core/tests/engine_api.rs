@@ -40,6 +40,7 @@ async fn test_engine_handle_query() {
     let query = GraphQuery::Find {
         pattern: "test".to_string(),
         kind: vec![],
+        sources: vec![],
         limit: 5,
     };
 

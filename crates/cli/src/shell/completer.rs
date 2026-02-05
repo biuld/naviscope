@@ -100,6 +100,7 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
                 let query = GraphQuery::Ls {
                     fqn: parent_fqn.clone(),
                     kind: vec![],
+                    sources: vec![],
                     modifiers: vec![],
                 };
 

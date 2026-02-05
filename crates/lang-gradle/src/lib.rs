@@ -28,6 +28,7 @@ impl NodeAdapter for GradlePlugin {
             name: fqns.resolve_atom(node.name).to_string(),
             kind: node.kind.clone(),
             lang: "gradle".to_string(),
+            source: node.source.clone(),
             location: node.location.as_ref().map(|l| l.to_display(fqns)),
             detail: None,
             signature: None,

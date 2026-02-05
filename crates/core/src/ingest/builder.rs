@@ -75,7 +75,7 @@ impl CodeGraphBuilder {
         // Or simpler: Java is special.
 
         // BETTER: `naming_conventions` is a map. If we have keys, we try them.
-        for (_, nc) in &self.naming_conventions {
+        for (_lang, nc) in &self.naming_conventions {
             match id {
                 naviscope_api::models::symbol::NodeId::Flat(s) => {
                     // Try to upgrade
@@ -85,7 +85,9 @@ impl CodeGraphBuilder {
                     // This assumes we don't mix conflicting conventions in one builder session recklessly.
                     let parts = nc.parse_fqn(s, kind_hint.clone());
                     let structured_id = naviscope_api::models::symbol::NodeId::Structured(parts);
-                    return self.inner.fqns.intern_node_id(&structured_id);
+                    let fqn_id = self.inner.fqns.intern_node_id(&structured_id);
+
+                    return fqn_id;
                 }
                 _ => {}
             }
@@ -132,6 +134,7 @@ impl CodeGraphBuilder {
                 name: name_sym,
                 kind: node_data.kind.clone(),
                 lang: lang_sym,
+                source: node_data.source,
                 location: location.clone(),
                 metadata: node_data.metadata.intern(&mut ctx),
             };
@@ -242,22 +245,33 @@ impl CodeGraphBuilder {
                 let from_fqn = self.resolve_storage_id(&from_id, None);
                 let to_fqn = self.resolve_storage_id(&to_id, None);
 
-                match (
-                    self.inner.fqn_index.get(&from_fqn),
-                    self.inner.fqn_index.get(&to_fqn),
-                ) {
-                    (Some(&from), Some(&to)) => {
+                let from_idx = self.inner.fqn_index.get(&from_fqn).cloned();
+                let mut to_idx = self.inner.fqn_index.get(&to_fqn).cloned();
+
+                // If target node doesn't exist, create an external placeholder
+                if to_idx.is_none() && from_idx.is_some() {
+                    let from_node = self.inner.topology.node_weight(from_idx.unwrap()).unwrap();
+                    let lang_str = self.inner.symbols.resolve(&from_node.lang.0).to_string();
+
+                    // Heuristic for external node: use class/unknown kind
+                    let name = to_id.to_string();
+                    let placeholder = crate::ingest::parser::IndexNode {
+                        id: to_id.clone(),
+                        name,
+                        kind: naviscope_api::models::graph::NodeKind::Class, // Default to class for external types
+                        lang: lang_str,
+                        source: naviscope_api::models::graph::NodeSource::External,
+                        location: None,
+                        metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
+                    };
+                    to_idx = Some(self.add_node(placeholder));
+                }
+
+                match (from_idx, to_idx) {
+                    (Some(from), Some(to)) => {
                         self.add_edge(from, to, edge);
                     }
-                    _ => {
-                        eprintln!(
-                            "Failed to add edge: from={:?} (found={}), to={:?} (found={})",
-                            from_fqn,
-                            self.inner.fqn_index.contains_key(&from_fqn),
-                            to_fqn,
-                            self.inner.fqn_index.contains_key(&to_fqn)
-                        );
-                    }
+                    _ => {}
                 }
             }
             GraphOp::RemovePath { path } => {
@@ -343,6 +357,7 @@ mod tests {
             name: "test_project".to_string(),
             kind: NodeKind::Project,
             lang: "buildfile".to_string(),
+            source: naviscope_api::models::graph::NodeSource::Project,
             location: None,
             metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
         };
@@ -366,6 +381,7 @@ mod tests {
             name: "new_project".to_string(),
             kind: NodeKind::Project,
             lang: "buildfile".to_string(),
+            source: naviscope_api::models::graph::NodeSource::Project,
             location: None,
             metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
         };

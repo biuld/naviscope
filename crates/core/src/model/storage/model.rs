@@ -1,6 +1,7 @@
 use crate::model::FqnStorage;
 use crate::model::{GraphEdge, NodeKind, Range};
 use lasso::{Key, ThreadedRodeo};
+use naviscope_api::models::graph::NodeSource;
 use naviscope_api::models::symbol::Symbol;
 use naviscope_plugin::FqnInterner;
 use serde::{Deserialize, Serialize};
@@ -117,6 +118,7 @@ pub struct StorageNode {
     pub name_sid: u32,
     pub kind: NodeKind,
     pub lang_sid: u32,
+    pub source: NodeSource,
     pub location: Option<StorageLocation>,
     pub metadata: Box<[u8]>,
 }

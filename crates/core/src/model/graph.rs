@@ -446,6 +446,7 @@ mod tests {
             name: "node".to_string(),
             kind: NodeKind::Class,
             lang: "java".to_string(),
+            source: naviscope_api::models::graph::NodeSource::Project,
             location: None,
             metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
         };

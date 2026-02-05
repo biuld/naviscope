@@ -1,4 +1,4 @@
-use naviscope_api::models::graph::{DisplayGraphNode, DisplaySymbolLocation, NodeKind};
+use naviscope_api::models::graph::{DisplayGraphNode, DisplaySymbolLocation, NodeKind, NodeSource};
 use naviscope_api::models::symbol::Range;
 use tree_sitter::{Language, Node, Query};
 
@@ -53,6 +53,7 @@ pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<DisplayGraphNo
             name: raw.name.clone(),
             kind: raw.kind.clone(),
             lang: String::new(),
+            source: NodeSource::Project,
             location: Some(DisplaySymbolLocation {
                 path: String::new(),
                 range: raw.range,

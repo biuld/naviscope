@@ -1,5 +1,5 @@
 use naviscope_api::models::graph::{
-    DisplaySymbolLocation, EdgeType, EmptyMetadata, GraphEdge, NodeKind,
+    DisplaySymbolLocation, EdgeType, EmptyMetadata, GraphEdge, NodeKind, NodeSource,
 };
 use naviscope_api::models::symbol::{NodeId, Range};
 use naviscope_plugin::{
@@ -127,6 +127,7 @@ impl BuildResolver for GradleResolver {
             name: project_name.clone(),
             kind: NodeKind::Project,
             lang: "gradle".to_string(),
+            source: NodeSource::Project,
             location: Some(DisplaySymbolLocation {
                 path: root_path.to_string_lossy().to_string(),
                 range: Range {
@@ -183,6 +184,7 @@ impl BuildResolver for GradleResolver {
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
                 lang: "gradle".to_string(),
+                source: NodeSource::Project,
                 location: data
                     .build_file
                     .as_ref()
@@ -232,6 +234,7 @@ impl BuildResolver for GradleResolver {
                 name: display_name.to_string(),
                 kind: NodeKind::Module,
                 lang: "gradle".to_string(),
+                source: NodeSource::Project,
                 location: data
                     .build_file
                     .as_ref()
@@ -313,6 +316,7 @@ impl BuildResolver for GradleResolver {
                             name: dep.name.clone(),
                             kind: NodeKind::Dependency,
                             lang: "gradle".to_string(),
+                            source: NodeSource::External,
                             location: Some(DisplaySymbolLocation {
                                 path: data
                                     .build_file

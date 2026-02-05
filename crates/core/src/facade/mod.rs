@@ -88,9 +88,11 @@ impl EngineHandle {
     ) -> Option<Arc<dyn naviscope_plugin::NamingConvention>> {
         self.engine.naming_conventions().get(language).cloned()
     }
-    
+
     /// Get all naming conventions (cheap Arc clone)
-    pub(crate) fn naming_conventions(&self) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
+    pub(crate) fn naming_conventions(
+        &self,
+    ) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
         self.engine.naming_conventions()
     }
 
@@ -171,6 +173,7 @@ mod tests {
         let query = GraphQuery::Find {
             pattern: "test".to_string(),
             kind: vec![],
+            sources: vec![],
             limit: 10,
         };
 
@@ -193,6 +196,7 @@ mod tests {
             let query = GraphQuery::Find {
                 pattern: "test".to_string(),
                 kind: vec![],
+                sources: vec![],
                 limit: 10,
             };
 

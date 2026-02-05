@@ -48,6 +48,8 @@ pub struct FindArgs {
     pub pattern: String,
     /// Optional: Filter by element type.
     pub kind: Option<Vec<NodeKind>>,
+    /// Optional: Filter by node source (project, external, builtin).
+    pub sources: Option<Vec<naviscope_api::models::graph::NodeSource>>,
     /// Maximum number of results to return (default: 20)
     pub limit: Option<usize>,
 }
@@ -58,6 +60,8 @@ pub struct LsArgs {
     pub fqn: Option<String>,
     /// Optional: Filter results by element type.
     pub kind: Option<Vec<NodeKind>>,
+    /// Optional: Filter by node source (project, external, builtin).
+    pub sources: Option<Vec<naviscope_api::models::graph::NodeSource>>,
     /// Optional: Filter results by modifiers (e.g. ["public", "static"])
     pub modifiers: Option<Vec<String>>,
 }
@@ -171,6 +175,7 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
         self.execute_query(GraphQuery::Find {
             pattern: args.pattern,
             kind: args.kind.unwrap_or_default(),
+            sources: args.sources.unwrap_or_default(),
             limit: args.limit.unwrap_or(20),
         })
         .await
@@ -184,6 +189,7 @@ Naviscope is a graph-based code understanding engine. Unlike text search, it und
         self.execute_query(GraphQuery::Ls {
             fqn: args.fqn,
             kind: args.kind.unwrap_or_default(),
+            sources: args.sources.unwrap_or_default(),
             modifiers: args.modifiers.unwrap_or_default(),
         })
         .await

@@ -12,7 +12,8 @@ use super::CodeGraphLike;
 pub struct QueryEngine<G, L> {
     graph: G,
     lookup: L,
-    naming_conventions: std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>,
+    naming_conventions:
+        std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>,
 }
 
 impl<G, L> QueryEngine<G, L>
@@ -23,7 +24,10 @@ where
     pub fn new(
         graph: G,
         lookup: L,
-        naming_conventions: std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>,
+        naming_conventions: std::collections::HashMap<
+            String,
+            Arc<dyn naviscope_plugin::NamingConvention>,
+        >,
     ) -> Self {
         Self {
             graph,
@@ -51,6 +55,7 @@ where
             GraphQuery::Find {
                 pattern,
                 kind,
+                sources,
                 limit,
             } => {
                 let regex = RegexBuilder::new(pattern)
@@ -65,7 +70,9 @@ where
                     let convention = self.naming_conventions.get(lang_str).map(|c| c.as_ref());
                     let fqn_str = self.graph.render_fqn(node, convention);
                     if regex.is_match(&fqn_str) || regex.is_match(node.name(symbols)) {
-                        if kind.is_empty() || kind.contains(&node.kind) {
+                        let kind_match = kind.is_empty() || kind.contains(&node.kind);
+                        let source_match = sources.is_empty() || sources.contains(&node.source);
+                        if kind_match && source_match {
                             nodes.push(self.render_node(node));
                         }
                     }
@@ -79,6 +86,7 @@ where
             GraphQuery::Ls {
                 fqn,
                 kind,
+                sources,
                 modifiers: _,
             } => {
                 if let Some(target_fqn) = fqn {
@@ -87,6 +95,7 @@ where
                         &[EdgeType::Contains],
                         PetDirection::Outgoing,
                         kind,
+                        sources,
                     )
                 } else {
                     let mut nodes = Vec::new();
@@ -101,7 +110,11 @@ where
                                 .any(|e| e.weight().edge_type == EdgeType::Contains);
 
                             if !has_parent {
-                                nodes.push(self.render_node(node));
+                                let source_match =
+                                    sources.is_empty() || sources.contains(&node.source);
+                                if source_match {
+                                    nodes.push(self.render_node(node));
+                                }
                             }
                         }
                     }
@@ -116,7 +129,10 @@ where
                                 .any(|e| e.weight().edge_type == EdgeType::Contains);
 
                             if !has_parent {
-                                if kind.is_empty() || kind.contains(&node.kind) {
+                                let kind_match = kind.is_empty() || kind.contains(&node.kind);
+                                let source_match =
+                                    sources.is_empty() || sources.contains(&node.source);
+                                if kind_match && source_match {
                                     nodes.push(self.render_node(node));
                                 }
                             }
@@ -147,7 +163,7 @@ where
                 } else {
                     PetDirection::Outgoing
                 };
-                self.traverse_neighbors(fqn.as_str(), edge_types, direction, &[])
+                self.traverse_neighbors(fqn.as_str(), edge_types, direction, &[], &[])
             }
         }
     }
@@ -158,6 +174,7 @@ where
         edge_filter: &[EdgeType],
         dir: PetDirection,
         kind_filter: &[NodeKind],
+        source_filter: &[naviscope_api::models::graph::NodeSource],
     ) -> Result<QueryResult> {
         let start_idx = self
             .graph
@@ -175,14 +192,20 @@ where
                 let neighbor_node = &topology[neighbor_idx];
                 let start_node = &topology[start_idx];
 
-                if kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind) {
+                if (kind_filter.is_empty() || kind_filter.contains(&neighbor_node.kind))
+                    && (source_filter.is_empty() || source_filter.contains(&neighbor_node.source))
+                {
                     nodes.push(self.render_node(neighbor_node));
 
                     let symbols = self.graph.symbols();
                     let start_lang = symbols.resolve(&start_node.lang.0);
                     let neighbor_lang = symbols.resolve(&neighbor_node.lang.0);
-                    let start_convention = self.naming_conventions.get(start_lang).map(|c| c.as_ref());
-                    let neighbor_convention = self.naming_conventions.get(neighbor_lang).map(|c| c.as_ref());
+                    let start_convention =
+                        self.naming_conventions.get(start_lang).map(|c| c.as_ref());
+                    let neighbor_convention = self
+                        .naming_conventions
+                        .get(neighbor_lang)
+                        .map(|c| c.as_ref());
 
                     let (from, to) = if dir == PetDirection::Outgoing {
                         (
