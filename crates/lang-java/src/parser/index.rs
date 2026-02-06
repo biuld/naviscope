@@ -1,5 +1,5 @@
 use super::JavaParser;
-use naviscope_api::models::graph::{DisplaySymbolLocation, NodeKind};
+use naviscope_api::models::graph::{DisplaySymbolLocation, NodeKind, ResolutionStatus};
 use naviscope_plugin::utils::range_from_ts;
 use naviscope_plugin::{GlobalParseResult, IndexNode, IndexRelation, ParseOutput};
 use std::sync::Arc;
@@ -60,6 +60,7 @@ impl JavaParser {
                     kind,
                     lang: "java".to_string(),
                     source: naviscope_api::models::graph::NodeSource::Project,
+                    status: ResolutionStatus::Resolved,
                     location,
                     metadata: Arc::new(e.element),
                 }

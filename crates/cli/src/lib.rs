@@ -1,3 +1,4 @@
+mod cache;
 mod clear;
 mod index;
 mod shell;
@@ -70,6 +71,11 @@ pub enum Commands {
     },
     /// Start the Language Server Protocol (LSP) server
     Lsp,
+    /// Manage global stub cache
+    Cache {
+        #[command(subcommand)]
+        command: cache::CacheCommands,
+    },
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -88,9 +94,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Index { path } => rt.block_on(index::run(path.canonicalize()?)),
-        Commands::Shell { path } => rt.block_on(shell::run(path.map(|p| p.canonicalize()).transpose()?)),
+        Commands::Shell { path } => {
+            rt.block_on(shell::run(path.map(|p| p.canonicalize()).transpose()?))
+        }
         Commands::Watch { path } => rt.block_on(watch::run(path.canonicalize()?)),
-        Commands::Clear { path } => rt.block_on(clear::run(path.map(|p| p.canonicalize()).transpose()?)),
+        Commands::Clear { path } => {
+            rt.block_on(clear::run(path.map(|p| p.canonicalize()).transpose()?))
+        }
         Commands::Mcp { path } => {
             let project_path = match path {
                 Some(p) => p.canonicalize()?,
@@ -107,5 +117,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             })?;
             Ok(())
         }
+        Commands::Cache { command } => rt.block_on(cache::run(command)),
     }
 }

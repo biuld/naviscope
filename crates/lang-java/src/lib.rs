@@ -233,6 +233,12 @@ impl NodeAdapter for JavaPlugin {
 
 impl JavaPlugin {
     pub fn new() -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Register metadata deserializer for Java
+        naviscope_plugin::register_metadata_deserializer(
+            "java",
+            crate::model::JavaIndexMetadata::deserialize_for_cache,
+        );
+
         let parser = Arc::new(parser::JavaParser::new()?);
         let resolver = Arc::new(resolver::JavaResolver {
             parser: (*parser).clone(),
@@ -278,6 +284,14 @@ impl LanguagePlugin for JavaPlugin {
 
     fn lsp_parser(&self) -> Arc<dyn LspParser> {
         Arc::new(self.clone())
+    }
+
+    fn external_resolver(&self) -> Option<Arc<dyn naviscope_plugin::ExternalResolver>> {
+        Some(Arc::new(crate::resolver::external::JavaExternalResolver))
+    }
+
+    fn can_handle_external_asset(&self, ext: &str) -> bool {
+        ext == "jar" || ext == "jmod" || ext == "class"
     }
 }
 

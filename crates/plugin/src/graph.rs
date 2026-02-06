@@ -25,6 +25,10 @@ pub enum GraphOp {
     },
     /// Update file metadata (hash, mtime)
     UpdateFile { metadata: SourceFile },
+    /// Update the asset routing table: Prefix -> Asset Path
+    UpdateAssetRoutes {
+        routes: HashMap<String, std::path::PathBuf>,
+    },
 }
 
 /// Result of resolving a single file or unit

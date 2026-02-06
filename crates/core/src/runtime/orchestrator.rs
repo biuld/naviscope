@@ -2,16 +2,16 @@
 
 use crate::error::{NaviscopeError, Result};
 use crate::ingest::builder::CodeGraphBuilder;
-use crate::ingest::resolver::engine::IndexResolver;
+use crate::ingest::resolver::{IndexResolver, StubRequest, StubbingManager};
 use crate::ingest::scanner::Scanner;
 use crate::model::CodeGraph;
 use crate::model::GraphOp;
+use naviscope_plugin::NamingConvention;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use xxhash_rust::xxh3::xxh3_64;
-use std::collections::HashMap;
-use naviscope_plugin::NamingConvention;
 
 use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
@@ -40,6 +40,12 @@ pub struct NaviscopeEngine {
 
     /// Cancellation token for background tasks (like watcher)
     cancel_token: tokio_util::sync::CancellationToken,
+
+    /// Background stubbing channel
+    stub_tx: tokio::sync::mpsc::UnboundedSender<StubRequest>,
+
+    /// Global stub cache
+    stub_cache: Arc<crate::cache::GlobalStubCache>,
 }
 
 impl Drop for NaviscopeEngine {
@@ -56,15 +62,26 @@ impl NaviscopeEngine {
             .unwrap_or_else(|_| project_root.clone());
         let index_path = Self::compute_index_path(&canonical_root);
 
-        Self {
+        let (stub_tx, stub_rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        // Initialize global cache once
+        let stub_cache = Arc::new(crate::cache::GlobalStubCache::at_default_location());
+
+        let engine = Self {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
             project_root: canonical_root,
             index_path,
             build_plugins: Arc::new(Vec::new()),
             lang_plugins: Arc::new(Vec::new()),
             naming_conventions: Arc::new(std::collections::HashMap::new()),
-            cancel_token: tokio_util::sync::CancellationToken::new(),
-        }
+            cancel_token: cancel_token.clone(),
+            stub_tx,
+            stub_cache: stub_cache.clone(),
+        };
+
+        engine.spawn_stub_worker(stub_rx, cancel_token, stub_cache);
+
+        engine
     }
 
     pub fn register_language(&mut self, plugin: Arc<dyn LanguagePlugin>) {
@@ -101,10 +118,13 @@ impl NaviscopeEngine {
     /// Get the index resolver configured with current plugins
     pub fn get_resolver(&self) -> IndexResolver {
         IndexResolver::with_plugins((*self.build_plugins).clone(), (*self.lang_plugins).clone())
+            .with_stubbing(StubbingManager::new(self.stub_tx.clone()))
     }
 
     /// Get naming conventions registry (cheap Arc clone)
-    pub(crate) fn naming_conventions(&self) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
+    pub(crate) fn naming_conventions(
+        &self,
+    ) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
         self.naming_conventions.clone()
     }
 
@@ -167,9 +187,10 @@ impl NaviscopeEngine {
         let build_plugins = self.build_plugins.clone();
         let lang_plugins = self.lang_plugins.clone();
 
+        let stub_tx = self.stub_tx.clone();
         // Build in blocking pool (CPU-intensive)
         let new_graph = tokio::task::spawn_blocking(move || {
-            Self::build_index(&project_root, build_plugins, lang_plugins)
+            Self::build_index(&project_root, build_plugins, lang_plugins, stub_tx)
         })
         .await
         .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
@@ -202,6 +223,7 @@ impl NaviscopeEngine {
         }
 
         let current_lock = self.current.clone();
+        let stub_tx = self.stub_tx.clone();
 
         // Processing in blocking pool
         tokio::task::spawn_blocking(move || -> Result<()> {
@@ -230,10 +252,11 @@ impl NaviscopeEngine {
                 scan_results.into_iter().partition(|f| f.is_build());
 
             let resolver =
-                IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
+                IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone())
+                    .with_stubbing(StubbingManager::new(stub_tx.clone()));
 
             // 2. Phase 1: Heavy Build Resolution (Global Context)
-            let mut project_context = crate::ingest::resolver::ProjectContext::new();
+            let mut project_context_inner = crate::ingest::resolver::ProjectContext::new();
             let mut initial_ops = manual_ops;
 
             // IMPORTANT: RemovePath MUST come before AddNode for the same paths.
@@ -248,8 +271,11 @@ impl NaviscopeEngine {
             }
 
             // For build files, we still process them up front because they define the structure
-            let build_ops = resolver.resolve_build_batch(&build_files, &mut project_context)?;
+            let build_ops =
+                resolver.resolve_build_batch(&build_files, &mut project_context_inner)?;
             initial_ops.extend(build_ops);
+
+            let project_context = Arc::new(project_context_inner);
 
             // 3. Phase 2: Pipeline Batch Processing for source files
             let pipeline = crate::ingest::pipeline::IngestPipeline::new(500); // 500 files per batch
@@ -270,8 +296,9 @@ impl NaviscopeEngine {
             builder.apply_ops(initial_ops)?;
 
             // Note: We are in a blocking thread, resolver and context are Thread-safe.
-            pipeline.execute(&project_context, source_paths, &resolver, |batch_ops| {
-                builder.apply_ops(batch_ops)?;
+            pipeline.execute(&*project_context, source_paths, &resolver, |batch_ops| {
+                builder.apply_ops(batch_ops.clone())?;
+                resolver.schedule_stubs(&batch_ops, project_context.clone());
                 Ok(())
             })?;
 
@@ -364,6 +391,105 @@ impl NaviscopeEngine {
         });
 
         Ok(())
+    }
+
+    /// Start the background stubbing worker
+    fn spawn_stub_worker(
+        &self,
+        mut rx: tokio::sync::mpsc::UnboundedReceiver<StubRequest>,
+        cancel_token: tokio_util::sync::CancellationToken,
+        stub_cache: Arc<crate::cache::GlobalStubCache>,
+    ) {
+        let current = self.current.clone();
+        let lang_plugins = self.lang_plugins.clone();
+        let naming_conventions = self.naming_conventions.clone();
+
+        tokio::spawn(async move {
+            tracing::info!("Stubbing worker started");
+            let mut seen_fqns = std::collections::HashSet::new();
+
+            loop {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => break,
+                    Some(req) = rx.recv() => {
+                        // Skip if already seen in this session to avoid redundant work
+                        if !seen_fqns.insert(req.fqn.clone()) {
+                            continue;
+                        }
+
+                        // Check if node already exists and is resolved
+                        {
+                            let lock = current.read().await;
+                            let graph = &**lock;
+                            if let Some(idx) = graph.find_node(&req.fqn) {
+                                if let Some(node) = graph.get_node(idx) {
+                                    if node.status == naviscope_api::models::graph::ResolutionStatus::Resolved {
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Resolve
+                        let mut ops = Vec::new();
+
+                        if let Some(asset_path) = req.context.asset_routes.get(&req.fqn) {
+                            // Try to create asset key for cache lookup
+                            let asset_key = crate::cache::AssetKey::from_path(asset_path).ok();
+
+                            // Check cache first
+                            if let Some(ref key) = asset_key {
+                                if let Some(cached_stub) = stub_cache.lookup(key, &req.fqn) {
+                                    tracing::trace!("Cache hit for {}", req.fqn);
+                                    ops.push(GraphOp::AddNode { data: Some(cached_stub) });
+                                }
+                            }
+
+                            // If not in cache, generate stub
+                            if ops.is_empty() {
+                                let ext = asset_path
+                                    .extension()
+                                    .and_then(|e| e.to_str())
+                                    .unwrap_or("")
+                                    .to_lowercase();
+
+                                for plugin in lang_plugins.iter() {
+                                    if plugin.can_handle_external_asset(&ext) {
+                                        if let Some(external) = plugin.external_resolver() {
+                                            if let Ok(stub) = external.generate_stub(&req.fqn, asset_path) {
+                                                // Store in cache for future use
+                                                if let Some(ref key) = asset_key {
+                                                    stub_cache.store(key, &stub);
+                                                    tracing::trace!("Cached stub for {}", req.fqn);
+                                                }
+                                                ops.push(GraphOp::AddNode { data: Some(stub) });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if !ops.is_empty() {
+                            let mut lock = current.write().await;
+                            let mut builder = (**lock).to_builder();
+
+                            // Load naming conventions
+                            let conventions = (*naming_conventions).clone();
+                            for (lang, nc) in conventions {
+                                builder.naming_conventions.insert(naviscope_api::models::Language::from(lang), nc);
+                            }
+
+                            if let Ok(()) = builder.apply_ops(ops) {
+                                *lock = Arc::new(builder.build());
+                                tracing::debug!("Applied stub for {}", req.fqn);
+                            }
+                        }
+                    }
+                }
+            }
+            tracing::info!("Stubbing worker stopped");
+        });
     }
 
     /// Clear the index for the current project
@@ -495,15 +621,22 @@ impl NaviscopeEngine {
         project_root: &Path,
         build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
         lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
+        stub_tx: tokio::sync::mpsc::UnboundedSender<StubRequest>,
     ) -> Result<CodeGraph> {
         // Scan and parse
         let parse_results =
             Scanner::scan_and_parse(project_root, &std::collections::HashMap::new());
 
         // Resolve
+        let project_context_inner = crate::ingest::resolver::ProjectContext::new();
         let resolver =
-            IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone());
+            IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone())
+                .with_stubbing(StubbingManager::new(stub_tx));
+
+        // Note: build_index currently use a separate resolve path which doesn't use the pipeline for everything.
+        // We'll manually schedule stubs for the full result set.
         let ops = resolver.resolve(parse_results)?;
+        let project_context = Arc::new(project_context_inner);
 
         // Build graph
         let mut builder = CodeGraphBuilder::new();
@@ -515,9 +648,14 @@ impl NaviscopeEngine {
             }
         }
 
-        builder.apply_ops(ops)?;
+        builder.apply_ops(ops.clone())?;
+        resolver.schedule_stubs(&ops, project_context);
 
         Ok(builder.build())
+    }
+
+    pub fn get_stub_cache(&self) -> Arc<crate::cache::GlobalStubCache> {
+        self.stub_cache.clone()
     }
 }
 

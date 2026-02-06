@@ -1,7 +1,7 @@
 use crate::model::FqnStorage;
 use crate::model::{GraphEdge, NodeKind, Range};
 use lasso::{Key, ThreadedRodeo};
-use naviscope_api::models::graph::NodeSource;
+use naviscope_api::models::graph::{NodeSource, ResolutionStatus};
 use naviscope_api::models::symbol::Symbol;
 use naviscope_plugin::FqnInterner;
 use serde::{Deserialize, Serialize};
@@ -110,6 +110,7 @@ pub struct StorageGraph {
     pub name_index: Vec<(u32, Vec<u32>)>,         // (Symbol, Vec<NodeIdx>)
     pub file_index: Vec<(u32, StorageFileEntry)>, // (Symbol, Entry)
     pub reference_index: Vec<(u32, Vec<u32>)>,    // (Symbol, Vec<Symbol>)
+    pub asset_routes: Vec<(u32, u32)>,            // (Prefix, Path)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -119,6 +120,7 @@ pub struct StorageNode {
     pub kind: NodeKind,
     pub lang_sid: u32,
     pub source: NodeSource,
+    pub status: ResolutionStatus,
     pub location: Option<StorageLocation>,
     pub metadata: Box<[u8]>,
 }

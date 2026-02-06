@@ -16,3 +16,7 @@ petgraph = { workspace = true }
 once_cell = { workspace = true }
 rmp-serde = { workspace = true }
 lasso = { workspace = true }
+dirs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

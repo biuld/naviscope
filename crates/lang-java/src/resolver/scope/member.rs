@@ -392,7 +392,7 @@ impl SemanticScope<ResolutionContext<'_>> for MemberScope<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_api::models::graph::{EdgeType, GraphNode};
+    use naviscope_api::models::graph::{EdgeType, GraphNode, ResolutionStatus};
     use naviscope_api::models::symbol::{FqnId, FqnNode, FqnReader, Symbol};
     use naviscope_plugin::{CodeGraph, Direction};
     use std::path::Path;
@@ -465,6 +465,7 @@ mod tests {
                 kind: naviscope_api::models::graph::NodeKind::Field,
                 lang: Symbol(lasso::Spur::default()),
                 source: naviscope_api::models::graph::NodeSource::Project,
+                status: ResolutionStatus::Resolved,
                 location: None,
                 metadata: std::sync::Arc::new(JavaNodeMetadata::Field {
                     type_ref: naviscope_api::models::TypeRef::Raw("int".to_string()),

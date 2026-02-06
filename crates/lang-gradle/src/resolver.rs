@@ -20,6 +20,249 @@ impl GradleResolver {
     fn normalize_path(&self, path: &Path) -> PathBuf {
         path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
     }
+
+    /// Discovers built-in assets (SDK libraries like lib/modules, rt.jar or jmods).
+    fn discover_builtin_assets(&self) -> Vec<PathBuf> {
+        let mut assets = Vec::new();
+
+        // 1. Check JAVA_HOME
+        if let Ok(java_home) = std::env::var("JAVA_HOME") {
+            self.collect_sdk_assets(Path::new(&java_home), &mut assets);
+        }
+
+        // 2. macOS specific: Use java_home tool
+        #[cfg(target_os = "macos")]
+        if assets.is_empty() {
+            if let Ok(output) = std::process::Command::new("/usr/libexec/java_home").output() {
+                if output.status.success() {
+                    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    self.collect_sdk_assets(Path::new(&path_str), &mut assets);
+                }
+            }
+        }
+
+        // 3. Search common installation paths
+        if assets.is_empty() {
+            let mut search_roots = Vec::new();
+
+            #[cfg(target_os = "macos")]
+            {
+                search_roots.push(PathBuf::from("/Library/Java/JavaVirtualMachines/"));
+                search_roots.push(PathBuf::from("/opt/homebrew/opt/openjdk/"));
+                search_roots.push(PathBuf::from("/usr/local/opt/openjdk/"));
+            }
+            #[cfg(target_os = "linux")]
+            {
+                search_roots.push(PathBuf::from("/usr/lib/jvm/"));
+            }
+            #[cfg(target_os = "windows")]
+            {
+                search_roots.push(PathBuf::from("C:\\Program Files\\Java\\"));
+            }
+
+            // SDKMAN
+            if let Some(mut sdkman) = dirs::home_dir() {
+                sdkman.push(".sdkman/candidates/java/");
+                search_roots.push(sdkman);
+            }
+
+            for root in search_roots {
+                if !root.exists() {
+                    continue;
+                }
+
+                // If root itself is a JDK (e.g. Homebrew symlink)
+                self.collect_sdk_assets(&root, &mut assets);
+                if !assets.is_empty() {
+                    break;
+                }
+
+                // If root is a parent directory containing multiple SDKs
+                if let Ok(entries) = std::fs::read_dir(root) {
+                    for entry in entries.flatten() {
+                        let mut sdk_path = entry.path();
+                        if cfg!(target_os = "macos") && sdk_path.join("Contents/Home").exists() {
+                            sdk_path.push("Contents/Home");
+                        }
+                        self.collect_sdk_assets(&sdk_path, &mut assets);
+                        if !assets.is_empty() {
+                            break;
+                        }
+                    }
+                }
+
+                if !assets.is_empty() {
+                    break;
+                }
+            }
+        }
+
+        assets
+    }
+
+    fn collect_sdk_assets(&self, sdk_path: &Path, assets: &mut Vec<PathBuf>) {
+        if !sdk_path.exists() {
+            return;
+        }
+
+        // Priority 1: Java 9+ Runtime Image (The most correct way for modern Java)
+        let modules = sdk_path.join("lib/modules");
+        if modules.exists() {
+            assets.push(modules);
+            return;
+        }
+
+        // Priority 2: Java 8 Legacy Runtime
+        let rt_jar = sdk_path.join("jre/lib/rt.jar");
+        if rt_jar.exists() {
+            assets.push(rt_jar);
+            return;
+        }
+        let lib_rt_jar = sdk_path.join("lib/rt.jar");
+        if lib_rt_jar.exists() {
+            assets.push(lib_rt_jar);
+            return;
+        }
+
+        // Priority 3: jmods (Fallback for some JDK builds without lib/modules)
+        let jmods = sdk_path.join("jmods");
+        if jmods.exists() {
+            if let Ok(entries) = std::fs::read_dir(jmods) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("jmod") {
+                        assets.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Discovers external assets (third-party JARs).
+    /// Discovers external assets (third-party JARs).
+    fn discover_external_assets(&self, files: &[&ParsedFile]) -> Vec<PathBuf> {
+        let mut assets = Vec::new();
+
+        // 1. Fast Path: Scan .idea/libraries if available (IntelliJ projects)
+        self.discover_from_idea(files, &mut assets);
+
+        // 2. Accurate Path: Scan Gradle cache based on parsed dependencies
+        self.discover_from_gradle_cache(files, &mut assets);
+
+        assets.sort();
+        assets.dedup();
+        assets
+    }
+
+    fn discover_from_idea(&self, files: &[&ParsedFile], assets: &mut Vec<PathBuf>) {
+        let Some(first_file) = files.first() else {
+            return;
+        };
+
+        let mut current = first_file.file.path.clone();
+        while let Some(parent) = current.parent() {
+            let idea_libs = parent.join(".idea/libraries");
+            if idea_libs.exists() {
+                if let Ok(entries) = std::fs::read_dir(idea_libs) {
+                    for entry in entries.flatten() {
+                        self.parse_idea_lib_xml(&entry.path(), assets);
+                    }
+                }
+                break;
+            }
+            current = parent.to_path_buf();
+        }
+    }
+
+    fn parse_idea_lib_xml(&self, path: &Path, assets: &mut Vec<PathBuf>) {
+        if path.extension().and_then(|e| e.to_str()) != Some("xml") {
+            return;
+        }
+
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return;
+        };
+
+        for line in content.lines() {
+            let Some(jar_path) = self.extract_jar_path_from_xml_line(line) else {
+                continue;
+            };
+
+            if jar_path.exists() && jar_path.extension().and_then(|e| e.to_str()) == Some("jar") {
+                assets.push(jar_path);
+            }
+        }
+    }
+
+    fn extract_jar_path_from_xml_line(&self, line: &str) -> Option<PathBuf> {
+        if !line.contains("url=\"jar://") || !line.contains("!/\"") {
+            return None;
+        }
+
+        let start = line.find("jar://")? + 6;
+        let end = line.find("!/\"")?;
+        let path_str = &line[start..end];
+
+        if path_str.contains("$USER_HOME$") {
+            dirs::home_dir().map(|home| {
+                PathBuf::from(path_str.replace("$USER_HOME$", home.to_str().unwrap_or("")))
+            })
+        } else {
+            Some(PathBuf::from(path_str))
+        }
+    }
+
+    fn discover_from_gradle_cache(&self, files: &[&ParsedFile], assets: &mut Vec<PathBuf>) {
+        let Some(mut cache_path) = dirs::home_dir() else {
+            return;
+        };
+        cache_path.push(".gradle/caches/modules-2/files-2.1");
+
+        if !cache_path.exists() {
+            return;
+        }
+
+        for file in files {
+            let ParsedContent::Metadata(value) = &file.content else {
+                continue;
+            };
+
+            let Ok(res) = serde_json::from_value::<crate::model::GradleParseResult>(value.clone())
+            else {
+                continue;
+            };
+
+            for dep in res.dependencies {
+                if dep.is_project {
+                    continue;
+                }
+                if let (Some(group), Some(version)) = (dep.group, dep.version) {
+                    let dep_dir = cache_path.join(&group).join(&dep.name).join(&version);
+                    if dep_dir.exists() {
+                        self.collect_jars_from_dir(&dep_dir, assets);
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_jars_from_dir(&self, dir: &Path, assets: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                self.collect_jars_from_dir(&path, assets);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("jar") {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if !name.ends_with("-sources.jar") && !name.ends_with("-javadoc.jar") {
+                    assets.push(path);
+                }
+            }
+        }
+    }
 }
 
 impl BuildResolver for GradleResolver {
@@ -30,6 +273,10 @@ impl BuildResolver for GradleResolver {
     {
         let mut unit = ResolvedUnit::new();
         let mut context = ProjectContext::new();
+
+        // --- Step 0: Discover environment (Builtin & External) ---
+        context.builtin_assets = self.discover_builtin_assets();
+        context.external_assets = self.discover_external_assets(files);
 
         // --- Step 1: Discover all potential module paths ---
         let mut module_map: HashMap<PathBuf, ModuleData> = HashMap::new();
@@ -128,6 +375,7 @@ impl BuildResolver for GradleResolver {
             kind: NodeKind::Project,
             lang: "gradle".to_string(),
             source: NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: Some(DisplaySymbolLocation {
                 path: root_path.to_string_lossy().to_string(),
                 range: Range {
@@ -185,6 +433,7 @@ impl BuildResolver for GradleResolver {
                 kind: NodeKind::Module,
                 lang: "gradle".to_string(),
                 source: NodeSource::Project,
+                status: naviscope_api::models::graph::ResolutionStatus::Resolved,
                 location: data
                     .build_file
                     .as_ref()
@@ -235,6 +484,7 @@ impl BuildResolver for GradleResolver {
                 kind: NodeKind::Module,
                 lang: "gradle".to_string(),
                 source: NodeSource::Project,
+                status: naviscope_api::models::graph::ResolutionStatus::Resolved,
                 location: data
                     .build_file
                     .as_ref()
@@ -317,6 +567,7 @@ impl BuildResolver for GradleResolver {
                             kind: NodeKind::Dependency,
                             lang: "gradle".to_string(),
                             source: NodeSource::External,
+                            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
                             location: Some(DisplaySymbolLocation {
                                 path: data
                                     .build_file
@@ -444,5 +695,78 @@ mod tests {
         assert!(edges.iter().any(|(f, t)| f
             == "project:spring-boot-build::module:spring-boot-project"
             && t == "project:spring-boot-build::module:spring-boot-project/spring-boot"));
+    }
+
+    #[test]
+    fn test_discover_external_assets_from_idea() {
+        let resolver = GradleResolver::new();
+        let temp = tempfile::tempdir().unwrap();
+        let idea_libs = temp.path().join(".idea/libraries");
+        std::fs::create_dir_all(&idea_libs).unwrap();
+
+        let jar_path = temp.path().join("mock.jar");
+        std::fs::File::create(&jar_path).unwrap();
+
+        let lib_xml = idea_libs.join("mock_lib.xml");
+        let xml_content = format!(
+            r#"
+<component name="libraryTable">
+  <library name="Gradle: mock-lib">
+    <CLASSES>
+      <root url="jar://{}!/" />
+    </CLASSES>
+  </library>
+</component>
+"#,
+            jar_path.display()
+        );
+        std::fs::write(&lib_xml, xml_content).unwrap();
+
+        let mock_file = create_mock_file(
+            temp.path().join("build.gradle").to_str().unwrap(),
+            ParsedContent::Unparsed("".to_string()),
+        );
+        let assets: Vec<_> = resolver
+            .discover_external_assets(&[&mock_file])
+            .into_iter()
+            .map(|p| p.canonicalize().unwrap())
+            .collect();
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0], jar_path.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_discover_builtin_assets_java_11() {
+        let resolver = GradleResolver::new();
+        let temp = tempfile::tempdir().unwrap();
+        let sdk_path = temp.path().to_path_buf();
+
+        let modules_path = sdk_path.join("lib/modules");
+        std::fs::create_dir_all(modules_path.parent().unwrap()).unwrap();
+        std::fs::File::create(&modules_path).unwrap();
+
+        let mut assets = Vec::new();
+        resolver.collect_sdk_assets(&sdk_path, &mut assets);
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0], modules_path);
+    }
+
+    #[test]
+    fn test_discover_builtin_assets_java_8() {
+        let resolver = GradleResolver::new();
+        let temp = tempfile::tempdir().unwrap();
+        let sdk_path = temp.path().to_path_buf();
+
+        let rt_jar_path = sdk_path.join("jre/lib/rt.jar");
+        std::fs::create_dir_all(rt_jar_path.parent().unwrap()).unwrap();
+        std::fs::File::create(&rt_jar_path).unwrap();
+
+        let mut assets = Vec::new();
+        resolver.collect_sdk_assets(&sdk_path, &mut assets);
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0], rt_jar_path);
     }
 }

@@ -37,6 +37,7 @@ impl CodeGraphBuilder {
                 name_index: HashMap::new(),
                 file_index: HashMap::new(),
                 reference_index: HashMap::new(),
+                asset_routes: HashMap::new(),
             },
             naming_conventions: HashMap::new(),
         }
@@ -115,7 +116,18 @@ impl CodeGraphBuilder {
         };
 
         if let Some(&idx) = self.inner.fqn_index.get(&fqn_id) {
-            // Node already exists
+            // Node already exists - check if we should update metadata
+            if let Some(existing_node) = self.inner.topology.node_weight_mut(idx) {
+                // If the new metadata is NOT empty, or we want to force an update, do it here.
+                // For stubbing, we move from EmptyMetadata to rich language metadata.
+                let mut ctx = crate::model::storage::model::GenericStorageContext {
+                    rodeo: self.inner.symbols.clone(),
+                };
+                existing_node.metadata = node_data.metadata.intern(&mut ctx);
+
+                // Also update source if it was External and now it's Project (or just keep it updated)
+                existing_node.source = node_data.source;
+            }
             idx
         } else {
             let name_sym = self.inner.fqns.intern_atom(&node_data.name);
@@ -135,6 +147,7 @@ impl CodeGraphBuilder {
                 kind: node_data.kind.clone(),
                 lang: lang_sym,
                 source: node_data.source,
+                status: node_data.status,
                 location: location.clone(),
                 metadata: node_data.metadata.intern(&mut ctx),
             };
@@ -261,6 +274,7 @@ impl CodeGraphBuilder {
                         kind: naviscope_api::models::graph::NodeKind::Class, // Default to class for external types
                         lang: lang_str,
                         source: naviscope_api::models::graph::NodeSource::External,
+                        status: naviscope_api::models::graph::ResolutionStatus::Unresolved,
                         location: None,
                         metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
                     };
@@ -295,6 +309,17 @@ impl CodeGraphBuilder {
                 let path = metadata.path.clone();
                 self.update_file(&path, metadata);
             }
+            GraphOp::UpdateAssetRoutes { routes } => {
+                for (prefix, path) in routes {
+                    let prefix_sym = Symbol(self.inner.symbols.get_or_intern(&prefix));
+                    let path_sym = Symbol(
+                        self.inner
+                            .symbols
+                            .get_or_intern(path.to_string_lossy().as_ref()),
+                    );
+                    self.inner.asset_routes.insert(prefix_sym, path_sym);
+                }
+            }
         }
         Ok(())
     }
@@ -314,7 +339,8 @@ impl CodeGraphBuilder {
                 GraphOp::RemovePath { .. } => destructive.push(op),
                 GraphOp::AddNode { .. }
                 | GraphOp::UpdateFile { .. }
-                | GraphOp::UpdateIdentifiers { .. } => additive.push(op),
+                | GraphOp::UpdateIdentifiers { .. }
+                | GraphOp::UpdateAssetRoutes { .. } => additive.push(op),
                 GraphOp::AddEdge { .. } => relational.push(op),
             }
         }
@@ -358,6 +384,7 @@ mod tests {
             kind: NodeKind::Project,
             lang: "buildfile".to_string(),
             source: naviscope_api::models::graph::NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: None,
             metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
         };
@@ -382,6 +409,7 @@ mod tests {
             kind: NodeKind::Project,
             lang: "buildfile".to_string(),
             source: naviscope_api::models::graph::NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: None,
             metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
         };

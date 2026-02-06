@@ -334,6 +334,7 @@ async fn test_symbol_navigator_queries() {
             kind: NodeKind::Class,
             lang: "mock".to_string(),
             source: NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: Some(DisplaySymbolLocation {
                 path: temp_dir.join("test.mock").to_string_lossy().to_string(),
                 range: Range {
@@ -426,6 +427,7 @@ async fn test_call_hierarchy_analyzer() {
             kind: NodeKind::Method,
             lang: "mock".to_string(),
             source: NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: Some(DisplaySymbolLocation {
                 path: test_file_path.clone(),
                 range: Range {
@@ -447,6 +449,7 @@ async fn test_call_hierarchy_analyzer() {
             kind: NodeKind::Method,
             lang: "mock".to_string(),
             source: NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: Some(DisplaySymbolLocation {
                 path: test_file_path.clone(),
                 range: Range {
@@ -501,6 +504,7 @@ async fn test_get_symbol_info() {
             kind: NodeKind::Class,
             lang: "mock".to_string(),
             source: NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: Some(DisplaySymbolLocation {
                 path: temp_dir.join("test.mock").to_string_lossy().to_string(),
                 range: Range {

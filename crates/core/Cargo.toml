@@ -32,7 +32,9 @@ naviscope-api = { workspace = true }
 naviscope-plugin = { workspace = true }
 async-trait = { workspace = true }
 url = { workspace = true }
+serde_bytes = "0.11.19"
 
 [dev-dependencies]
 tree-sitter-java = { workspace = true }
 tempfile = { workspace = true }
+naviscope-java = { workspace = true }

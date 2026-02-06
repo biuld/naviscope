@@ -1,11 +1,76 @@
 use crate::interner::SymbolInterner;
 use naviscope_api::models::graph::{
     DisplaySymbolLocation, EdgeType, EmptyMetadata, NodeKind, NodeMetadata, NodeSource,
+    ResolutionStatus,
 };
 use naviscope_api::models::symbol::{NodeId, Range};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tree_sitter::Tree;
+
+/// A function type that can deserialize bytes into language-specific IndexMetadata.
+pub type MetadataDeserializer = fn(version: u32, bytes: &[u8]) -> Arc<dyn IndexMetadata>;
+
+/// Global registry for metadata deserializers.
+static DESERIALIZER_REGISTRY: OnceLock<std::sync::RwLock<HashMap<String, MetadataDeserializer>>> =
+    OnceLock::new();
+
+/// Register a deserializer for a specific metadata type tag.
+pub fn register_metadata_deserializer(type_tag: &str, deserializer: MetadataDeserializer) {
+    let registry = DESERIALIZER_REGISTRY.get_or_init(|| std::sync::RwLock::new(HashMap::new()));
+    let mut registry = registry
+        .write()
+        .expect("Failed to lock deserializer registry");
+    registry.insert(type_tag.to_string(), deserializer);
+}
+
+/// Serialized metadata for cache storage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedMetadata {
+    /// Type tag identifying the metadata format (e.g., "java")
+    pub type_tag: String,
+
+    /// Schema version for the metadata format
+    pub version: u32,
+
+    /// The serialized metadata bytes
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+}
+
+impl CachedMetadata {
+    /// Create a new empty metadata
+    pub fn empty() -> Self {
+        Self {
+            type_tag: "empty".to_string(),
+            version: 0,
+            data: Vec::new(),
+        }
+    }
+}
+
+/// Deserialize metadata from CachedMetadata using the registered deserializers.
+pub fn deserialize_metadata(cached: &CachedMetadata) -> Arc<dyn IndexMetadata> {
+    if cached.data.is_empty() || cached.type_tag == "empty" {
+        return Arc::new(EmptyMetadata);
+    }
+
+    if let Some(registry) = DESERIALIZER_REGISTRY.get() {
+        let registry = registry
+            .read()
+            .expect("Failed to read deserializer registry");
+        if let Some(deserializer) = registry.get(&cached.type_tag) {
+            return deserializer(cached.version, &cached.data);
+        }
+    }
+
+    // Fallback: If "java" is not registered but type is "java", return empty
+    // but try to warn if appropriate (though we want to avoid log spam)
+    Arc::new(EmptyMetadata)
+}
 
 /// Compilation-time/Index-time metadata.
 /// This version usually contains strings and is used during the parsing phase.
@@ -16,6 +81,12 @@ pub trait IndexMetadata: Send + Sync + std::fmt::Debug {
 
     /// Transform this metadata into its interned/optimized version for graph storage.
     fn intern(&self, interner: &mut dyn SymbolInterner) -> Arc<dyn NodeMetadata>;
+
+    /// Convert this metadata into a cacheable form.
+    /// Default implementation returns empty metadata.
+    fn to_cached_metadata(&self) -> CachedMetadata {
+        CachedMetadata::empty()
+    }
 }
 
 impl IndexMetadata for EmptyMetadata {
@@ -37,6 +108,7 @@ pub struct IndexNode {
     pub kind: NodeKind,
     pub lang: String,
     pub source: NodeSource,
+    pub status: ResolutionStatus,
     pub location: Option<DisplaySymbolLocation>,
     pub metadata: Arc<dyn IndexMetadata>,
 }

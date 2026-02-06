@@ -41,6 +41,10 @@ impl IndexMetadata for JavaIndexMetadata {
     fn intern(&self, interner: &mut dyn SymbolInterner) -> Arc<dyn NodeMetadata> {
         Arc::new(self.to_storage(interner))
     }
+
+    fn to_cached_metadata(&self) -> naviscope_plugin::CachedMetadata {
+        self.to_cached_metadata()
+    }
 }
 
 /// Interned metadata stored in the graph
@@ -73,6 +77,22 @@ pub enum JavaNodeMetadata {
 }
 
 impl JavaIndexMetadata {
+    pub fn deserialize_for_cache(_version: u32, bytes: &[u8]) -> Arc<dyn IndexMetadata> {
+        // In the future, we can switch on version here to handle migrations
+        match rmp_serde::from_slice::<Self>(bytes) {
+            Ok(meta) => Arc::new(meta),
+            Err(_) => Arc::new(naviscope_api::models::graph::EmptyMetadata),
+        }
+    }
+
+    pub fn to_cached_metadata(&self) -> naviscope_plugin::CachedMetadata {
+        naviscope_plugin::CachedMetadata {
+            type_tag: "java".to_string(),
+            version: 1, // Current version
+            data: rmp_serde::to_vec(self).unwrap_or_default(),
+        }
+    }
+
     pub fn to_storage(&self, ctx: &mut dyn SymbolInterner) -> JavaNodeMetadata {
         match self {
             JavaIndexMetadata::Class { modifiers } => JavaNodeMetadata::Class {

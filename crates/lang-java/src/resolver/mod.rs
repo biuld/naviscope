@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tree_sitter::Tree;
 
 pub mod context;
+pub mod external;
 pub mod scope;
 
 use context::ResolutionContext;
@@ -379,6 +380,7 @@ impl LangResolver for JavaResolver {
                     kind: NodeKind::Package,
                     lang: "java".to_string(),
                     source: naviscope_api::models::graph::NodeSource::Project,
+                    status: naviscope_api::models::graph::ResolutionStatus::Resolved,
                     location: None,
                     metadata: Arc::new(crate::model::JavaIndexMetadata::Package),
                 };

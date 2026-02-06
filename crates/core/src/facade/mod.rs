@@ -104,7 +104,11 @@ impl EngineHandle {
     }
 }
 
-impl NaviscopeEngine for EngineHandle {}
+impl NaviscopeEngine for EngineHandle {
+    fn get_stub_cache_manager(&self) -> Arc<dyn naviscope_api::StubCacheManager> {
+        self.engine.get_stub_cache()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -125,12 +129,12 @@ mod tests {
     fn test_blocking_graph_access() {
         // Create runtime in a separate thread without any existing runtime context
         std::thread::spawn(|| {
-            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
-            let handle = EngineHandle::from_engine(engine);
-
             // Test that blocking API works via async runtime
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _guard = rt.enter();
+
+            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+            let handle = EngineHandle::from_engine(engine);
 
             let _graph = rt.block_on(handle.graph());
         })
@@ -187,11 +191,11 @@ mod tests {
         use naviscope_api::models::GraphQuery;
 
         std::thread::spawn(|| {
-            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
-            let handle = EngineHandle::from_engine(engine);
-
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _guard = rt.enter();
+
+            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+            let handle = EngineHandle::from_engine(engine);
 
             let query = GraphQuery::Find {
                 pattern: "test".to_string(),

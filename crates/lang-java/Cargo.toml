@@ -15,7 +15,10 @@ lsp-types = { workspace = true }
 tree-sitter-java = { workspace = true }
 rmp-serde = { workspace = true }
 lasso = { workspace = true }
+cafebabe = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 naviscope-core = { workspace = true }
 tokio = { workspace = true }
+tempfile = { workspace = true }

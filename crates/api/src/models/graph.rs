@@ -117,7 +117,6 @@ impl NodeMetadata for EmptyMetadata {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
-#[serde(rename_all = "lowercase")]
 pub enum NodeSource {
     /// Defined in the current project (source code available)
     Project,
@@ -133,6 +132,17 @@ impl Default for NodeSource {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ResolutionStatus {
+    /// Just a placeholder (name and ID known, metadata may be empty)
+    Unresolved,
+    /// Structure known from bytecode or partial scan (stubs available)
+    Stubbed,
+    /// Full details known from source code or complete parsing
+    Resolved,
+}
+
 #[derive(Debug, Clone)]
 pub struct GraphNode {
     /// Unique Identifier (Structured FQN)
@@ -145,6 +155,8 @@ pub struct GraphNode {
     pub lang: Symbol,
     /// Source origin
     pub source: NodeSource,
+    /// Current resolution depth/state
+    pub status: ResolutionStatus,
     /// Physical Location
     pub location: Option<super::symbol::InternedLocation>,
     /// Extension metadata
@@ -159,6 +171,7 @@ impl Default for GraphNode {
             kind: NodeKind::Custom("unknown".to_string()),
             lang: Symbol(lasso::Spur::default()),
             source: NodeSource::Project,
+            status: ResolutionStatus::Resolved,
             location: None,
             metadata: Arc::new(EmptyMetadata),
         }

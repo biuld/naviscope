@@ -59,6 +59,10 @@ pub struct CodeGraphInner {
     /// Reference Index: Token (e.g. Method Name) -> Files that contain this token.
     /// Used for fast "scouting" during reference discovery.
     pub reference_index: HashMap<Symbol, Vec<Symbol>>,
+
+    /// Asset Route Table: Prefix (Package/Symbol) -> Asset Path
+    /// Used for routing FQNs to their defining JARs/files.
+    pub asset_routes: HashMap<Symbol, Symbol>,
 }
 
 /// Metadata and nodes associated with a single source file
@@ -83,6 +87,7 @@ impl CodeGraph {
                 name_index: HashMap::new(),
                 file_index: HashMap::new(),
                 reference_index: HashMap::new(),
+                asset_routes: HashMap::new(),
             }),
         }
     }
@@ -314,6 +319,10 @@ impl CodeGraphLike for CodeGraph {
         &self.inner.reference_index
     }
 
+    fn asset_routes(&self) -> &std::collections::HashMap<Symbol, Symbol> {
+        &self.inner.asset_routes
+    }
+
     fn find_container_node_at(
         &self,
         path: &std::path::Path,
@@ -406,7 +415,9 @@ impl naviscope_plugin::CodeGraph for CodeGraph {
 }
 #[cfg(test)]
 mod tests {
-    use super::{CURRENT_VERSION, CodeGraph};
+    use super::*;
+    use naviscope_api::models::symbol::Symbol;
+    use std::path::Path;
 
     #[test]
     fn test_arc_clone_is_cheap() {
@@ -447,6 +458,7 @@ mod tests {
             kind: NodeKind::Class,
             lang: "java".to_string(),
             source: naviscope_api::models::graph::NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: None,
             metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
         };
@@ -464,5 +476,35 @@ mod tests {
         let symbols = deserialized.symbols();
         assert_eq!(recovered_node.name(symbols), "node");
         assert_eq!(recovered_node.language(symbols).as_str(), "java");
+    }
+
+    #[test]
+    fn test_graph_asset_routes_serialization() {
+        use crate::ingest::builder::CodeGraphBuilder;
+        let mut builder = CodeGraphBuilder::new();
+
+        // Add a route
+        let prefix = "com.example";
+        let path = Path::new("/path/to/example.jar");
+
+        builder
+            .apply_op(naviscope_plugin::GraphOp::UpdateAssetRoutes {
+                routes: [(prefix.to_string(), path.to_path_buf())]
+                    .into_iter()
+                    .collect(),
+            })
+            .unwrap();
+
+        let graph = builder.build();
+        let serialized = graph.serialize(|_| None).unwrap();
+        let deserialized = CodeGraph::deserialize(&serialized, |_| None).unwrap();
+
+        let prefix_sym = Symbol(deserialized.symbols().get(prefix).unwrap());
+        let path_sym = Symbol(deserialized.symbols().get(path.to_str().unwrap()).unwrap());
+
+        assert_eq!(
+            deserialized.asset_routes().get(&prefix_sym),
+            Some(&path_sym)
+        );
     }
 }

@@ -84,6 +84,16 @@ pub trait LanguagePlugin: PluginInstance + Send + Sync {
 
     /// Get the LSP parser for this language
     fn lsp_parser(&self) -> Arc<dyn LspParser>;
+
+    /// Get the external resolver for classpath resolution (Phase 2+)
+    fn external_resolver(&self) -> Option<Arc<dyn crate::resolver::ExternalResolver>> {
+        None
+    }
+
+    /// Check if this plugin can handle an external asset (by extension) for stubbing.
+    fn can_handle_external_asset(&self, _ext: &str) -> bool {
+        false
+    }
 }
 
 /// Unified interface for build tool support.
