@@ -18,6 +18,8 @@ lasso = { workspace = true }
 cafebabe = { workspace = true }
 zip = { workspace = true }
 ristretto_jimage = { workspace = true }
+dirs = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 naviscope-core = { workspace = true }

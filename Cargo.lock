@@ -1482,6 +1482,7 @@ version = "0.5.5"
 dependencies = [
  "async-trait",
  "dashmap 6.1.0",
+ "dirs",
  "ignore",
  "lasso",
  "log",
@@ -1532,6 +1533,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tree-sitter",
  "tree-sitter-groovy",
+ "walkdir",
 ]
 
 [[package]]
@@ -1539,12 +1541,14 @@ name = "naviscope-java"
 version = "0.5.5"
 dependencies = [
  "cafebabe",
+ "dirs",
  "lasso",
  "lsp-types",
  "naviscope-api",
  "naviscope-core",
  "naviscope-plugin",
  "petgraph",
+ "regex",
  "ristretto_jimage",
  "rmp-serde",
  "serde",

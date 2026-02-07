@@ -1,7 +1,7 @@
 //! Tests for async stubbing workflow
 
 use naviscope_api::models::graph::ResolutionStatus;
-use naviscope_core::ingest::resolver::{ProjectContext, StubbingManager};
+use naviscope_core::ingest::resolver::StubbingManager;
 use naviscope_core::model::GraphOp;
 use naviscope_core::runtime::orchestrator::NaviscopeEngine;
 use naviscope_java::JavaPlugin;
@@ -68,19 +68,11 @@ async fn test_async_stubbing_with_jar() {
         .map(|h| PathBuf::from(h).join("jmods").join("java.base.jmod"));
 
     if let Some(jmod) = jmod_path.filter(|p| p.exists()) {
-        // Create a project context with the asset route
-        let mut context = ProjectContext::new();
-        context
-            .asset_routes
-            .insert("java.lang.String".to_string(), vec![jmod.clone()]);
+        let mut routes = std::collections::HashMap::new();
+        routes.insert("java.lang.String".to_string(), vec![jmod.clone()]);
 
-        let context = Arc::new(context);
-
-        // Get the stub_tx from engine and send a request
-        // Note: In real usage, this happens automatically through IndexResolver
         let resolver = engine.get_resolver();
 
-        // Create a mock GraphOp that would trigger stubbing
         let ops = vec![GraphOp::AddNode {
             data: Some(naviscope_plugin::IndexNode {
                 id: naviscope_api::models::symbol::NodeId::Flat("java.lang.String".to_string()),
@@ -94,17 +86,11 @@ async fn test_async_stubbing_with_jar() {
             }),
         }];
 
-        // Schedule stubs - this sends to the background worker
-        resolver.schedule_stubs(&ops, context);
+        resolver.schedule_stubs(&ops, &routes);
 
-        // Give the worker time to process
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Check that the node was updated (in a real test, we'd verify the graph)
-        // For now, we just verify no panics occurred
         let graph = engine.snapshot().await;
-        // The graph might not have nodes yet if the worker hasn't finished,
-        // but the test ensures the pipeline doesn't crash
         println!(
             "Graph after stubbing: {} nodes, {} edges",
             graph.node_count(),
@@ -114,7 +100,6 @@ async fn test_async_stubbing_with_jar() {
         println!("Skipping JAR test: JAVA_HOME not set or jmods not found");
     }
 
-    // Cleanup
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
@@ -123,17 +108,14 @@ async fn test_async_stubbing_with_jar() {
 async fn test_stubbing_deduplication() {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    // Simulate what the worker's seen_fqns set does
     let mut seen = std::collections::HashSet::new();
 
     let manager = StubbingManager::new(tx);
 
-    // Send the same FQN twice
     manager.request("com.example.Foo".to_string(), Vec::new());
     manager.request("com.example.Foo".to_string(), Vec::new());
     manager.request("com.example.Bar".to_string(), Vec::new());
 
-    // Process like the worker would
     let mut processed = Vec::new();
     while let Ok(req) = rx.try_recv() {
         if seen.insert(req.fqn.clone()) {

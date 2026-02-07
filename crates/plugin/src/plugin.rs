@@ -94,6 +94,25 @@ pub trait LanguagePlugin: PluginInstance + Send + Sync {
     fn can_handle_external_asset(&self, _ext: &str) -> bool {
         false
     }
+
+    /// Get the asset indexer for this language (Global Asset Scanner architecture)
+    fn asset_indexer(&self) -> Option<Arc<dyn crate::AssetIndexer>> {
+        None
+    }
+
+    /// Get the asset discoverer for this language (e.g., JdkDiscoverer for Java)
+    fn global_asset_discoverer(&self) -> Option<Box<dyn crate::AssetDiscoverer>> {
+        None
+    }
+
+    /// Get the project-local asset discoverer for this language (optional hook).
+    /// Use this for assets that exist only inside the current project (e.g. build outputs).
+    fn project_asset_discoverer(
+        &self,
+        _project_root: &Path,
+    ) -> Option<Box<dyn crate::AssetDiscoverer>> {
+        None
+    }
 }
 
 /// Unified interface for build tool support.
@@ -112,4 +131,18 @@ pub trait BuildToolPlugin: PluginInstance + Send + Sync {
 
     /// Get the build resolver
     fn build_resolver(&self) -> Arc<dyn BuildResolver>;
+
+    /// Get the asset discoverer for this build tool (e.g., GradleCacheDiscoverer)
+    fn asset_discoverer(&self) -> Option<Box<dyn crate::AssetDiscoverer>> {
+        None
+    }
+
+    /// Get the project-local asset discoverer for this build tool (optional hook).
+    /// Use this for assets that exist only inside the current project (e.g. libs/*.jar).
+    fn project_asset_discoverer(
+        &self,
+        _project_root: &Path,
+    ) -> Option<Box<dyn crate::AssetDiscoverer>> {
+        None
+    }
 }

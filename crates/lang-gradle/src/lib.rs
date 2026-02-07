@@ -1,7 +1,10 @@
+pub mod discoverer;
 pub mod model;
 pub mod parser;
 pub mod queries;
 pub mod resolver;
+
+pub use discoverer::GradleCacheDiscoverer;
 
 use naviscope_api::models::BuildTool;
 use naviscope_api::models::graph::DisplayGraphNode;
@@ -29,6 +32,7 @@ impl NodeAdapter for GradlePlugin {
             kind: node.kind.clone(),
             lang: "gradle".to_string(),
             source: node.source.clone(),
+            status: node.status,
             location: node.location.as_ref().map(|l| l.to_display(fqns)),
             detail: None,
             signature: None,
@@ -129,5 +133,9 @@ impl BuildToolPlugin for GradlePlugin {
 
     fn build_resolver(&self) -> Arc<dyn naviscope_plugin::BuildResolver> {
         self.resolver.clone()
+    }
+
+    fn asset_discoverer(&self) -> Option<Box<dyn naviscope_plugin::AssetDiscoverer>> {
+        Some(Box::new(crate::discoverer::GradleCacheDiscoverer::new()))
     }
 }

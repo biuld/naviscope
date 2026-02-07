@@ -37,7 +37,6 @@ impl CodeGraphBuilder {
                 name_index: HashMap::new(),
                 file_index: HashMap::new(),
                 reference_index: HashMap::new(),
-                asset_routes: HashMap::new(),
             },
             naming_conventions: HashMap::new(),
         }
@@ -124,6 +123,18 @@ impl CodeGraphBuilder {
                     rodeo: self.inner.symbols.clone(),
                 };
                 existing_node.metadata = node_data.metadata.intern(&mut ctx);
+
+                // Update status and kind (necessary for upgrading placeholders)
+                existing_node.status = node_data.status;
+                existing_node.kind = node_data.kind;
+
+                // Update location if it was missing
+                if existing_node.location.is_none() && node_data.location.is_some() {
+                    existing_node.location = node_data
+                        .location
+                        .as_ref()
+                        .map(|l| l.to_internal(&self.inner.fqns));
+                }
 
                 // Also update source if it was External and now it's Project (or just keep it updated)
                 existing_node.source = node_data.source;
@@ -297,20 +308,6 @@ impl CodeGraphBuilder {
                 let path = metadata.path.clone();
                 self.update_file(&path, metadata);
             }
-            GraphOp::UpdateAssetRoutes { routes } => {
-                for (prefix, paths) in routes {
-                    let prefix_sym = Symbol(self.inner.symbols.get_or_intern(&prefix));
-                    let entry = self.inner.asset_routes.entry(prefix_sym).or_default();
-
-                    for path in paths {
-                        let path_sym =
-                            Symbol(self.inner.symbols.get_or_intern(&path.to_string_lossy()));
-                        if !entry.contains(&path_sym) {
-                            entry.push(path_sym);
-                        }
-                    }
-                }
-            }
         }
         Ok(())
     }
@@ -330,8 +327,7 @@ impl CodeGraphBuilder {
                 GraphOp::RemovePath { .. } => destructive.push(op),
                 GraphOp::AddNode { .. }
                 | GraphOp::UpdateFile { .. }
-                | GraphOp::UpdateIdentifiers { .. }
-                | GraphOp::UpdateAssetRoutes { .. } => additive.push(op),
+                | GraphOp::UpdateIdentifiers { .. } => additive.push(op),
                 GraphOp::AddEdge { .. } => relational.push(op),
             }
         }

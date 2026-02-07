@@ -54,6 +54,7 @@ pub fn build_symbol_hierarchy(raw_symbols: Vec<RawSymbol>) -> Vec<DisplayGraphNo
             kind: raw.kind.clone(),
             lang: String::new(),
             source: NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: Some(DisplaySymbolLocation {
                 path: String::new(),
                 range: raw.range,

@@ -65,23 +65,12 @@ pub struct ProjectContext {
     /// Mapping from path prefixes to module IDs (e.g., "/project/app" -> "module::app")
     pub path_to_module: HashMap<PathBuf, String>,
 
-    /// Third-party library asset paths (JARs, node_modules, etc.)
-    pub external_assets: Vec<PathBuf>,
-
-    /// SDK/Runtime asset paths (Builtin libs)
-    pub builtin_assets: Vec<PathBuf>,
-
-    /// Mapping from symbol prefixes (e.g. "java.lang") to asset paths
-    pub asset_routes: HashMap<String, Vec<PathBuf>>,
 }
 
 impl ProjectContext {
     pub fn new() -> Self {
         Self {
             path_to_module: HashMap::new(),
-            external_assets: Vec::new(),
-            builtin_assets: Vec::new(),
-            asset_routes: HashMap::new(),
         }
     }
 

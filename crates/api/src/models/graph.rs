@@ -132,7 +132,7 @@ impl Default for NodeSource {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ResolutionStatus {
     /// Just a placeholder (name and ID known, metadata may be empty)
@@ -140,6 +140,7 @@ pub enum ResolutionStatus {
     /// Structure known from bytecode or partial scan (stubs available)
     Stubbed,
     /// Full details known from source code or complete parsing
+    #[default]
     Resolved,
 }
 
@@ -222,6 +223,8 @@ pub struct DisplayGraphNode {
     pub lang: String,
     #[serde(default)]
     pub source: NodeSource,
+    #[serde(default)]
+    pub status: ResolutionStatus,
     pub location: Option<DisplaySymbolLocation>,
 
     // Rendering fields

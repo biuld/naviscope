@@ -1,12 +1,13 @@
 //! Core indexing engine with MVCC support
 
+use crate::asset::service::AssetStubService;
 use crate::error::{NaviscopeError, Result};
 use crate::ingest::builder::CodeGraphBuilder;
 use crate::ingest::resolver::{IndexResolver, StubRequest, StubbingManager};
 use crate::ingest::scanner::Scanner;
 use crate::model::CodeGraph;
 use crate::model::GraphOp;
-use naviscope_plugin::NamingConvention;
+use naviscope_plugin::{AssetDiscoverer, AssetIndexer, NamingConvention};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -46,6 +47,9 @@ pub struct NaviscopeEngine {
 
     /// Global stub cache
     stub_cache: Arc<crate::cache::GlobalStubCache>,
+
+    /// Global asset service (new architecture)
+    asset_service: Option<Arc<AssetStubService>>,
 }
 
 pub struct NaviscopeEngineBuilder {
@@ -93,6 +97,54 @@ impl NaviscopeEngineBuilder {
             }
         }
 
+        // Collect asset indexers from language plugins
+        let indexers: Vec<Arc<dyn AssetIndexer>> = self
+            .lang_plugins
+            .iter()
+            .filter_map(|p| p.asset_indexer())
+            .collect();
+
+        // Collect asset discoverers from all plugins
+        let mut discoverers: Vec<Box<dyn AssetDiscoverer>> = Vec::new();
+
+        // From language plugins (e.g., JdkDiscoverer from Java)
+        for plugin in &self.lang_plugins {
+            if let Some(d) = plugin.global_asset_discoverer() {
+                discoverers.push(d);
+            }
+        }
+
+        // From build tool plugins (e.g., GradleCacheDiscoverer from Gradle)
+        for plugin in &self.build_plugins {
+            if let Some(d) = plugin.asset_discoverer() {
+                discoverers.push(d);
+            }
+        }
+
+        // Project-local asset discoverers (optional hook)
+        for plugin in &self.lang_plugins {
+            if let Some(d) = plugin.project_asset_discoverer(&canonical_root) {
+                discoverers.push(d);
+            }
+        }
+
+        for plugin in &self.build_plugins {
+            if let Some(d) = plugin.project_asset_discoverer(&canonical_root) {
+                discoverers.push(d);
+            }
+        }
+
+        // Create asset service with discoverers from plugins
+        let asset_service = if !indexers.is_empty() && !discoverers.is_empty() {
+            Some(Arc::new(AssetStubService::new(
+                discoverers,
+                indexers,
+                vec![], // Generators will be added later
+            )))
+        } else {
+            None
+        };
+
         let engine = NaviscopeEngine {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
             project_root: canonical_root,
@@ -103,6 +155,7 @@ impl NaviscopeEngineBuilder {
             cancel_token: cancel_token.clone(),
             stub_tx,
             stub_cache: stub_cache.clone(),
+            asset_service,
         };
 
         engine.spawn_stub_worker(stub_rx, cancel_token, stub_cache);
@@ -141,6 +194,34 @@ impl NaviscopeEngine {
         &self,
     ) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
         self.naming_conventions.clone()
+    }
+
+    /// Get the asset service (if available)
+    pub fn asset_service(&self) -> Option<&Arc<AssetStubService>> {
+        self.asset_service.as_ref()
+    }
+
+    /// Run the global asset scan and populate routes
+    /// Returns the scan result with statistics
+    pub async fn scan_global_assets(&self) -> Option<crate::asset::scanner::ScanResult> {
+        if let Some(service) = &self.asset_service {
+            let service = service.clone();
+            let result = tokio::task::spawn_blocking(move || service.scan_sync())
+                .await
+                .ok();
+            result
+        } else {
+            None
+        }
+    }
+
+    /// Get global asset routes snapshot (for passing to resolvers)
+    pub fn global_asset_routes(&self) -> HashMap<String, Vec<PathBuf>> {
+        if let Some(service) = &self.asset_service {
+            service.routes_snapshot()
+        } else {
+            HashMap::new()
+        }
     }
 
     /// Compute index storage path for a project
@@ -198,13 +279,21 @@ impl NaviscopeEngine {
 
     /// Rebuild the index from scratch
     pub async fn rebuild(&self) -> Result<()> {
+        let _ = self.scan_global_assets().await;
         let project_root = self.project_root.clone();
         let build_plugins = self.build_plugins.clone();
         let lang_plugins = self.lang_plugins.clone();
+        let global_routes = self.global_asset_routes();
 
         let stub_tx = self.stub_tx.clone();
         let (new_graph, stubs) = tokio::task::spawn_blocking(move || {
-            Self::build_index(&project_root, build_plugins, lang_plugins, stub_tx)
+            Self::build_index(
+                &project_root,
+                build_plugins,
+                lang_plugins,
+                stub_tx,
+                global_routes,
+            )
         })
         .await
         .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
@@ -233,9 +322,11 @@ impl NaviscopeEngine {
 
     /// Update specific files incrementally
     pub async fn update_files(&self, files: Vec<PathBuf>) -> Result<()> {
+        let _ = self.scan_global_assets().await;
         let base_graph = self.snapshot().await;
         let build_plugins = self.build_plugins.clone();
         let lang_plugins = self.lang_plugins.clone();
+        let global_routes = Arc::new(self.global_asset_routes());
 
         // Prepare existing file metadata for change detection
         let mut existing_metadata = std::collections::HashMap::new();
@@ -299,11 +390,8 @@ impl NaviscopeEngine {
                 resolver.resolve_build_batch(&build_files, &mut project_context_inner)?;
             initial_ops.extend(build_ops);
 
-            // Phase 1.5: Asset Routing (Classpath)
-            let asset_ops = resolver.resolve_assets_batch(&mut project_context_inner)?;
-            initial_ops.extend(asset_ops);
-
             let project_context = Arc::new(project_context_inner);
+            let routes = global_routes.clone();
 
             // 3. Phase 2: Pipeline Batch Processing for source files
             let pipeline = crate::ingest::pipeline::IngestPipeline::new(500); // 500 files per batch
@@ -327,7 +415,7 @@ impl NaviscopeEngine {
             // Note: We are in a blocking thread, resolver and context are Thread-safe.
             pipeline.execute(&*project_context, source_paths, &resolver, |batch_ops| {
                 builder.apply_ops(batch_ops.clone())?;
-                let reqs = resolver.resolve_stubs(&batch_ops, project_context.clone());
+                let reqs = resolver.resolve_stubs(&batch_ops, routes.as_ref());
                 pending_stubs.extend(reqs);
                 Ok(())
             })?;
@@ -682,6 +770,7 @@ impl NaviscopeEngine {
         build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
         lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
         stub_tx: tokio::sync::mpsc::UnboundedSender<StubRequest>,
+        global_routes: HashMap<String, Vec<PathBuf>>,
     ) -> Result<(CodeGraph, Vec<StubRequest>)> {
         // Scan and parse
         let parse_results =
@@ -692,9 +781,8 @@ impl NaviscopeEngine {
             IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone())
                 .with_stubbing(StubbingManager::new(stub_tx));
 
-        // resolve() now returns both ops and the filled ProjectContext (with asset_routes)
-        let (ops, project_context) = resolver.resolve(parse_results)?;
-        let project_context = Arc::new(project_context);
+        // resolve() now returns both ops and the filled ProjectContext
+        let (ops, _project_context) = resolver.resolve(parse_results)?;
 
         // Build graph
         let mut builder = CodeGraphBuilder::new();
@@ -708,8 +796,7 @@ impl NaviscopeEngine {
 
         builder.apply_ops(ops.clone())?;
 
-        // Generate stubs proactively since we now have correct context
-        let stubs = resolver.resolve_stubs(&ops, project_context);
+        let stubs = resolver.resolve_stubs(&ops, &global_routes);
 
         Ok((builder.build(), stubs))
     }

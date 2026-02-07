@@ -62,6 +62,7 @@ impl NodeAdapter for MockPlugin {
             kind: node.kind.clone(),
             lang: rodeo.resolve_atom(node.lang).to_string(),
             source: node.source.clone(),
+            status: node.status,
             location: node.location.as_ref().map(|l| l.to_display(rodeo)),
             detail: None,
             signature: None,

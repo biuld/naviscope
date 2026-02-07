@@ -1,4 +1,4 @@
-use naviscope_plugin::{ExternalResolver, GlobalParseResult, IndexNode};
+use naviscope_plugin::{AssetIndexer, ExternalResolver, GlobalParseResult, IndexNode};
 use ristretto_jimage::Image;
 use std::collections::HashSet;
 use std::fs::File;
@@ -38,7 +38,19 @@ impl JavaExternalResolver {
         for resource_result in image.iter() {
             if let Ok(resource) = resource_result {
                 if resource.extension() == "class" && !resource.base().contains('$') {
-                    let package = resource.parent().replace('/', ".");
+                    let parent = resource.parent();
+                    let path_without_module = if parent.starts_with('/') {
+                        let s = &parent[1..];
+                        if let Some(idx) = s.find('/') {
+                            &s[idx + 1..]
+                        } else {
+                            s
+                        }
+                    } else {
+                        &parent
+                    };
+
+                    let package = path_without_module.replace('/', ".");
                     if !package.is_empty() {
                         packages.insert(package);
                     }
@@ -139,7 +151,8 @@ impl ExternalResolver for JavaExternalResolver {
                     // Since we don't know the module, we search all modules
                     for resource_result in image.iter() {
                         if let Ok(resource) = resource_result {
-                            if resource.name() == class_path {
+                            let name = resource.name();
+                            if name == class_path || name.ends_with(&format!("/{}", class_path)) {
                                 bytes = Some(resource.data().to_vec());
                                 break;
                             }
@@ -159,7 +172,10 @@ impl ExternalResolver for JavaExternalResolver {
 
                         for resource_result in image.iter() {
                             if let Ok(resource) = resource_result {
-                                if resource.name() == try_inner_path {
+                                let name = resource.name();
+                                if name == try_inner_path
+                                    || name.ends_with(&format!("/{}", try_inner_path))
+                                {
                                     bytes = Some(resource.data().to_vec());
                                     break;
                                 }
@@ -292,6 +308,26 @@ impl ExternalResolver for JavaExternalResolver {
         _source_asset: &Path,
     ) -> std::result::Result<GlobalParseResult, Box<dyn std::error::Error + Send + Sync>> {
         Err("Source resolution not yet implemented".into())
+    }
+}
+
+impl AssetIndexer for JavaExternalResolver {
+    fn can_index(&self, asset: &Path) -> bool {
+        let ext = asset
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let file_name = asset.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        ext == "jar" || ext == "jmod" || file_name == "modules"
+    }
+
+    fn index(
+        &self,
+        asset: &Path,
+    ) -> std::result::Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+        ExternalResolver::index_asset(self, asset)
     }
 }
 

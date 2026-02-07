@@ -1,3 +1,4 @@
+pub mod discoverer;
 pub mod jdk;
 pub mod model;
 pub mod naming;
@@ -5,13 +6,15 @@ pub mod parser;
 pub mod queries;
 pub mod resolver;
 
+pub use discoverer::JdkDiscoverer;
+
 use lasso::Key;
 use naviscope_api::models::graph::{EmptyMetadata, GraphNode, NodeKind};
 use naviscope_api::models::symbol::{FqnReader, Symbol, SymbolResolution};
 use naviscope_api::models::{DisplayGraphNode, Language};
 use naviscope_plugin::{
-    GlobalParseResult, LangResolver, LanguagePlugin, LspParser, NamingConvention, NodeAdapter,
-    PluginInstance, SemanticResolver, StorageContext,
+    AssetIndexer, GlobalParseResult, LangResolver, LanguagePlugin, LspParser, NamingConvention,
+    NodeAdapter, PluginInstance, SemanticResolver, StorageContext,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -30,6 +33,7 @@ impl NodeAdapter for JavaPlugin {
             kind: node.kind.clone(),
             lang: "java".to_string(),
             source: node.source.clone(),
+            status: node.status,
             location: node.location.as_ref().map(|l| l.to_display(fqns)),
             detail: None,
             signature: None,
@@ -293,6 +297,14 @@ impl LanguagePlugin for JavaPlugin {
 
     fn can_handle_external_asset(&self, ext: &str) -> bool {
         ext == "jar" || ext == "jmod" || ext == "class"
+    }
+
+    fn global_asset_discoverer(&self) -> Option<Box<dyn naviscope_plugin::AssetDiscoverer>> {
+        Some(Box::new(crate::discoverer::JdkDiscoverer::new()))
+    }
+
+    fn asset_indexer(&self) -> Option<Arc<dyn AssetIndexer>> {
+        Some(Arc::new(crate::resolver::external::JavaExternalResolver))
     }
 }
 
