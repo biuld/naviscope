@@ -105,6 +105,11 @@ pub trait LanguagePlugin: PluginInstance + Send + Sync {
         None
     }
 
+    /// Get the asset source locator for this language (optional hook).
+    fn asset_source_locator(&self) -> Option<Arc<dyn crate::AssetSourceLocator>> {
+        None
+    }
+
     /// Get the project-local asset discoverer for this language (optional hook).
     /// Use this for assets that exist only inside the current project (e.g. build outputs).
     fn project_asset_discoverer(
@@ -134,6 +139,11 @@ pub trait BuildToolPlugin: PluginInstance + Send + Sync {
 
     /// Get the asset discoverer for this build tool (e.g., GradleCacheDiscoverer)
     fn asset_discoverer(&self) -> Option<Box<dyn crate::AssetDiscoverer>> {
+        None
+    }
+
+    /// Get the asset source locator for this build tool (optional hook).
+    fn asset_source_locator(&self) -> Option<Arc<dyn crate::AssetSourceLocator>> {
         None
     }
 

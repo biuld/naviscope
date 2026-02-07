@@ -123,6 +123,11 @@ pub trait AssetRouteRegistry: Send + Sync {
     fn stats(&self) -> RegistryStats;
 }
 
+/// Asset source locator - maps a binary asset to its source asset if available
+pub trait AssetSourceLocator: Send + Sync {
+    fn locate_source(&self, entry: &AssetEntry) -> Option<PathBuf>;
+}
+
 /// Registry statistics
 #[derive(Debug, Default, Clone)]
 pub struct RegistryStats {

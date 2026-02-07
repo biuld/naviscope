@@ -1,9 +1,12 @@
-use naviscope_plugin::{AssetIndexer, ExternalResolver, GlobalParseResult, IndexNode};
+use naviscope_plugin::{
+    AssetEntry, AssetIndexer, AssetSource, AssetSourceLocator, ExternalResolver, GlobalParseResult,
+    IndexNode,
+};
 use ristretto_jimage::Image;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zip::ZipArchive;
 
@@ -328,6 +331,30 @@ impl AssetIndexer for JavaExternalResolver {
         asset: &Path,
     ) -> std::result::Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
         ExternalResolver::index_asset(self, asset)
+    }
+}
+
+impl AssetSourceLocator for JavaExternalResolver {
+    fn locate_source(&self, entry: &AssetEntry) -> Option<PathBuf> {
+        if !matches!(
+            entry.source,
+            AssetSource::Gradle { .. } | AssetSource::Maven { .. } | AssetSource::Local { .. }
+        ) {
+            return None;
+        }
+        let file_name = entry.path.file_name()?.to_string_lossy();
+        if !file_name.ends_with(".jar") || file_name.ends_with("-sources.jar") {
+            return None;
+        }
+        let mut source_name = file_name.to_string();
+        source_name.truncate(source_name.len() - 4);
+        source_name.push_str("-sources.jar");
+        let source_path = entry.path.with_file_name(source_name);
+        if source_path.exists() {
+            Some(source_path)
+        } else {
+            None
+        }
     }
 }
 

@@ -13,8 +13,8 @@ use naviscope_api::models::graph::{EmptyMetadata, GraphNode, NodeKind};
 use naviscope_api::models::symbol::{FqnReader, Symbol, SymbolResolution};
 use naviscope_api::models::{DisplayGraphNode, Language};
 use naviscope_plugin::{
-    AssetIndexer, GlobalParseResult, LangResolver, LanguagePlugin, LspParser, NamingConvention,
-    NodeAdapter, PluginInstance, SemanticResolver, StorageContext,
+    AssetIndexer, AssetSourceLocator, GlobalParseResult, LangResolver, LanguagePlugin, LspParser,
+    NamingConvention, NodeAdapter, PluginInstance, SemanticResolver, StorageContext,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -304,6 +304,10 @@ impl LanguagePlugin for JavaPlugin {
     }
 
     fn asset_indexer(&self) -> Option<Arc<dyn AssetIndexer>> {
+        Some(Arc::new(crate::resolver::external::JavaExternalResolver))
+    }
+
+    fn asset_source_locator(&self) -> Option<Arc<dyn AssetSourceLocator>> {
         Some(Arc::new(crate::resolver::external::JavaExternalResolver))
     }
 }

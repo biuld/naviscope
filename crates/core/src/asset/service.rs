@@ -8,13 +8,14 @@
 use crate::asset::registry::InMemoryRouteRegistry;
 use crate::asset::scanner::{AssetScanner, ScanResult};
 use naviscope_plugin::{
-    AssetDiscoverer, AssetEntry, AssetIndexer, AssetRouteRegistry, RegistryStats, StubGenerator,
-    StubRequest,
+    AssetDiscoverer, AssetEntry, AssetIndexer, AssetRouteRegistry, AssetSourceLocator,
+    RegistryStats, StubGenerator, StubRequest,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
@@ -31,6 +32,12 @@ pub struct AssetStubService {
 
     /// Channel for stub requests
     stub_tx: Option<mpsc::UnboundedSender<StubRequest>>,
+
+    /// Mapping from binary asset path to source asset path (if available)
+    source_map: Arc<RwLock<HashMap<PathBuf, PathBuf>>>,
+
+    /// Source locators (from language/build plugins)
+    source_locators: Vec<Arc<dyn AssetSourceLocator>>,
 }
 
 impl AssetStubService {
@@ -39,6 +46,7 @@ impl AssetStubService {
         discoverers: Vec<Box<dyn AssetDiscoverer>>,
         indexers: Vec<Arc<dyn AssetIndexer>>,
         generators: Vec<Arc<dyn StubGenerator>>,
+        source_locators: Vec<Arc<dyn AssetSourceLocator>>,
     ) -> Self {
         let scanner = AssetScanner::new()
             .with_discoverers(discoverers)
@@ -49,6 +57,8 @@ impl AssetStubService {
             scanner,
             generators,
             stub_tx: None,
+            source_map: Arc::new(RwLock::new(HashMap::new())),
+            source_locators,
         }
     }
 
@@ -58,6 +68,7 @@ impl AssetStubService {
         discoverers: Vec<Box<dyn AssetDiscoverer>>,
         indexers: Vec<Arc<dyn AssetIndexer>>,
         generators: Vec<Arc<dyn StubGenerator>>,
+        source_locators: Vec<Arc<dyn AssetSourceLocator>>,
     ) -> Self {
         let scanner = AssetScanner::new()
             .with_discoverers(discoverers)
@@ -68,6 +79,8 @@ impl AssetStubService {
             scanner,
             generators,
             stub_tx: None,
+            source_map: Arc::new(RwLock::new(HashMap::new())),
+            source_locators,
         }
     }
 
@@ -84,17 +97,27 @@ impl AssetStubService {
 
     /// Perform a synchronous scan (blocks until complete)
     pub fn scan_sync(&self) -> ScanResult {
-        self.scanner.scan(self.registry.as_ref())
+        let result = self.scanner.scan(self.registry.as_ref());
+        self.refresh_source_map();
+        result
     }
 
     /// Start a background scan task
     pub fn spawn_scan(&self) -> JoinHandle<ScanResult> {
         let registry = self.registry.clone();
         let scanner = self.build_scanner_clone();
+        let source_map = self.source_map.clone();
 
         tokio::spawn(async move {
             // Run scan in blocking thread pool
-            tokio::task::spawn_blocking(move || scanner.scan(registry.as_ref()))
+            tokio::task::spawn_blocking(move || {
+                let result = scanner.scan(registry.as_ref());
+                let map = Self::build_source_map(registry.as_ref(), &source_locators);
+                if let Ok(mut guard) = source_map.try_write() {
+                    *guard = map;
+                }
+                result
+            })
                 .await
                 .unwrap_or_default()
         })
@@ -110,6 +133,14 @@ impl AssetStubService {
         self.registry
             .lookup(fqn)
             .map(|entries| entries.into_iter().map(|e| e.path).collect())
+    }
+
+    /// Lookup source asset for a binary asset path
+    pub fn lookup_source(&self, binary_path: &std::path::Path) -> Option<PathBuf> {
+        self.source_map
+            .try_read()
+            .ok()
+            .and_then(|map| map.get(binary_path).cloned())
     }
 
     /// Request stub generation (async, non-blocking)
@@ -131,6 +162,14 @@ impl AssetStubService {
             .into_iter()
             .map(|(k, v)| (k, v.into_iter().map(|e| e.path).collect()))
             .collect()
+    }
+
+    /// Refresh source map using discovered binary assets
+    pub fn refresh_source_map(&self) {
+        let map = Self::build_source_map(self.registry.as_ref(), &self.source_locators);
+        if let Ok(mut guard) = self.source_map.try_write() {
+            *guard = map;
+        }
     }
 
     /// Get registry statistics
@@ -158,6 +197,28 @@ impl AssetStubService {
         // need to use a different approach (e.g., Arc<Scanner> or factory pattern)
         AssetScanner::new()
     }
+
+    fn build_source_map(
+        registry: &InMemoryRouteRegistry,
+        locators: &[Arc<dyn AssetSourceLocator>],
+    ) -> HashMap<PathBuf, PathBuf> {
+        let mut map = HashMap::new();
+        let mut seen = HashSet::new();
+        for entries in registry.all_routes().values() {
+            for entry in entries {
+                if !seen.insert(entry.path.clone()) {
+                    continue;
+                }
+                for locator in locators {
+                    if let Some(source) = locator.locate_source(entry) {
+                        map.insert(entry.path.clone(), source);
+                        break;
+                    }
+                }
+            }
+        }
+        map
+    }
 }
 
 /// Builder for AssetStubService
@@ -165,6 +226,7 @@ pub struct AssetStubServiceBuilder {
     discoverers: Vec<Box<dyn AssetDiscoverer>>,
     indexers: Vec<Arc<dyn AssetIndexer>>,
     generators: Vec<Arc<dyn StubGenerator>>,
+    source_locators: Vec<Arc<dyn AssetSourceLocator>>,
     registry: Option<Arc<InMemoryRouteRegistry>>,
     stub_tx: Option<mpsc::UnboundedSender<StubRequest>>,
 }
@@ -175,6 +237,7 @@ impl AssetStubServiceBuilder {
             discoverers: Vec::new(),
             indexers: Vec::new(),
             generators: Vec::new(),
+            source_locators: Vec::new(),
             registry: None,
             stub_tx: None,
         }
@@ -195,6 +258,11 @@ impl AssetStubServiceBuilder {
         self
     }
 
+    pub fn add_source_locator(mut self, locator: Arc<dyn AssetSourceLocator>) -> Self {
+        self.source_locators.push(locator);
+        self
+    }
+
     pub fn with_registry(mut self, registry: Arc<InMemoryRouteRegistry>) -> Self {
         self.registry = Some(registry);
         self
@@ -212,9 +280,15 @@ impl AssetStubServiceBuilder {
                 self.discoverers,
                 self.indexers,
                 self.generators,
+                self.source_locators,
             )
         } else {
-            AssetStubService::new(self.discoverers, self.indexers, self.generators)
+            AssetStubService::new(
+                self.discoverers,
+                self.indexers,
+                self.generators,
+                self.source_locators,
+            )
         };
 
         if let Some(tx) = self.stub_tx {
@@ -273,6 +347,7 @@ mod tests {
         let service = AssetStubService::new(
             vec![Box::new(MockDiscoverer)],
             vec![Arc::new(MockIndexer)],
+            vec![],
             vec![],
         );
 

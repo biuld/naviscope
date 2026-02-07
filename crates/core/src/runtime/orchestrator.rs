@@ -7,7 +7,7 @@ use crate::ingest::resolver::{IndexResolver, StubRequest, StubbingManager};
 use crate::ingest::scanner::Scanner;
 use crate::model::CodeGraph;
 use crate::model::GraphOp;
-use naviscope_plugin::{AssetDiscoverer, AssetIndexer, NamingConvention};
+use naviscope_plugin::{AssetDiscoverer, AssetIndexer, AssetSourceLocator, NamingConvention};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -121,6 +121,19 @@ impl NaviscopeEngineBuilder {
             }
         }
 
+        // Collect asset source locators from all plugins
+        let mut source_locators: Vec<Arc<dyn AssetSourceLocator>> = Vec::new();
+        for plugin in &self.lang_plugins {
+            if let Some(locator) = plugin.asset_source_locator() {
+                source_locators.push(locator);
+            }
+        }
+        for plugin in &self.build_plugins {
+            if let Some(locator) = plugin.asset_source_locator() {
+                source_locators.push(locator);
+            }
+        }
+
         // Project-local asset discoverers (optional hook)
         for plugin in &self.lang_plugins {
             if let Some(d) = plugin.project_asset_discoverer(&canonical_root) {
@@ -140,6 +153,7 @@ impl NaviscopeEngineBuilder {
                 discoverers,
                 indexers,
                 vec![], // Generators will be added later
+                source_locators,
             )))
         } else {
             None
