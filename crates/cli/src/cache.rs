@@ -40,10 +40,8 @@ struct AssetRow {
 }
 
 pub async fn run(cmd: CacheCommands) -> Result<(), Box<dyn std::error::Error>> {
-    // We use current directory to initialize engine, though cache is global
-    let cwd = std::env::current_dir()?;
-    let engine = naviscope_runtime::build_default_engine(cwd);
-    let cache = engine.get_stub_cache_manager();
+    // Cache is global, we don't need a full engine to access it
+    let cache = naviscope_runtime::get_cache_manager();
 
     match cmd {
         CacheCommands::Stats => {

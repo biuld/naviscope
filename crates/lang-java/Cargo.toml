@@ -17,6 +17,7 @@ rmp-serde = { workspace = true }
 lasso = { workspace = true }
 cafebabe = { workspace = true }
 zip = { workspace = true }
+ristretto_jimage = { workspace = true }
 
 [dev-dependencies]
 naviscope-core = { workspace = true }

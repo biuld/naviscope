@@ -16,9 +16,8 @@ async fn test_stubbing_manager_sends_requests() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let manager = StubbingManager::new(tx);
 
-    let context = Arc::new(ProjectContext::new());
-    manager.request("com.example.Foo".to_string(), context.clone());
-    manager.request("com.example.Bar".to_string(), context.clone());
+    manager.request("com.example.Foo".to_string(), Vec::new());
+    manager.request("com.example.Bar".to_string(), Vec::new());
 
     // Verify requests are received
     let req1 = rx.recv().await.expect("Should receive first request");
@@ -57,9 +56,10 @@ async fn test_async_stubbing_with_jar() {
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     // Create engine with Java plugin
-    let mut engine = NaviscopeEngine::new(temp_dir.clone());
     let java_plugin = Arc::new(JavaPlugin::new().expect("Failed to create JavaPlugin"));
-    engine.register_language(java_plugin);
+    let engine = NaviscopeEngine::builder(temp_dir.clone())
+        .with_language(java_plugin)
+        .build();
 
     // Find a real JAR file (use JDK's rt.jar or similar)
     let java_home = std::env::var("JAVA_HOME").ok();
@@ -72,7 +72,7 @@ async fn test_async_stubbing_with_jar() {
         let mut context = ProjectContext::new();
         context
             .asset_routes
-            .insert("java.lang.String".to_string(), jmod.clone());
+            .insert("java.lang.String".to_string(), vec![jmod.clone()]);
 
         let context = Arc::new(context);
 
@@ -126,13 +126,12 @@ async fn test_stubbing_deduplication() {
     // Simulate what the worker's seen_fqns set does
     let mut seen = std::collections::HashSet::new();
 
-    let context = Arc::new(ProjectContext::new());
     let manager = StubbingManager::new(tx);
 
     // Send the same FQN twice
-    manager.request("com.example.Foo".to_string(), context.clone());
-    manager.request("com.example.Foo".to_string(), context.clone());
-    manager.request("com.example.Bar".to_string(), context.clone());
+    manager.request("com.example.Foo".to_string(), Vec::new());
+    manager.request("com.example.Foo".to_string(), Vec::new());
+    manager.request("com.example.Bar".to_string(), Vec::new());
 
     // Process like the worker would
     let mut processed = Vec::new();

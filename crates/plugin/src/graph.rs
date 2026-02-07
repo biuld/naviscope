@@ -27,7 +27,7 @@ pub enum GraphOp {
     UpdateFile { metadata: SourceFile },
     /// Update the asset routing table: Prefix -> Asset Path
     UpdateAssetRoutes {
-        routes: HashMap<String, std::path::PathBuf>,
+        routes: HashMap<String, Vec<std::path::PathBuf>>,
     },
 }
 

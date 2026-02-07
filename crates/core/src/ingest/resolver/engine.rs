@@ -101,8 +101,9 @@ impl IndexResolver {
             .and_then(|p| p.get_naming_convention())
     }
 
-    /// Resolve all parsed files into graph operations using a two-phase process
-    pub fn resolve(&self, files: Vec<ParsedFile>) -> Result<Vec<GraphOp>> {
+    /// Resolve all parsed files into graph operations using a two-phase process.
+    /// Returns both the operations and the filled ProjectContext (containing asset_routes).
+    pub fn resolve(&self, files: Vec<ParsedFile>) -> Result<(Vec<GraphOp>, ProjectContext)> {
         let (mut all_ops, build_files, source_files) = self.prepare_and_partition(files);
 
         // Phase 1: Build Tools
@@ -116,9 +117,23 @@ impl IndexResolver {
 
         // Phase 2: Source Files
         let source_ops = self.resolve_source_batch(&source_files, &project_context)?;
+
+        // Apply asset routes from source ops to context so they describe the full state
+        for op in &source_ops {
+            if let GraphOp::UpdateAssetRoutes { routes } = op {
+                for (prefix, paths) in routes {
+                    project_context
+                        .asset_routes
+                        .entry(prefix.clone())
+                        .or_default()
+                        .extend(paths.clone());
+                }
+            }
+        }
+
         all_ops.extend(source_ops);
 
-        Ok(all_ops)
+        Ok((all_ops, project_context))
     }
 
     fn prepare_and_partition(
@@ -161,16 +176,21 @@ impl IndexResolver {
                 .to_lowercase();
 
             for plugin in &self.lang_plugins {
-                // Heuristic: Java plugin handles .jar and .jmod
-                let is_java_asset =
-                    (ext == "jar" || ext == "jmod") && plugin.name().as_str() == "java";
+                let file_name = asset.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                // Heuristic: Java plugin handles .jar, .jmod and the 'modules' image
+                let is_java_asset = (ext == "jar" || ext == "jmod" || file_name == "modules")
+                    && plugin.name().as_str() == "java";
                 let is_supported_ext = plugin.supported_extensions().contains(&ext.as_str());
 
                 if is_java_asset || is_supported_ext {
                     if let Some(external) = plugin.external_resolver() {
                         if let Ok(prefixes) = external.index_asset(&asset) {
                             for prefix in prefixes {
-                                context.asset_routes.insert(prefix, asset.clone());
+                                context
+                                    .asset_routes
+                                    .entry(prefix)
+                                    .or_default()
+                                    .push(asset.clone());
                             }
                         }
                     }
@@ -187,14 +207,16 @@ impl IndexResolver {
         }
     }
 
-    pub fn schedule_stubs(&self, ops: &[GraphOp], context: Arc<ProjectContext>) {
+    pub fn resolve_stubs(
+        &self,
+        ops: &[GraphOp],
+        context: Arc<ProjectContext>,
+    ) -> Vec<crate::ingest::resolver::StubRequest> {
+        use crate::ingest::resolver::StubRequest;
         use naviscope_api::models::graph::NodeSource;
         use std::collections::HashSet;
 
-        let Some(stubbing) = &self.stubbing else {
-            return;
-        };
-
+        let mut requests = Vec::new();
         let mut seen_fqns = HashSet::new();
 
         // 1. Identify all unique external FQNs referenced in the operations
@@ -216,14 +238,27 @@ impl IndexResolver {
         }
 
         if seen_fqns.is_empty() || context.asset_routes.is_empty() {
-            return;
+            return requests;
         }
 
         // 2. Schedule each FQN for background resolution
         for fqn in seen_fqns {
             // We only schedule if we have a route for it
-            if self.find_asset_for_fqn(&fqn, &context).is_some() {
-                stubbing.request(fqn, context.clone());
+            if let Some(paths) = self.find_asset_for_fqn(&fqn, &context) {
+                requests.push(StubRequest {
+                    fqn,
+                    candidate_paths: paths.clone(),
+                });
+            }
+        }
+        requests
+    }
+
+    /// Schedule stubs using internal manager (for tests/backward compat)
+    pub fn schedule_stubs(&self, ops: &[GraphOp], context: Arc<ProjectContext>) {
+        if let Some(stubbing) = &self.stubbing {
+            for req in self.resolve_stubs(ops, context) {
+                stubbing.send(req);
             }
         }
     }
@@ -232,12 +267,12 @@ impl IndexResolver {
         &self,
         fqn: &str,
         context: &'a ProjectContext,
-    ) -> Option<&'a std::path::PathBuf> {
+    ) -> Option<&'a Vec<std::path::PathBuf>> {
         // Longest prefix match
         let mut current = fqn.to_string();
         while !current.is_empty() {
-            if let Some(path) = context.asset_routes.get(&current) {
-                return Some(path);
+            if let Some(paths) = context.asset_routes.get(&current) {
+                return Some(paths);
             }
             if let Some(idx) = current.rfind('.') {
                 current.truncate(idx);
@@ -417,11 +452,14 @@ mod tests {
 
         assert_eq!(ops.len(), 1);
         if let GraphOp::UpdateAssetRoutes { routes } = &ops[0] {
-            assert_eq!(routes.get("com.example"), Some(&asset_path));
+            assert_eq!(routes.get("com.example"), Some(&vec![asset_path.clone()]));
         } else {
             panic!("Expected UpdateAssetRoutes operation");
         }
 
-        assert_eq!(context.asset_routes.get("com.example"), Some(&asset_path));
+        assert_eq!(
+            context.asset_routes.get("com.example"),
+            Some(&vec![asset_path])
+        );
     }
 }

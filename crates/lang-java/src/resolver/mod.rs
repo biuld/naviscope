@@ -323,6 +323,28 @@ impl LangResolver for JavaResolver {
         let mut unit = ResolvedUnit::new();
         let dummy_index = naviscope_plugin::EmptyCodeGraph;
 
+        // Route standardized Java packages to the local JDK asset if found
+        static JDK_PATH: std::sync::OnceLock<Option<std::path::PathBuf>> =
+            std::sync::OnceLock::new();
+        if let Some(jdk_path) = JDK_PATH.get_or_init(|| crate::jdk::find_jdk_asset()) {
+            let prefixes = [
+                "java",
+                "javax",
+                "jdk",
+                "sun",
+                "com.sun",
+                "org.xml.sax",
+                "org.w3c.dom",
+                "org.ietf.jgss",
+            ];
+            let mut routes = std::collections::HashMap::new();
+            for prefix in prefixes {
+                routes.insert(prefix.to_string(), vec![jdk_path.clone()]);
+            }
+
+            unit.ops.push(GraphOp::UpdateAssetRoutes { routes });
+        }
+
         let parse_result_owned;
         let parse_result = match &file.content {
             ParsedContent::Language(res) => res,

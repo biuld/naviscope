@@ -25,7 +25,7 @@ impl EngineHandle {
     /// Create a new engine handle
     pub fn new(project_root: PathBuf) -> Self {
         Self {
-            engine: Arc::new(InternalEngine::new(project_root)),
+            engine: Arc::new(InternalEngine::builder(project_root).build()),
         }
     }
 
@@ -118,7 +118,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_graph_access() {
-        let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+        let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
         let handle = EngineHandle::from_engine(engine);
 
         let graph = handle.graph().await;
@@ -133,7 +133,7 @@ mod tests {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _guard = rt.enter();
 
-            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+            let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
             let handle = EngineHandle::from_engine(engine);
 
             let _graph = rt.block_on(handle.graph());
@@ -146,7 +146,7 @@ mod tests {
     async fn test_concurrent_queries() {
         use tokio::task::JoinSet;
 
-        let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+        let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
         let handle = Arc::new(EngineHandle::from_engine(engine));
 
         let mut set = JoinSet::new();
@@ -170,7 +170,7 @@ mod tests {
     async fn test_query_functionality() {
         use naviscope_api::models::GraphQuery;
 
-        let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+        let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
         let handle = EngineHandle::from_engine(engine);
 
         // Test async query
@@ -194,7 +194,7 @@ mod tests {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _guard = rt.enter();
 
-            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+            let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
             let handle = EngineHandle::from_engine(engine);
 
             let query = GraphQuery::Find {

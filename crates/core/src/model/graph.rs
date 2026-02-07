@@ -62,7 +62,7 @@ pub struct CodeGraphInner {
 
     /// Asset Route Table: Prefix (Package/Symbol) -> Asset Path
     /// Used for routing FQNs to their defining JARs/files.
-    pub asset_routes: HashMap<Symbol, Symbol>,
+    pub asset_routes: HashMap<Symbol, Vec<Symbol>>,
 }
 
 /// Metadata and nodes associated with a single source file
@@ -173,7 +173,7 @@ impl CodeGraph {
     /// Find node at a specific location in a file (by name range)
     pub fn find_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
         let path_str = path.to_string_lossy();
-        let key = self.inner.symbols.get(path_str.as_ref())?;
+        let key = self.inner.symbols.get(&path_str)?;
         let entry = self.inner.file_index.get(&Symbol(key))?;
 
         for &idx in &entry.nodes {
@@ -197,7 +197,7 @@ impl CodeGraph {
         col: usize,
     ) -> Option<NodeIndex> {
         let path_str = path.to_string_lossy();
-        let key = self.inner.symbols.get(path_str.as_ref())?;
+        let key = self.inner.symbols.get(&path_str)?;
         let entry = self.inner.file_index.get(&Symbol(key))?;
 
         let mut best_node = None;
@@ -319,7 +319,7 @@ impl CodeGraphLike for CodeGraph {
         &self.inner.reference_index
     }
 
-    fn asset_routes(&self) -> &std::collections::HashMap<Symbol, Symbol> {
+    fn asset_routes(&self) -> &std::collections::HashMap<Symbol, Vec<Symbol>> {
         &self.inner.asset_routes
     }
 
@@ -489,7 +489,7 @@ mod tests {
 
         builder
             .apply_op(naviscope_plugin::GraphOp::UpdateAssetRoutes {
-                routes: [(prefix.to_string(), path.to_path_buf())]
+                routes: [(prefix.to_string(), vec![path.to_path_buf()])]
                     .into_iter()
                     .collect(),
             })
@@ -504,7 +504,7 @@ mod tests {
 
         assert_eq!(
             deserialized.asset_routes().get(&prefix_sym),
-            Some(&path_sym)
+            Some(&vec![path_sym])
         );
     }
 }

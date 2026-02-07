@@ -33,7 +33,7 @@ async fn test_engine_handle_query() {
     let temp_dir = std::env::temp_dir().join("naviscope_test_query");
     std::fs::create_dir_all(&temp_dir).ok();
 
-    let engine = Arc::new(CoreEngine::new(temp_dir.clone()));
+    let engine = Arc::new(CoreEngine::builder(temp_dir.clone()).build());
     let handle = EngineHandle::from_engine(engine);
 
     // Test query execution via handle

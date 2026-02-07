@@ -301,7 +301,6 @@ impl LspParser for MockLspParser {
 }
 
 fn setup_engine(temp_dir: &Path) -> (CoreEngine, Arc<MockPlugin>) {
-    let mut engine = CoreEngine::new(temp_dir.to_path_buf());
     let mock_resolver = Arc::new(MockResolver {
         res_at: std::sync::Mutex::new(None),
     });
@@ -314,7 +313,11 @@ fn setup_engine(temp_dir: &Path) -> (CoreEngine, Arc<MockPlugin>) {
         lsp_parser: mock_parser,
         lang_resolver: mock_lang_resolver,
     });
-    engine.register_language(plugin.clone());
+
+    let engine = CoreEngine::builder(temp_dir.to_path_buf())
+        .with_language(plugin.clone())
+        .build();
+
     (engine, plugin)
 }
 

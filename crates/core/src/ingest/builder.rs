@@ -208,11 +208,7 @@ impl CodeGraphBuilder {
 
     /// Remove all nodes associated with a file path
     pub fn remove_path(&mut self, path: &Path) {
-        let interned_path = Symbol(
-            self.inner
-                .symbols
-                .get_or_intern(path.to_string_lossy().as_ref()),
-        );
+        let interned_path = Symbol(self.inner.symbols.get_or_intern(&path.to_string_lossy()));
         if let Some(entry) = self.inner.file_index.remove(&interned_path) {
             for idx in entry.nodes {
                 self.remove_node(idx);
@@ -227,11 +223,7 @@ impl CodeGraphBuilder {
 
     /// Update file metadata (creates or updates FileEntry)
     pub fn update_file(&mut self, path: &Path, source: SourceFile) {
-        let interned_path = Symbol(
-            self.inner
-                .symbols
-                .get_or_intern(path.to_string_lossy().as_ref()),
-        );
+        let interned_path = Symbol(self.inner.symbols.get_or_intern(&path.to_string_lossy()));
         self.inner
             .file_index
             .entry(interned_path)
@@ -292,11 +284,7 @@ impl CodeGraphBuilder {
                 self.remove_path(&path);
             }
             GraphOp::UpdateIdentifiers { path, identifiers } => {
-                let path_sym = Symbol(
-                    self.inner
-                        .symbols
-                        .get_or_intern(path.to_string_lossy().as_ref()),
-                );
+                let path_sym = Symbol(self.inner.symbols.get_or_intern(&path.to_string_lossy()));
                 for token in identifiers {
                     let token_sym = Symbol(self.inner.symbols.get_or_intern(token.as_str()));
                     let files = self.inner.reference_index.entry(token_sym).or_default();
@@ -310,14 +298,17 @@ impl CodeGraphBuilder {
                 self.update_file(&path, metadata);
             }
             GraphOp::UpdateAssetRoutes { routes } => {
-                for (prefix, path) in routes {
+                for (prefix, paths) in routes {
                     let prefix_sym = Symbol(self.inner.symbols.get_or_intern(&prefix));
-                    let path_sym = Symbol(
-                        self.inner
-                            .symbols
-                            .get_or_intern(path.to_string_lossy().as_ref()),
-                    );
-                    self.inner.asset_routes.insert(prefix_sym, path_sym);
+                    let entry = self.inner.asset_routes.entry(prefix_sym).or_default();
+
+                    for path in paths {
+                        let path_sym =
+                            Symbol(self.inner.symbols.get_or_intern(&path.to_string_lossy()));
+                        if !entry.contains(&path_sym) {
+                            entry.push(path_sym);
+                        }
+                    }
                 }
             }
         }

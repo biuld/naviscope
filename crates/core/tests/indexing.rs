@@ -94,8 +94,9 @@ async fn test_update_files_persistence_integration() {
     let build_gradle = dir.path().join("build.gradle");
     fs::write(&build_gradle, "println 'hello'").unwrap();
 
-    let mut engine = NaviscopeEngine::new(dir.path().to_path_buf());
-    engine.register_build_tool(Arc::new(MockBuildPlugin));
+    let engine = NaviscopeEngine::builder(dir.path().to_path_buf())
+        .with_build_tool(Arc::new(MockBuildPlugin)) // This requires MockBuildPlugin to implement Clone if not wrapped in Arc, but `with_build_tool` takes Arc so we need to construct it
+        .build();
 
     // First index
     engine

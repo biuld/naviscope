@@ -93,9 +93,10 @@ pub async fn setup_java_engine(
     use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
     use naviscope_java::JavaPlugin;
 
-    let mut engine = CoreEngine::new(temp_dir.to_path_buf());
     let java_plugin = JavaPlugin::new().expect("Failed to create JavaPlugin");
-    engine.register_language(Arc::new(java_plugin));
+    let engine = CoreEngine::builder(temp_dir.to_path_buf())
+        .with_language(Arc::new(java_plugin))
+        .build();
 
     // Create files
     for (path_str, content) in &files {

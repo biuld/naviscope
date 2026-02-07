@@ -110,7 +110,7 @@ pub struct StorageGraph {
     pub name_index: Vec<(u32, Vec<u32>)>,         // (Symbol, Vec<NodeIdx>)
     pub file_index: Vec<(u32, StorageFileEntry)>, // (Symbol, Entry)
     pub reference_index: Vec<(u32, Vec<u32>)>,    // (Symbol, Vec<Symbol>)
-    pub asset_routes: Vec<(u32, u32)>,            // (Prefix, Path)
+    pub asset_routes: Vec<(u32, Vec<u32>)>,       // (Prefix, Paths)
 }
 
 #[derive(Serialize, Deserialize)]

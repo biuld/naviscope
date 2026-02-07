@@ -1,4 +1,5 @@
 use naviscope_plugin::{ExternalResolver, GlobalParseResult, IndexNode};
+use ristretto_jimage::Image;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
@@ -11,18 +12,14 @@ use converter::{JavaModifierConverter, JavaTypeConverter};
 
 pub struct JavaExternalResolver;
 
-impl ExternalResolver for JavaExternalResolver {
-    fn index_asset(
-        &self,
-        asset: &Path,
-    ) -> std::result::Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        let file = File::open(asset)?;
-        let mut archive = ZipArchive::new(file)?;
+impl JavaExternalResolver {
+    fn extract_packages_from_zip(
+        archive: &mut ZipArchive<File>,
+    ) -> std::result::Result<HashSet<String>, Box<dyn std::error::Error + Send + Sync>> {
         let mut packages = HashSet::new();
-
         for i in 0..archive.len() {
-            let file = archive.by_index(i)?;
-            let name = file.name();
+            let entry = archive.by_index(i)?;
+            let name = entry.name();
 
             if name.ends_with(".class") && !name.contains('$') {
                 if let Some(slash_idx) = name.rfind('/') {
@@ -33,6 +30,56 @@ impl ExternalResolver for JavaExternalResolver {
                 }
             }
         }
+        Ok(packages)
+    }
+
+    fn extract_packages_from_jimage(image: &Image) -> HashSet<String> {
+        let mut packages = HashSet::new();
+        for resource_result in image.iter() {
+            if let Ok(resource) = resource_result {
+                if resource.extension() == "class" && !resource.base().contains('$') {
+                    let package = resource.parent().replace('/', ".");
+                    if !package.is_empty() {
+                        packages.insert(package);
+                    }
+                }
+            }
+        }
+        packages
+    }
+}
+
+impl ExternalResolver for JavaExternalResolver {
+    fn index_asset(
+        &self,
+        asset: &Path,
+    ) -> std::result::Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+        // Detect format via magic bytes
+        let mut file = File::open(asset)?;
+        let mut magic = [0u8; 4];
+        if std::io::Read::read(&mut file, &mut magic).is_err() {
+            return Ok(vec![]);
+        }
+
+        let packages: HashSet<String> = match &magic {
+            // ZIP magic: PK\x03\x04 or PK\x05\x06 (empty) or PK\x07\x08 (spanned)
+            [0x50, 0x4B, _, _] => {
+                // Reset file position and parse as ZIP
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0))?;
+                let mut archive = ZipArchive::new(file)?;
+                Self::extract_packages_from_zip(&mut archive)?
+            }
+            // JImage magic: CAFEDADA (big-endian) or DADAFECA (little-endian)
+            [0xCA, 0xFE, 0xDA, 0xDA] | [0xDA, 0xDA, 0xFE, 0xCA] => {
+                drop(file); // Close file handle before reopening via ristretto_jimage
+                let image = Image::from_file(asset)?;
+                Self::extract_packages_from_jimage(&image)
+            }
+            _ => {
+                // Unknown format, skip silently
+                return Ok(vec![]);
+            }
+        };
 
         let mut result: Vec<String> = packages.into_iter().collect();
         result.sort();
@@ -45,38 +92,102 @@ impl ExternalResolver for JavaExternalResolver {
         asset: &Path,
     ) -> std::result::Result<IndexNode, Box<dyn std::error::Error + Send + Sync>> {
         let file = File::open(asset)?;
-        let mut archive = ZipArchive::new(file)?;
-
         let mut current_fqn = fqn.to_string();
         let mut member_parts = Vec::new();
 
-        let mut entry = loop {
-            let class_path = current_fqn.replace('.', "/") + ".class";
-            if let Ok(e) = archive.by_name(&class_path) {
-                break e;
-            }
+        let bytes = match ZipArchive::new(file) {
+            Ok(mut archive) => {
+                let mut entry = loop {
+                    let class_path = current_fqn.replace('.', "/") + ".class";
+                    if let Ok(e) = archive.by_name(&class_path) {
+                        break e;
+                    }
 
-            let inner_path = current_fqn.replace('.', "/");
-            if let Some(idx) = inner_path.rfind('/') {
-                let mut try_inner = inner_path.clone();
-                try_inner.replace_range(idx..idx + 1, "$");
-                if let Ok(e) = archive.by_name(&(try_inner + ".class")) {
-                    break e;
+                    let inner_path = current_fqn.replace('.', "/");
+                    if let Some(idx) = inner_path.rfind('/') {
+                        let mut try_inner = inner_path.clone();
+                        try_inner.replace_range(idx..idx + 1, "$");
+                        if let Ok(e) = archive.by_name(&(try_inner + ".class")) {
+                            break e;
+                        }
+                    }
+
+                    if let Some(idx) = current_fqn.rfind('.') {
+                        member_parts.push(current_fqn[idx + 1..].to_string());
+                        current_fqn = current_fqn[..idx].to_string();
+                    } else {
+                        return Err(format!(
+                            "Could not find class for {} in {}",
+                            fqn,
+                            asset.display()
+                        )
+                        .into());
+                    }
+                };
+
+                let mut b = Vec::new();
+                entry.read_to_end(&mut b)?;
+                b
+            }
+            Err(_) => {
+                // Try JImage
+                let image = Image::from_file(asset)?;
+                let mut bytes: Option<Vec<u8>> = None;
+
+                loop {
+                    let class_path = current_fqn.replace('.', "/") + ".class";
+                    // Since we don't know the module, we search all modules
+                    for resource_result in image.iter() {
+                        if let Ok(resource) = resource_result {
+                            if resource.name() == class_path {
+                                bytes = Some(resource.data().to_vec());
+                                break;
+                            }
+                        }
+                    }
+
+                    if bytes.is_some() {
+                        break;
+                    }
+
+                    // Try inner class
+                    let inner_path = current_fqn.replace('.', "/");
+                    if let Some(idx) = inner_path.rfind('/') {
+                        let mut try_inner = inner_path.clone();
+                        try_inner.replace_range(idx..idx + 1, "$");
+                        let try_inner_path = try_inner + ".class";
+
+                        for resource_result in image.iter() {
+                            if let Ok(resource) = resource_result {
+                                if resource.name() == try_inner_path {
+                                    bytes = Some(resource.data().to_vec());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if bytes.is_some() {
+                        break;
+                    }
+
+                    if let Some(idx) = current_fqn.rfind('.') {
+                        member_parts.push(current_fqn[idx + 1..].to_string());
+                        current_fqn = current_fqn[..idx].to_string();
+                    } else {
+                        return Err(format!(
+                            "Could not find class for {} in jimage {}",
+                            fqn,
+                            asset.display()
+                        )
+                        .into());
+                    }
                 }
-            }
 
-            if let Some(idx) = current_fqn.rfind('.') {
-                member_parts.push(current_fqn[idx + 1..].to_string());
-                current_fqn = current_fqn[..idx].to_string();
-            } else {
-                return Err(
-                    format!("Could not find class for {} in {}", fqn, asset.display()).into(),
-                );
+                bytes.ok_or_else(|| format!("Class {} not found in jimage", fqn))?
             }
         };
 
-        let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes)?;
         let class =
             cafebabe::parse_class(&bytes).map_err(|e| format!("Failed to parse class: {:?}", e))?;
 

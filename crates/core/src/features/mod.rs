@@ -15,7 +15,7 @@ pub trait CodeGraphLike: Send + Sync {
     fn fqn_map(&self) -> &std::collections::HashMap<FqnId, petgraph::stable_graph::NodeIndex>;
     fn path_to_nodes(&self, path: &Path) -> Option<&[petgraph::stable_graph::NodeIndex]>;
     fn reference_index(&self) -> &std::collections::HashMap<Symbol, Vec<Symbol>>;
-    fn asset_routes(&self) -> &std::collections::HashMap<Symbol, Symbol>;
+    fn asset_routes(&self) -> &std::collections::HashMap<Symbol, Vec<Symbol>>;
     fn find_container_node_at(
         &self,
         path: &std::path::Path,
@@ -84,7 +84,7 @@ impl<T: CodeGraphLike> CodeGraphLike for &T {
         (*self).reference_index()
     }
 
-    fn asset_routes(&self) -> &std::collections::HashMap<Symbol, Symbol> {
+    fn asset_routes(&self) -> &std::collections::HashMap<Symbol, Vec<Symbol>> {
         (*self).asset_routes()
     }
 

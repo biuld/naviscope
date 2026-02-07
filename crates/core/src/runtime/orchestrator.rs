@@ -48,32 +48,58 @@ pub struct NaviscopeEngine {
     stub_cache: Arc<crate::cache::GlobalStubCache>,
 }
 
-impl Drop for NaviscopeEngine {
-    fn drop(&mut self) {
-        self.cancel_token.cancel();
-    }
+pub struct NaviscopeEngineBuilder {
+    project_root: PathBuf,
+    build_plugins: Vec<Arc<dyn BuildToolPlugin>>,
+    lang_plugins: Vec<Arc<dyn LanguagePlugin>>,
 }
 
-impl NaviscopeEngine {
-    /// Create a new engine
+impl NaviscopeEngineBuilder {
     pub fn new(project_root: PathBuf) -> Self {
-        let canonical_root = project_root
+        Self {
+            project_root,
+            build_plugins: Vec::new(),
+            lang_plugins: Vec::new(),
+        }
+    }
+
+    pub fn with_language(mut self, plugin: Arc<dyn LanguagePlugin>) -> Self {
+        self.lang_plugins.push(plugin);
+        self
+    }
+
+    pub fn with_build_tool(mut self, plugin: Arc<dyn BuildToolPlugin>) -> Self {
+        self.build_plugins.push(plugin);
+        self
+    }
+
+    pub fn build(self) -> NaviscopeEngine {
+        let canonical_root = self
+            .project_root
             .canonicalize()
-            .unwrap_or_else(|_| project_root.clone());
-        let index_path = Self::compute_index_path(&canonical_root);
+            .unwrap_or_else(|_| self.project_root.clone());
+        let index_path = NaviscopeEngine::compute_index_path(&canonical_root);
 
         let (stub_tx, stub_rx) = tokio::sync::mpsc::unbounded_channel();
         let cancel_token = tokio_util::sync::CancellationToken::new();
         // Initialize global cache once
         let stub_cache = Arc::new(crate::cache::GlobalStubCache::at_default_location());
 
-        let engine = Self {
+        // Process naming conventions
+        let mut conventions = HashMap::new();
+        for plugin in &self.lang_plugins {
+            if let Some(nc) = plugin.get_naming_convention() {
+                conventions.insert(plugin.name().to_string(), nc);
+            }
+        }
+
+        let engine = NaviscopeEngine {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
             project_root: canonical_root,
             index_path,
-            build_plugins: Arc::new(Vec::new()),
-            lang_plugins: Arc::new(Vec::new()),
-            naming_conventions: Arc::new(std::collections::HashMap::new()),
+            build_plugins: Arc::new(self.build_plugins),
+            lang_plugins: Arc::new(self.lang_plugins),
+            naming_conventions: Arc::new(conventions),
             cancel_token: cancel_token.clone(),
             stub_tx,
             stub_cache: stub_cache.clone(),
@@ -83,32 +109,21 @@ impl NaviscopeEngine {
 
         engine
     }
+}
 
-    pub fn register_language(&mut self, plugin: Arc<dyn LanguagePlugin>) {
-        // Register naming convention if available
-        if let Some(nc) = plugin.get_naming_convention() {
-            let mut conventions = (*self.naming_conventions).clone();
-            conventions.insert(plugin.name().to_string(), nc);
-            self.naming_conventions = Arc::new(conventions);
-        }
+impl Drop for NaviscopeEngine {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
+    }
+}
 
-        let mut plugins = (*self.lang_plugins).clone();
-        plugins.push(plugin);
-        self.lang_plugins = Arc::new(plugins);
+impl NaviscopeEngine {
+    /// Create a builder for the engine
+    pub fn builder(project_root: PathBuf) -> NaviscopeEngineBuilder {
+        NaviscopeEngineBuilder::new(project_root)
     }
 
-    pub fn register_build_tool(&mut self, plugin: Arc<dyn BuildToolPlugin>) {
-        // Register naming convention if available
-        if let Some(nc) = plugin.get_naming_convention() {
-            let mut conventions = (*self.naming_conventions).clone();
-            conventions.insert(plugin.name().to_string(), nc);
-            self.naming_conventions = Arc::new(conventions);
-        }
-
-        let mut plugins = (*self.build_plugins).clone();
-        plugins.push(plugin);
-        self.build_plugins = Arc::new(plugins);
-    }
+    // ... helper methods ...
 
     /// Get the project root path
     pub fn root_path(&self) -> &Path {
@@ -188,8 +203,7 @@ impl NaviscopeEngine {
         let lang_plugins = self.lang_plugins.clone();
 
         let stub_tx = self.stub_tx.clone();
-        // Build in blocking pool (CPU-intensive)
-        let new_graph = tokio::task::spawn_blocking(move || {
+        let (new_graph, stubs) = tokio::task::spawn_blocking(move || {
             Self::build_index(&project_root, build_plugins, lang_plugins, stub_tx)
         })
         .await
@@ -199,6 +213,16 @@ impl NaviscopeEngine {
         {
             let mut lock = self.current.write().await;
             *lock = Arc::new(new_graph);
+        }
+
+        // Schedule stubs AFTER graph update using explicit requests
+        for req in stubs {
+            // We use a fresh stub_tx here, actually we need access to self.stub_tx?
+            // self.stub_tx is async channel. send is async or blocking?
+            // UnboundedSender::send is non-blocking.
+            if let Err(e) = self.stub_tx.send(req.clone()) {
+                tracing::warn!("Failed to schedule stub: {}", e);
+            }
         }
 
         // Save to disk
@@ -275,6 +299,10 @@ impl NaviscopeEngine {
                 resolver.resolve_build_batch(&build_files, &mut project_context_inner)?;
             initial_ops.extend(build_ops);
 
+            // Phase 1.5: Asset Routing (Classpath)
+            let asset_ops = resolver.resolve_assets_batch(&mut project_context_inner)?;
+            initial_ops.extend(asset_ops);
+
             let project_context = Arc::new(project_context_inner);
 
             // 3. Phase 2: Pipeline Batch Processing for source files
@@ -295,10 +323,12 @@ impl NaviscopeEngine {
 
             builder.apply_ops(initial_ops)?;
 
+            let mut pending_stubs = Vec::new();
             // Note: We are in a blocking thread, resolver and context are Thread-safe.
             pipeline.execute(&*project_context, source_paths, &resolver, |batch_ops| {
                 builder.apply_ops(batch_ops.clone())?;
-                resolver.schedule_stubs(&batch_ops, project_context.clone());
+                let reqs = resolver.resolve_stubs(&batch_ops, project_context.clone());
+                pending_stubs.extend(reqs);
                 Ok(())
             })?;
 
@@ -309,6 +339,13 @@ impl NaviscopeEngine {
                 let mut lock = current_lock.write().await;
                 *lock = final_graph;
             });
+
+            // 5. Schedule stubs
+            for req in pending_stubs {
+                if let Err(e) = stub_tx.send(req) {
+                    tracing::warn!("Failed to schedule stub: {}", e);
+                }
+            }
 
             Ok(())
         })
@@ -433,40 +470,63 @@ impl NaviscopeEngine {
                         // Resolve
                         let mut ops = Vec::new();
 
-                        if let Some(asset_path) = req.context.asset_routes.get(&req.fqn) {
+                        for asset_path in req.candidate_paths {
                             // Try to create asset key for cache lookup
-                            let asset_key = crate::cache::AssetKey::from_path(asset_path).ok();
+                            let asset_key = crate::cache::AssetKey::from_path(&asset_path).ok();
 
                             // Check cache first
                             if let Some(ref key) = asset_key {
                                 if let Some(cached_stub) = stub_cache.lookup(key, &req.fqn) {
                                     tracing::trace!("Cache hit for {}", req.fqn);
-                                    ops.push(GraphOp::AddNode { data: Some(cached_stub) });
+                                    ops.push(GraphOp::AddNode {
+                                        data: Some(cached_stub),
+                                    });
+                                    break; // Found it
                                 }
                             }
 
                             // If not in cache, generate stub
-                            if ops.is_empty() {
-                                let ext = asset_path
-                                    .extension()
-                                    .and_then(|e| e.to_str())
-                                    .unwrap_or("")
-                                    .to_lowercase();
+                            let ext = asset_path
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .unwrap_or("")
+                                .to_lowercase();
 
-                                for plugin in lang_plugins.iter() {
-                                    if plugin.can_handle_external_asset(&ext) {
-                                        if let Some(external) = plugin.external_resolver() {
-                                            if let Ok(stub) = external.generate_stub(&req.fqn, asset_path) {
+                            // Also check if file_name is "modules" (JImage without extension)
+                            let file_name =
+                                asset_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                            let is_jimage = file_name == "modules";
+
+                            for plugin in lang_plugins.iter() {
+                                let can_handle = plugin.can_handle_external_asset(&ext);
+                                let jimage_match = is_jimage && plugin.name().as_str() == "java";
+
+                                if can_handle || jimage_match {
+                                    if let Some(external) = plugin.external_resolver() {
+                                        match external.generate_stub(&req.fqn, &asset_path) {
+                                            Ok(stub) => {
                                                 // Store in cache for future use
                                                 if let Some(ref key) = asset_key {
                                                     stub_cache.store(key, &stub);
                                                     tracing::trace!("Cached stub for {}", req.fqn);
                                                 }
                                                 ops.push(GraphOp::AddNode { data: Some(stub) });
+                                                break;
+                                            }
+                                            Err(e) => {
+                                                tracing::debug!(
+                                                    "Failed to generate stub for {}: {}",
+                                                    req.fqn,
+                                                    e
+                                                );
                                             }
                                         }
                                     }
                                 }
+                            }
+
+                            if !ops.is_empty() {
+                                break;
                             }
                         }
 
@@ -482,7 +542,7 @@ impl NaviscopeEngine {
 
                             if let Ok(()) = builder.apply_ops(ops) {
                                 *lock = Arc::new(builder.build());
-                                tracing::debug!("Applied stub for {}", req.fqn);
+                                tracing::trace!("Applied stub for {}", req.fqn);
                             }
                         }
                     }
@@ -622,21 +682,19 @@ impl NaviscopeEngine {
         build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
         lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
         stub_tx: tokio::sync::mpsc::UnboundedSender<StubRequest>,
-    ) -> Result<CodeGraph> {
+    ) -> Result<(CodeGraph, Vec<StubRequest>)> {
         // Scan and parse
         let parse_results =
             Scanner::scan_and_parse(project_root, &std::collections::HashMap::new());
 
         // Resolve
-        let project_context_inner = crate::ingest::resolver::ProjectContext::new();
         let resolver =
             IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone())
                 .with_stubbing(StubbingManager::new(stub_tx));
 
-        // Note: build_index currently use a separate resolve path which doesn't use the pipeline for everything.
-        // We'll manually schedule stubs for the full result set.
-        let ops = resolver.resolve(parse_results)?;
-        let project_context = Arc::new(project_context_inner);
+        // resolve() now returns both ops and the filled ProjectContext (with asset_routes)
+        let (ops, project_context) = resolver.resolve(parse_results)?;
+        let project_context = Arc::new(project_context);
 
         // Build graph
         let mut builder = CodeGraphBuilder::new();
@@ -649,9 +707,11 @@ impl NaviscopeEngine {
         }
 
         builder.apply_ops(ops.clone())?;
-        resolver.schedule_stubs(&ops, project_context);
 
-        Ok(builder.build())
+        // Generate stubs proactively since we now have correct context
+        let stubs = resolver.resolve_stubs(&ops, project_context);
+
+        Ok((builder.build(), stubs))
     }
 
     pub fn get_stub_cache(&self) -> Arc<crate::cache::GlobalStubCache> {
@@ -665,7 +725,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_snapshot_is_fast() {
-        let engine = NaviscopeEngine::new(PathBuf::from("."));
+        let engine = NaviscopeEngine::builder(PathBuf::from(".")).build();
 
         let start = std::time::Instant::now();
         for _ in 0..1000 {
@@ -681,7 +741,7 @@ mod tests {
     async fn test_concurrent_snapshots() {
         use tokio::task::JoinSet;
 
-        let engine = Arc::new(NaviscopeEngine::new(PathBuf::from(".")));
+        let engine = Arc::new(NaviscopeEngine::builder(PathBuf::from(".")).build());
 
         let mut set = JoinSet::new();
 

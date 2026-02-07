@@ -86,6 +86,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Lsp => ("lsp", false),
         Commands::Mcp { .. } => ("mcp", false),
         Commands::Shell { .. } => ("cli", false),
+        Commands::Cache { .. } => ("cli", false),
+        Commands::Clear { .. } => ("cli", false),
         _ => ("cli", true),
     };
     let _guard = naviscope_runtime::init_logging(component, to_stderr);

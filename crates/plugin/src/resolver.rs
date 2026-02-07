@@ -72,7 +72,7 @@ pub struct ProjectContext {
     pub builtin_assets: Vec<PathBuf>,
 
     /// Mapping from symbol prefixes (e.g. "java.lang") to asset paths
-    pub asset_routes: HashMap<String, PathBuf>,
+    pub asset_routes: HashMap<String, Vec<PathBuf>>,
 }
 
 impl ProjectContext {

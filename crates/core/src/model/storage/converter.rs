@@ -202,7 +202,12 @@ pub fn to_storage(
         asset_routes: inner
             .asset_routes
             .iter()
-            .map(|(prefix, path)| (prefix.0.into_usize() as u32, path.0.into_usize() as u32))
+            .map(|(prefix, paths)| {
+                (
+                    prefix.0.into_usize() as u32,
+                    paths.iter().map(|p| p.0.into_usize() as u32).collect(),
+                )
+            })
             .collect(),
     }
 }
@@ -312,10 +317,13 @@ pub fn from_storage(
         asset_routes: storage
             .asset_routes
             .into_iter()
-            .map(|(prefix_sid, path_sid)| {
+            .map(|(prefix_sid, paths)| {
                 (
                     Symbol(Spur::try_from_usize(prefix_sid as usize).unwrap()),
-                    Symbol(Spur::try_from_usize(path_sid as usize).unwrap()),
+                    paths
+                        .into_iter()
+                        .map(|sid| Symbol(Spur::try_from_usize(sid as usize).unwrap()))
+                        .collect(),
                 )
             })
             .collect(),
