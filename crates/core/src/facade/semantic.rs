@@ -31,7 +31,7 @@ impl SymbolNavigator for EngineHandle {
             PathBuf::from(uri_str)
         };
 
-        let (parser, lang) = match self.get_parser_and_lang_for_path(&path) {
+        let (lsp_service, lang) = match self.get_lsp_service_and_lang_for_path(&path) {
             Some(x) => x,
             None => return Ok(None),
         };
@@ -47,7 +47,7 @@ impl SymbolNavigator for EngineHandle {
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?
         };
 
-        let tree = parser
+        let tree = lsp_service
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
@@ -66,7 +66,7 @@ impl SymbolNavigator for EngineHandle {
             PathBuf::from(uri_str)
         };
 
-        let (parser, _) = match self.get_parser_and_lang_for_path(&path) {
+        let (lsp_service, _) = match self.get_lsp_service_and_lang_for_path(&path) {
             Some(x) => x,
             None => return Ok(vec![]),
         };
@@ -77,7 +77,7 @@ impl SymbolNavigator for EngineHandle {
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?
         };
 
-        let tree = parser
+        let tree = lsp_service
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
@@ -86,7 +86,7 @@ impl SymbolNavigator for EngineHandle {
             None => return Ok(vec![]),
         };
 
-        Ok(parser.find_occurrences(&content, &tree, &res))
+        Ok(lsp_service.find_occurrences(&content, &tree, &res))
     }
 
     async fn find_definitions(&self, query: &SymbolQuery) -> SemanticResult<Vec<SymbolLocation>> {
@@ -209,7 +209,8 @@ impl ReferenceAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
+                let (lsp_service, file_lang) = match handle.get_lsp_service_and_lang_for_path(&path)
+                {
                     Some(x) => x,
                     None => return Vec::new(),
                 };
@@ -233,7 +234,7 @@ impl ReferenceAnalyzer for EngineHandle {
                 };
 
                 let locations = discovery.scan_file(
-                    parser.as_ref(),
+                    lsp_service.as_ref(),
                     file_resolver.as_ref(),
                     &content,
                     &resolution,
@@ -330,7 +331,8 @@ impl CallHierarchyAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (parser, file_lang) = match handle.get_parser_and_lang_for_path(&path) {
+                let (lsp_service, file_lang) = match handle.get_lsp_service_and_lang_for_path(&path)
+                {
                     Some(x) => x,
                     None => return vec![],
                 };
@@ -354,7 +356,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
                 // Verification
                 discovery.scan_file(
-                    parser.as_ref(),
+                    lsp_service.as_ref(),
                     file_resolver.as_ref(),
                     &content,
                     &res,
@@ -444,8 +446,8 @@ impl CallHierarchyAnalyzer for EngineHandle {
             .range()
             .ok_or_else(|| SemanticError::Internal("Node has no range".into()))?;
 
-        let (parser, lang) = self
-            .get_parser_and_lang_for_path(&path)
+        let (lsp_service, lang) = self
+            .get_lsp_service_and_lang_for_path(&path)
             .ok_or_else(|| SemanticError::Internal("No parser for file".into()))?;
         let resolver = self
             .get_semantic_resolver(lang)
@@ -455,7 +457,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
 
         // Micro-level scanning: extract method body and find all calls
-        let tree = parser
+        let tree = lsp_service
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
@@ -553,7 +555,7 @@ impl SymbolInfoProvider for EngineHandle {
             PathBuf::from(uri)
         };
 
-        let (parser, _lang) = match self.get_parser_and_lang_for_path(&path) {
+        let (lsp_service, _lang) = match self.get_lsp_service_and_lang_for_path(&path) {
             Some(x) => x,
             None => return Ok(vec![]),
         };
@@ -561,11 +563,11 @@ impl SymbolInfoProvider for EngineHandle {
         let content =
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
 
-        let tree = parser
+        let tree = lsp_service
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
-        let symbols = parser.extract_symbols(&tree, &content);
+        let symbols = lsp_service.extract_symbols(&tree, &content);
 
         Ok(symbols)
     }

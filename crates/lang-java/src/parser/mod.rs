@@ -5,7 +5,6 @@ use tree_sitter::{Query, StreamingIterator, Tree};
 mod ast;
 mod constants;
 mod index;
-mod lsp;
 mod naming;
 mod scope;
 mod types;
@@ -56,6 +55,12 @@ impl JavaParser {
             occurrence_query: Arc::new(occurrence_query),
             occurrence_indices,
         })
+    }
+
+    pub fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree> {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&self.language).ok()?;
+        parser.parse(source, old_tree)
     }
 
     pub fn extract_package_and_imports(

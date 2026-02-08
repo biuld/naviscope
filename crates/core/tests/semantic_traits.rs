@@ -9,7 +9,7 @@ use naviscope_core::facade::EngineHandle;
 // naviscope_core imports removed in favor of naviscope_plugin
 use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
 use naviscope_plugin::{
-    GlobalParseResult, LangResolver, LanguagePlugin, LspParser, NamingConvention, NodeAdapter,
+    GlobalParseResult, LangResolver, LanguagePlugin, LspService, NamingConvention, NodeAdapter,
     ParsedFile, PluginInstance, ProjectContext, ResolvedUnit, SemanticResolver, StorageContext,
 };
 use std::any::Any;
@@ -138,7 +138,7 @@ impl LanguagePlugin for MockPlugin {
     fn lang_resolver(&self) -> Arc<dyn LangResolver> {
         self.lang_resolver.clone()
     }
-    fn lsp_parser(&self) -> Arc<dyn LspParser> {
+    fn lsp_parser(&self) -> Arc<dyn LspService> {
         Arc::new(MockLspParserWrapper {
             parser: self.lsp_parser.clone(),
         })
@@ -159,7 +159,7 @@ struct MockLspParserWrapper {
     parser: Arc<MockLspParser>,
 }
 
-impl LspParser for MockLspParserWrapper {
+impl LspService for MockLspParserWrapper {
     fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree> {
         self.parser.parse(source, old_tree)
     }
@@ -267,7 +267,7 @@ impl SemanticResolver for MockResolver {
 }
 
 struct MockLspParser;
-impl LspParser for MockLspParser {
+impl LspService for MockLspParser {
     fn parse(&self, source: &str, _old_tree: Option<&Tree>) -> Option<Tree> {
         let mut parser = tree_sitter::Parser::new();
         parser

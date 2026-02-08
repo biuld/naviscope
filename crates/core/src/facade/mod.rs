@@ -43,11 +43,11 @@ impl EngineHandle {
 
     // ---- Language specific services (internal) ----
 
-    pub fn get_lsp_parser(
+    pub fn get_lsp_service(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::ingest::parser::LspParser>> {
-        self.engine.get_resolver().get_lsp_parser(language)
+    ) -> Option<Arc<dyn crate::ingest::parser::LspService>> {
+        self.engine.get_resolver().get_lsp_service(language)
     }
 
     pub fn get_semantic_resolver(
@@ -68,17 +68,17 @@ impl EngineHandle {
         self.engine.get_resolver().get_language_by_extension(ext)
     }
 
-    pub fn get_parser_and_lang_for_path(
+    pub fn get_lsp_service_and_lang_for_path(
         &self,
         path: &std::path::Path,
     ) -> Option<(
-        Arc<dyn crate::ingest::parser::LspParser>,
+        Arc<dyn crate::ingest::parser::LspService>,
         crate::model::source::Language,
     )> {
         let ext = path.extension()?.to_str()?;
         let lang = self.get_language_by_extension(ext)?;
-        let parser = self.get_lsp_parser(lang.clone())?;
-        Some((parser, lang))
+        let lsp_service = self.get_lsp_service(lang.clone())?;
+        Some((lsp_service, lang))
     }
 
     /// Get naming convention for a specific language

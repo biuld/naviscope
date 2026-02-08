@@ -140,6 +140,16 @@ impl<'a, 'b> ScopeBuilder<'a, 'b> {
     }
 
     fn process_parameter_list(&mut self, params_node: &Node, scope_id: usize) {
+        // Handle single parameter lambda: 'x -> ...' where params_node is the identifier
+        if params_node.kind() == "identifier" {
+            if let Ok(name) = params_node.utf8_text(self.ctx.source.as_bytes()) {
+                let range = range_from_ts(params_node.range());
+                self.manager
+                    .add_symbol(scope_id, name.to_string(), TypeRef::Unknown, range);
+            }
+            return;
+        }
+
         let mut cursor = params_node.walk();
         for child in params_node.children(&mut cursor) {
             match child.kind() {
@@ -147,13 +157,13 @@ impl<'a, 'b> ScopeBuilder<'a, 'b> {
                     self.process_single_parameter(&child, scope_id);
                 }
                 "inferred_parameters" => {
-                    // TODO: Inferred lambda parameters require target type context
+                    // Recurse to handle (x, y) -> ...
+                    self.process_parameter_list(&child, scope_id);
                 }
                 "identifier" => {
-                    // Single lambda param: x -> ...
+                    // This case is for children of inferred_parameters if we are inside one,
+                    // or if structure allows.
                     if let Ok(name) = child.utf8_text(self.ctx.source.as_bytes()) {
-                        // Type is unknown at this stage without context
-                        // Register with Unknown type - inference can refine later
                         let range = range_from_ts(child.range());
                         self.manager.add_symbol(
                             scope_id,

@@ -1,6 +1,7 @@
 pub mod discoverer;
 pub mod inference;
 pub mod jdk;
+pub mod lsp;
 pub mod model;
 pub mod naming;
 pub mod parser;
@@ -11,10 +12,10 @@ pub use discoverer::JdkDiscoverer;
 
 use lasso::Key;
 use naviscope_api::models::graph::{EmptyMetadata, GraphNode, NodeKind};
-use naviscope_api::models::symbol::{FqnReader, Symbol, SymbolResolution};
+use naviscope_api::models::symbol::{FqnReader, Symbol};
 use naviscope_api::models::{DisplayGraphNode, Language};
 use naviscope_plugin::{
-    AssetIndexer, AssetSourceLocator, GlobalParseResult, LangResolver, LanguagePlugin, LspParser,
+    AssetIndexer, AssetSourceLocator, GlobalParseResult, LangResolver, LanguagePlugin, LspService,
     NamingConvention, NodeAdapter, PluginInstance, SemanticResolver, StorageContext,
 };
 use std::path::Path;
@@ -288,8 +289,8 @@ impl LanguagePlugin for JavaPlugin {
         self.resolver.clone()
     }
 
-    fn lsp_parser(&self) -> Arc<dyn LspParser> {
-        Arc::new(self.clone())
+    fn lsp_parser(&self) -> Arc<dyn LspService> {
+        Arc::new(crate::lsp::JavaLspService::new(self.parser.clone()))
     }
 
     fn external_resolver(&self) -> Option<Arc<dyn naviscope_plugin::ExternalResolver>> {
@@ -310,32 +311,5 @@ impl LanguagePlugin for JavaPlugin {
 
     fn asset_source_locator(&self) -> Option<Arc<dyn AssetSourceLocator>> {
         Some(Arc::new(crate::resolver::external::JavaExternalResolver))
-    }
-}
-
-impl LspParser for JavaPlugin {
-    fn parse(
-        &self,
-        source: &str,
-        old_tree: Option<&tree_sitter::Tree>,
-    ) -> Option<tree_sitter::Tree> {
-        self.parser.parse(source, old_tree)
-    }
-
-    fn extract_symbols(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<DisplayGraphNode> {
-        self.parser.extract_symbols(tree, source)
-    }
-
-    fn symbol_kind(&self, kind: &naviscope_api::models::graph::NodeKind) -> lsp_types::SymbolKind {
-        self.parser.symbol_kind(kind)
-    }
-
-    fn find_occurrences(
-        &self,
-        source: &str,
-        tree: &tree_sitter::Tree,
-        target: &SymbolResolution,
-    ) -> Vec<naviscope_api::models::Range> {
-        self.parser.find_occurrences(source, tree, target)
     }
 }

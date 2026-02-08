@@ -56,10 +56,10 @@ impl IndexResolver {
             .map(|p| p.resolver())
     }
 
-    pub fn get_lsp_parser(
+    pub fn get_lsp_service(
         &self,
         language: Language,
-    ) -> Option<Arc<dyn naviscope_plugin::LspParser>> {
+    ) -> Option<Arc<dyn naviscope_plugin::LspService>> {
         self.lang_plugins
             .iter()
             .find(|p| p.name() == language)

@@ -1,5 +1,5 @@
 use super::CodeGraphLike;
-use crate::ingest::parser::LspParser;
+use crate::ingest::parser::LspService;
 use lsp_types::{Location, Url};
 pub use naviscope_api::models::SymbolResolution;
 use std::collections::HashSet;
@@ -148,15 +148,15 @@ impl<'a> DiscoveryEngine<'a> {
     /// Now performs SEMANTIC VERIFICATION using the Resolver.
     pub fn scan_file(
         &self,
-        parser: &dyn LspParser,
+        lsp_service: &dyn LspService,
         resolver: &dyn crate::ingest::resolver::SemanticResolver,
         source: &str,
         target_resolution: &SymbolResolution,
         uri: &Url,
     ) -> Vec<Location> {
-        if let Some(tree) = parser.parse(source, None) {
+        if let Some(tree) = lsp_service.parse(source, None) {
             // 1. Syntactic Scan (Fast)
-            let candidates = parser.find_occurrences(source, &tree, target_resolution);
+            let candidates = lsp_service.find_occurrences(source, &tree, target_resolution);
 
             // 2. Semantic Verification (Precise)
             let mut valid_locations = Vec::new();

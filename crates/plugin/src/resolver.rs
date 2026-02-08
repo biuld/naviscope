@@ -42,7 +42,7 @@ pub trait SemanticResolver: Send + Sync {
     ) -> Vec<FqnId>;
 }
 
-pub trait LspParser: Send + Sync {
+pub trait LspService: Send + Sync {
     fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree>;
 
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DisplayGraphNode>;
@@ -64,7 +64,6 @@ pub trait LspParser: Send + Sync {
 pub struct ProjectContext {
     /// Mapping from path prefixes to module IDs (e.g., "/project/app" -> "module::app")
     pub path_to_module: HashMap<PathBuf, String>,
-
 }
 
 impl ProjectContext {
@@ -104,24 +103,6 @@ pub trait LangResolver: Send + Sync {
         file: &ParsedFile,
         context: &ProjectContext,
     ) -> Result<ResolvedUnit, Box<dyn std::error::Error + Send + Sync>>;
-}
-
-/// A generic trait for semantic scopes in any programming language.
-/// `C` represents the language-specific resolution context.
-pub trait SemanticScope<C>: Send + Sync {
-    /// Resolve a name within this specific scope.
-    /// Returns:
-    /// - `Some(Ok(res))` if the symbol is found.
-    /// - `Some(Err(()))` if the symbol is NOT found and searching should stop (shadowing/short-circuit).
-    /// - `None` if the symbol is NOT found and searching should continue in the next scope.
-    fn resolve(
-        &self,
-        name: &str,
-        context: &C,
-    ) -> Option<Result<naviscope_api::models::SymbolResolution, ()>>;
-
-    /// Returns the name of the scope for debugging purposes.
-    fn name(&self) -> &'static str;
 }
 
 pub trait ExternalResolver: Send + Sync {

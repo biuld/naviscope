@@ -1,7 +1,7 @@
 use crate::interner::StorageContext;
 use crate::model::{BuildParseResult, GlobalParseResult};
 use crate::naming::NamingConvention;
-use crate::resolver::{BuildResolver, LangResolver, LspParser, SemanticResolver};
+use crate::resolver::{BuildResolver, LangResolver, LspService, SemanticResolver};
 use naviscope_api::models::graph::{DisplayGraphNode, GraphNode, NodeMetadata};
 use naviscope_api::models::symbol::FqnReader;
 use std::path::Path;
@@ -83,7 +83,7 @@ pub trait LanguagePlugin: PluginInstance + Send + Sync {
     fn lang_resolver(&self) -> Arc<dyn LangResolver>;
 
     /// Get the LSP parser for this language
-    fn lsp_parser(&self) -> Arc<dyn LspParser>;
+    fn lsp_parser(&self) -> Arc<dyn LspService>;
 
     /// Get the external resolver for classpath resolution (Phase 2+)
     fn external_resolver(&self) -> Option<Arc<dyn crate::resolver::ExternalResolver>> {
