@@ -234,6 +234,7 @@ pub struct DisplayGraphNode {
     pub modifiers: Vec<String>,
 
     // Hierarchy support
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<DisplayGraphNode>>,
 }
 

@@ -1,4 +1,5 @@
 pub mod discoverer;
+pub mod inference;
 pub mod jdk;
 pub mod model;
 pub mod naming;

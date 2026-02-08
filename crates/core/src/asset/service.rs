@@ -14,8 +14,8 @@ use naviscope_plugin::{
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
@@ -107,6 +107,7 @@ impl AssetStubService {
         let registry = self.registry.clone();
         let scanner = self.build_scanner_clone();
         let source_map = self.source_map.clone();
+        let source_locators = self.source_locators.clone();
 
         tokio::spawn(async move {
             // Run scan in blocking thread pool
@@ -118,8 +119,8 @@ impl AssetStubService {
                 }
                 result
             })
-                .await
-                .unwrap_or_default()
+            .await
+            .unwrap_or_default()
         })
     }
 

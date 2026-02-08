@@ -1,8 +1,74 @@
 use naviscope_api::models::NodeKind;
 use naviscope_plugin::NamingConvention;
 
+/// Separator used between a type and its members (methods, fields, constructors).
+pub const MEMBER_SEPARATOR: char = '#';
+
+/// Separator used between packages and between package/class.
+pub const TYPE_SEPARATOR: char = '.';
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JavaNamingConvention;
+
+impl JavaNamingConvention {
+    /// Build a fully qualified name for a member (method, field, or constructor).
+    ///
+    /// # Examples
+    /// ```ignore
+    /// build_member_fqn("com.example.MyClass", "myMethod") => "com.example.MyClass#myMethod"
+    /// build_member_fqn("com.example.MyClass", "myField") => "com.example.MyClass#myField"
+    /// ```
+    pub fn build_member_fqn(type_fqn: &str, member_name: &str) -> String {
+        format!("{}{}{}", type_fqn, MEMBER_SEPARATOR, member_name)
+    }
+
+    /// Parse a member FQN into (type_fqn, member_name).
+    ///
+    /// Returns `None` if the FQN does not contain a member separator.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// parse_member_fqn("com.example.MyClass#myMethod") => Some(("com.example.MyClass", "myMethod"))
+    /// parse_member_fqn("com.example.MyClass") => None
+    /// ```
+    pub fn parse_member_fqn(fqn: &str) -> Option<(&str, &str)> {
+        fqn.rfind(MEMBER_SEPARATOR)
+            .map(|pos| (&fqn[..pos], &fqn[pos + 1..]))
+    }
+
+    /// Check if an FQN represents a member (method, field, constructor).
+    pub fn is_member_fqn(fqn: &str) -> bool {
+        fqn.contains(MEMBER_SEPARATOR)
+    }
+
+    /// Extract the type FQN from a member FQN.
+    ///
+    /// If the FQN is already a type FQN (no member separator), returns the original.
+    pub fn extract_type_fqn(fqn: &str) -> &str {
+        Self::parse_member_fqn(fqn)
+            .map(|(type_fqn, _)| type_fqn)
+            .unwrap_or(fqn)
+    }
+
+    /// Extract the member name from a member FQN.
+    ///
+    /// Returns `None` if the FQN is not a member FQN.
+    pub fn extract_member_name(fqn: &str) -> Option<&str> {
+        Self::parse_member_fqn(fqn).map(|(_, member)| member)
+    }
+
+    /// Get the appropriate separator for the given intent.
+    ///
+    /// Members (Method, Field) use `#`, others use `.`.
+    /// Note: Constructor is represented by SymbolIntent::Method.
+    pub fn separator_for_intent(intent: naviscope_api::models::SymbolIntent) -> char {
+        use naviscope_api::models::SymbolIntent;
+        match intent {
+            SymbolIntent::Method | SymbolIntent::Field => MEMBER_SEPARATOR,
+            _ => TYPE_SEPARATOR,
+        }
+    }
+}
 
 impl NamingConvention for JavaNamingConvention {
     fn separator(&self) -> &str {

@@ -1,22 +1,15 @@
-use crate::model::{JavaIndexMetadata, JavaNodeMetadata};
-use crate::parser::JavaParser;
-use naviscope_api::models::graph::{EdgeType, GraphEdge, NodeKind};
-use naviscope_api::models::symbol::{FqnId, matches_intent};
-use naviscope_api::models::{SymbolIntent, SymbolResolution, TypeRef};
-use naviscope_plugin::{
-    CodeGraph, GraphOp, IndexNode, LangResolver, ParsedContent, ParsedFile, ProjectContext,
-    ResolvedUnit, SemanticResolver,
-};
-use std::ops::ControlFlow;
-use std::sync::Arc;
-use tree_sitter::Tree;
+//! Java resolver using the new inference-based type system.
 
 pub mod context;
 pub mod external;
-pub mod scope;
+pub mod lang;
+pub mod semantic;
+pub mod types;
 
+use crate::inference::adapters::CodeGraphTypeSystem;
+use crate::parser::JavaParser;
 use context::ResolutionContext;
-use scope::{BuiltinScope, ImportScope, LocalScope, MemberScope, PackageScope, Scope};
+use naviscope_api::models::{SymbolResolution, TypeRef};
 
 #[derive(Clone)]
 pub struct JavaResolver {
@@ -30,574 +23,194 @@ impl JavaResolver {
         }
     }
 
-    fn get_active_scopes<'a>(&'a self, ctx: &'a ResolutionContext) -> Vec<Box<dyn Scope + 'a>> {
-        let mut scopes: Vec<Box<dyn Scope + 'a>> = Vec::new();
-
-        if ctx.receiver_node.is_none() {
-            scopes.push(Box::new(LocalScope {
-                parser: &self.parser,
-            }));
-        }
-
-        scopes.push(Box::new(MemberScope {
-            parser: &self.parser,
-        }));
-        scopes.push(Box::new(ImportScope {
-            parser: &self.parser,
-        }));
-        scopes.push(Box::new(PackageScope {
-            parser: &self.parser,
-        }));
-
-        if ctx.intent == SymbolIntent::Type {
-            scopes.push(Box::new(BuiltinScope {
-                parser: &self.parser,
-            }));
-        }
-
-        scopes
-    }
-
-    fn resolve_type_ref(
+    /// Helper to find enclosing class using ScopeManager
+    fn find_enclosing_class_via_scope(
         &self,
-        type_ref: &TypeRef,
-        package: Option<&str>,
-        imports: &[String],
-        known_fqns: &std::collections::HashSet<String>,
-    ) -> TypeRef {
-        match type_ref {
-            TypeRef::Raw(name) => {
-                // 1. Check if name matches a known FQN suffix in the same file (Inner class priority)
-                if let Some(fqn) = known_fqns
-                    .iter()
-                    .find(|k| k.ends_with(&format!(".{}", name)) || *k == name)
-                {
-                    // Simple heuristic: if the name matches the end of a known FQN, use it.
-                    // This handles 'Source' -> '...DefaultApplicationArguments.Source'
-                    return TypeRef::Id(fqn.clone());
-                }
-
-                if let Some(fqn) = self
-                    .parser
-                    .resolve_type_name_to_fqn_data(name, package, imports)
-                {
-                    TypeRef::Id(fqn)
-                } else {
-                    TypeRef::Raw(name.clone())
-                }
+        node: tree_sitter::Node,
+        scope_manager: &crate::inference::scope::ScopeManager,
+    ) -> Option<String> {
+        let mut current = node;
+        while let Some(parent) = current.parent() {
+            if let Some(sid) = scope_manager.get_scope_id(parent.id()) {
+                return scope_manager.find_enclosing_class(sid);
             }
-            TypeRef::Generic { base, args } => TypeRef::Generic {
-                base: Box::new(self.resolve_type_ref(base, package, imports, known_fqns)),
-                args: args
-                    .iter()
-                    .map(|a| self.resolve_type_ref(a, package, imports, known_fqns))
-                    .collect(),
-            },
-            TypeRef::Array {
-                element,
-                dimensions,
-            } => TypeRef::Array {
-                element: Box::new(self.resolve_type_ref(element, package, imports, known_fqns)),
-                dimensions: *dimensions,
-            },
-            TypeRef::Wildcard {
-                bound,
-                is_upper_bound,
-            } => TypeRef::Wildcard {
-                bound: bound
-                    .as_ref()
-                    .map(|b| Box::new(self.resolve_type_ref(b, package, imports, known_fqns))),
-                is_upper_bound: *is_upper_bound,
-            },
-            _ => type_ref.clone(),
+            current = parent;
         }
+        None
     }
 
+    /// Resolve a symbol using the new inference-based approach.
     pub fn resolve_symbol_internal(&self, context: &ResolutionContext) -> Option<SymbolResolution> {
-        match self.get_active_scopes(context).into_iter().try_fold(
-            None,
-            |_: Option<SymbolResolution>, scope: Box<dyn Scope>| match scope
-                .resolve(&context.name, context)
-            {
-                Some(Ok(res)) => ControlFlow::Break(Some(res)),
-                Some(Err(())) => ControlFlow::Break(None),
-                None => ControlFlow::Continue(None),
-            },
-        ) {
-            ControlFlow::Break(res) => res,
-            ControlFlow::Continue(_) => None,
-        }
-    }
-}
+        let ts = CodeGraphTypeSystem::new(context.index);
 
-impl SemanticResolver for JavaResolver {
-    fn resolve_at(
-        &self,
-        tree: &Tree,
-        source: &str,
-        line: usize,
-        byte_col: usize,
-        index: &dyn CodeGraph,
-    ) -> Option<SymbolResolution> {
-        let point = tree_sitter::Point::new(line, byte_col);
-        let node = tree
-            .root_node()
-            .named_descendant_for_point_range(point, point)
-            .filter(|n| {
-                matches!(
-                    n.kind(),
-                    "identifier" | "type_identifier" | "scoped_identifier" | "this"
-                )
-            })?;
+        // Extract package from tree
+        let (package, imports) = self
+            .parser
+            .extract_package_and_imports(context.tree, context.source);
 
-        let name = node.utf8_text(source.as_bytes()).ok()?.to_string();
-        let context = ResolutionContext::new(node, name, index, source, tree, &self.parser);
+        // Build inference context
+        // Initialize ScopeManager for efficient local variable lookup
+        let mut scope_manager = crate::inference::scope::ScopeManager::new();
 
-        self.resolve_symbol_internal(&context)
-    }
+        // Create context with populated scopes
+        // We scan the entire tree to build the scope table
+        let mut infer_ctx = crate::inference::create_inference_context(
+            &context.tree.root_node(),
+            context.source,
+            &ts,
+            &mut scope_manager,
+            package.clone(),
+            imports.clone(),
+        );
 
-    fn find_matches(&self, index: &dyn CodeGraph, resolution: &SymbolResolution) -> Vec<FqnId> {
-        match resolution {
-            SymbolResolution::Local(_, _) => vec![],
-            SymbolResolution::Precise(fqn, _intent) => index.resolve_fqn(fqn),
-            SymbolResolution::Global(fqn) => index.resolve_fqn(fqn),
-        }
-    }
-
-    fn resolve_type_of(
-        &self,
-        index: &dyn CodeGraph,
-        resolution: &SymbolResolution,
-    ) -> Vec<SymbolResolution> {
-        // Reuse original logic
-        let mut type_resolutions = Vec::new();
-
-        match resolution {
-            SymbolResolution::Local(_, type_name) => {
-                if let Some(tn) = type_name {
-                    if let Some(fqn) = self.parser.resolve_type_name_to_fqn_data(tn, None, &[]) {
-                        type_resolutions.push(SymbolResolution::Precise(fqn, SymbolIntent::Type));
-                    }
-                }
-            }
-            SymbolResolution::Precise(fqn, intent) => {
-                let fids = index.resolve_fqn(fqn);
-                for fid in fids {
-                    if let Some(node) = index.get_node(fid) {
-                        if let Some(java_meta) =
-                            node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
-                        {
-                            match java_meta {
-                                JavaNodeMetadata::Field { type_ref, .. } => match type_ref {
-                                    TypeRef::Raw(s) => type_resolutions.push(
-                                        SymbolResolution::Precise(s.clone(), SymbolIntent::Type),
-                                    ),
-                                    TypeRef::Id(id) => type_resolutions.push(
-                                        SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
-                                    ),
-                                    _ => {}
-                                },
-                                JavaNodeMetadata::Method { return_type, .. } => match return_type {
-                                    TypeRef::Raw(s) => type_resolutions.push(
-                                        SymbolResolution::Precise(s.clone(), SymbolIntent::Type),
-                                    ),
-                                    TypeRef::Id(id) => type_resolutions.push(
-                                        SymbolResolution::Precise(id.clone(), SymbolIntent::Type),
-                                    ),
-                                    _ => {}
-                                },
-                                _ => {
-                                    if matches_intent(&node.kind, SymbolIntent::Type) {
-                                        type_resolutions.push(resolution.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if type_resolutions.is_empty() && *intent == SymbolIntent::Type {
-                    type_resolutions.push(resolution.clone());
-                }
-            }
-            SymbolResolution::Global(fqn) => {
-                let fids = index.resolve_fqn(fqn);
-                for fid in fids {
-                    if let Some(node) = index.get_node(fid) {
-                        if matches_intent(&node.kind, SymbolIntent::Type) {
-                            type_resolutions.push(resolution.clone());
-                        }
-                    }
-                }
-            }
-        }
-        type_resolutions
-    }
-
-    fn find_implementations(
-        &self,
-        index: &dyn CodeGraph,
-        resolution: &SymbolResolution,
-    ) -> Vec<FqnId> {
-        let target_nodes = self.find_matches(index, resolution);
-        let mut results = Vec::new();
-
-        for &node_id in &target_nodes {
-            let node = match index.get_node(node_id) {
-                Some(n) => n,
-                None => continue,
-            };
-
-            // Check if it's a method
-            let is_method = if let Some(java_meta) =
-                node.metadata.as_any().downcast_ref::<JavaNodeMetadata>()
-            {
-                matches!(java_meta, JavaNodeMetadata::Method { .. })
-            } else {
-                false
-            };
-
-            if is_method {
-                // 1. Find the enclosing class/interface
-                let parents = index.get_neighbors(
-                    node_id,
-                    naviscope_plugin::Direction::Incoming,
-                    Some(EdgeType::Contains),
-                );
-                for parent_id in parents {
-                    // 2. Find all implementations of this parent
-                    use naviscope_plugin::NamingConvention;
-                    let parent_fqn =
-                        crate::naming::JavaNamingConvention.render_fqn(parent_id, index.fqns());
-                    let parent_res = SymbolResolution::Precise(parent_fqn, SymbolIntent::Type);
-                    let impl_classes = self.find_implementations(index, &parent_res);
-
-                    // 3. For each impl class, find a method with same name
-                    for impl_class_id in impl_classes {
-                        let children = index.get_neighbors(
-                            impl_class_id,
-                            naviscope_plugin::Direction::Outgoing,
-                            Some(EdgeType::Contains),
-                        );
-                        for child_id in children {
-                            if let Some(child_node) = index.get_node(child_id) {
-                                let is_child_method = if let Some(java_meta) = child_node
-                                    .metadata
-                                    .as_any()
-                                    .downcast_ref::<JavaNodeMetadata>()
-                                {
-                                    matches!(java_meta, JavaNodeMetadata::Method { .. })
-                                } else {
-                                    false
-                                };
-                                if is_child_method && child_node.name == node.name {
-                                    results.push(child_id);
-                                }
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-
-            results.extend(index.get_neighbors(
-                node_id,
-                naviscope_plugin::Direction::Incoming,
-                Some(EdgeType::Implements),
-            ));
-            results.extend(index.get_neighbors(
-                node_id,
-                naviscope_plugin::Direction::Incoming,
-                Some(EdgeType::InheritsFrom),
-            ));
-        }
-        results
-    }
-}
-
-impl LangResolver for JavaResolver {
-    fn resolve(
-        &self,
-        file: &ParsedFile,
-        context: &ProjectContext,
-    ) -> std::result::Result<ResolvedUnit, Box<dyn std::error::Error + Send + Sync>> {
-        let mut unit = ResolvedUnit::new();
-        let dummy_index = naviscope_plugin::EmptyCodeGraph;
-
-        let parse_result_owned;
-        let parse_result = match &file.content {
-            ParsedContent::Language(res) => res,
-            ParsedContent::Unparsed(src) => {
-                if file.path().extension().map_or(false, |e| e == "java") {
-                    // use IndexParser from JavaParser
-                    parse_result_owned = self.parser.parse_file(src, Some(&file.file.path))?;
-                    &parse_result_owned
-                } else {
-                    return Ok(unit);
-                }
-            }
-            ParsedContent::Lazy => {
-                if file.path().extension().map_or(false, |e| e == "java") {
-                    let src = std::fs::read_to_string(file.path()).map_err(|e| {
-                        format!("Failed to read file {}: {}", file.path().display(), e)
-                    })?;
-                    // use IndexParser from JavaParser
-                    parse_result_owned = self.parser.parse_file(&src, Some(&file.file.path))?;
-                    &parse_result_owned
-                } else {
-                    return Ok(unit);
-                }
-            }
-            _ => return Ok(unit),
+        // Add enclosing class if available from context, OR infer from AST via ScopeManager
+        let enclosing_fqn = if let Some(class) = context.enclosing_classes.first() {
+            Some(class.clone())
+        } else {
+            infer_ctx
+                .scope_manager
+                .and_then(|sm| self.find_enclosing_class_via_scope(context.node, sm))
         };
 
-        {
-            // Scope for usage of parse_result
-            unit.identifiers = parse_result.output.identifiers.clone();
-            unit.ops.push(GraphOp::UpdateIdentifiers {
-                path: Arc::from(file.file.path.as_path()),
-                identifiers: unit.identifiers.clone(),
-            });
+        if let Some(fqn) = enclosing_fqn {
+            infer_ctx = infer_ctx.with_enclosing_class(fqn);
+        }
 
-            let module_id = context
-                .find_module_for_path(&file.file.path)
-                .unwrap_or_else(|| "module::root".to_string());
-
-            let container_id = if let Some(pkg_name) = &parse_result.package_name {
-                let package_parts: Vec<_> = pkg_name
-                    .split('.')
-                    .map(|s| {
-                        (
-                            naviscope_api::models::graph::NodeKind::Package,
-                            s.to_string(),
-                        )
-                    })
-                    .collect();
-                let package_id = naviscope_api::models::symbol::NodeId::Structured(package_parts);
-
-                let package_node = IndexNode {
-                    id: package_id.clone(),
-                    name: pkg_name.to_string(),
-                    kind: NodeKind::Package,
-                    lang: "java".to_string(),
-                    source: naviscope_api::models::graph::NodeSource::Project,
-                    status: naviscope_api::models::graph::ResolutionStatus::Resolved,
-                    location: None,
-                    metadata: Arc::new(crate::model::JavaIndexMetadata::Package),
-                };
-
-                unit.add_node(package_node);
-
-                unit.add_edge(
-                    module_id.clone().into(),
-                    package_id.clone(),
-                    GraphEdge::new(EdgeType::Contains),
-                );
-
-                package_id
-            } else {
-                // For default package, we might want to use a semantic "default package" node
-                // or just attach to module.
-                // For now, attaching to module seems safer to avoid colliding all default packages.
-                // But this means default package classes might be harder to find via clean FQN if module_id is weird.
-                module_id.into()
-            };
-
-            let mut known_types = std::collections::HashSet::<String>::new();
-            let mut local_type_map = std::collections::HashMap::<String, String>::new();
-
-            for node in &parse_result.output.nodes {
-                if matches!(
-                    node.kind,
-                    NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
-                ) {
-                    known_types.insert(node.id.to_string());
-                }
-            }
-
-            for node in &parse_result.output.nodes {
-                let mut node = node.clone();
-
-                if let Some(java_idx_meta) = node
-                    .metadata
-                    .as_any()
-                    .downcast_ref::<crate::model::JavaIndexMetadata>()
-                {
-                    let mut element = java_idx_meta.clone();
-
-                    match &mut element {
-                        JavaIndexMetadata::Method {
-                            return_type,
-                            parameters,
-                            ..
-                        } => {
-                            *return_type = self.resolve_type_ref(
-                                return_type,
-                                parse_result.package_name.as_deref(),
-                                &parse_result.imports,
-                                &known_types,
+        // 1. If this identifier is a declaration's name, resolve to that declaration's FQN
+        if let Some(parent) = context.node.parent() {
+            // Check if this node is the 'name' of a method_declaration or class_declaration
+            if parent.child_by_field_name("name") == Some(context.node) {
+                match parent.kind() {
+                    "method_declaration" | "constructor_declaration" => {
+                        // Build method FQN using canonical member separator
+                        if let Some(ref enclosing) = infer_ctx.enclosing_class {
+                            let method_fqn = crate::naming::JavaNamingConvention::build_member_fqn(
+                                enclosing,
+                                &context.name,
                             );
-                            for param in parameters {
-                                param.type_ref = self.resolve_type_ref(
-                                    &param.type_ref,
-                                    parse_result.package_name.as_deref(),
-                                    &parse_result.imports,
-                                    &known_types,
-                                );
-                                if let TypeRef::Id(type_fqn) = &param.type_ref {
-                                    local_type_map.insert(node.name.clone(), type_fqn.clone());
+                            return Some(SymbolResolution::Precise(
+                                method_fqn,
+                                naviscope_api::models::SymbolIntent::Method,
+                            ));
+                        }
+                    }
+                    "class_declaration" | "interface_declaration" | "enum_declaration" => {
+                        // Build class FQN
+                        let res_ctx = infer_ctx.to_resolution_context();
+                        if let Some(fqn) = infer_ctx.ts.resolve_type_name(&context.name, &res_ctx) {
+                            return Some(SymbolResolution::Precise(
+                                fqn,
+                                naviscope_api::models::SymbolIntent::Type,
+                            ));
+                        }
+                    }
+                    "variable_declarator" => {
+                        // Check if this is a class field (parent's parent is field_declaration)
+                        // or a local variable (parent's parent is local_variable_declaration)
+                        if let Some(grandparent) = parent.parent() {
+                            if grandparent.kind() == "field_declaration" {
+                                // Build field FQN using canonical member separator
+                                if let Some(ref enclosing) = infer_ctx.enclosing_class {
+                                    let field_fqn =
+                                        crate::naming::JavaNamingConvention::build_member_fqn(
+                                            enclosing,
+                                            &context.name,
+                                        );
+                                    return Some(SymbolResolution::Precise(
+                                        field_fqn,
+                                        naviscope_api::models::SymbolIntent::Field,
+                                    ));
                                 }
                             }
-                        }
-                        JavaIndexMetadata::Field { type_ref, .. } => {
-                            *type_ref = self.resolve_type_ref(
-                                type_ref,
-                                parse_result.package_name.as_deref(),
-                                &parse_result.imports,
-                                &known_types,
-                            );
-                            if let TypeRef::Id(type_fqn) = &type_ref {
-                                local_type_map.insert(node.name.clone(), type_fqn.clone());
-                            }
-                        }
-                        _ => {}
-                    }
-                    node.metadata = Arc::new(element);
-                }
-
-                let is_top = matches!(
-                    node.kind,
-                    NodeKind::Class | NodeKind::Interface | NodeKind::Enum | NodeKind::Annotation
-                );
-
-                unit.add_node(node.clone());
-                if is_top {
-                    unit.add_edge(
-                        container_id.clone().into(),
-                        node.id.clone(),
-                        GraphEdge::new(EdgeType::Contains),
-                    );
-                }
-            }
-
-            for rel in &parse_result.output.relations {
-                let mut resolved_target_str = rel.target_id.to_string();
-
-                if let (Some(tree), Some(source)) = (&parse_result.tree, &parse_result.source) {
-                    if let Some(r) = &rel.range {
-                        let point = tree_sitter::Point::new(r.start_line, r.start_col);
-                        if let Some(node) = tree
-                            .root_node()
-                            .named_descendant_for_point_range(point, point)
-                        {
-                            let context = ResolutionContext::new_with_unit(
-                                node,
-                                rel.target_id.to_string(),
-                                &dummy_index,
-                                Some(&unit),
-                                source,
-                                tree,
-                                &self.parser,
-                            );
-
-                            if let Some(SymbolResolution::Precise(fqn, _)) =
-                                self.resolve_symbol_internal(&context)
-                            {
-                                resolved_target_str = fqn;
-                            } else {
-                                // ... Fallbacks ...
-                                if !resolved_target_str.contains('.') {
-                                    if let Some(res) = self.parser.resolve_type_name_to_fqn_data(
-                                        &resolved_target_str,
-                                        parse_result.package_name.as_deref(),
-                                        &parse_result.imports,
-                                    ) {
-                                        resolved_target_str = res;
-                                    }
-                                }
-                            }
+                            // For local_variable_declaration, fall through to local variable handling
                         }
                     }
+                    _ => {}
                 }
-
-                let edge = GraphEdge::new(rel.edge_type.clone());
-
-                // Optimization: If the resolved string matches the original target ID string,
-                // trust the original ID IF it is Structured (which preserves metadata from parser).
-                if resolved_target_str == rel.target_id.to_string()
-                    && matches!(
-                        rel.target_id,
-                        naviscope_api::models::symbol::NodeId::Structured(_)
-                    )
-                {
-                    unit.add_edge(rel.source_id.clone(), rel.target_id.clone(), edge);
-                    continue;
-                }
-
-                // Try to reconstruct a Structured ID to match the graph nodes
-                let segments: Vec<&str> = resolved_target_str
-                    .split(|c| c == '.' || c == '#')
-                    .collect();
-                let mut structured_parts: Vec<(naviscope_api::models::graph::NodeKind, String)> =
-                    Vec::new();
-
-                for (i, part) in segments.iter().enumerate() {
-                    let mut found_kind = naviscope_api::models::graph::NodeKind::Package;
-                    let is_last = i == segments.len() - 1;
-
-                    // Probe kinds in unit.nodes
-                    let candidates = [
-                        naviscope_api::models::graph::NodeKind::Class,
-                        naviscope_api::models::graph::NodeKind::Interface,
-                        naviscope_api::models::graph::NodeKind::Enum,
-                        naviscope_api::models::graph::NodeKind::Annotation,
-                        naviscope_api::models::graph::NodeKind::Method,
-                        naviscope_api::models::graph::NodeKind::Field,
-                        naviscope_api::models::graph::NodeKind::Constructor,
-                    ];
-
-                    let mut matched = false;
-                    for k in &candidates {
-                        let mut probe_parts = structured_parts.clone();
-                        probe_parts.push((k.clone(), part.to_string()));
-                        let id = naviscope_api::models::symbol::NodeId::Structured(probe_parts);
-                        if unit.nodes.contains_key(&id) {
-                            found_kind = k.clone();
-                            matched = true;
-                            break;
-                        }
-                    }
-
-                    if !matched {
-                        if is_last {
-                            // Heuristics for last part if not found
-                            // NOTE: We now use Class for all Type IDs in Java for stability
-                            if rel.edge_type == EdgeType::Implements
-                                || rel.edge_type == EdgeType::InheritsFrom
-                                || rel.edge_type == EdgeType::TypedAs
-                                || rel.edge_type == EdgeType::DecoratedBy
-                            {
-                                found_kind = naviscope_api::models::graph::NodeKind::Class;
-                            } else if part.chars().next().map_or(false, |c| c.is_uppercase()) {
-                                found_kind = naviscope_api::models::graph::NodeKind::Class;
-                            }
-                        } else if part.chars().next().map_or(false, |c| c.is_uppercase()) {
-                            // Not last, but uppercase? Handle inner classes / enclosing classes correctly
-                            found_kind = naviscope_api::models::graph::NodeKind::Class;
-                        } else {
-                            found_kind = naviscope_api::models::graph::NodeKind::Package;
-                        }
-                    }
-
-                    structured_parts.push((found_kind, part.to_string()));
-                }
-
-                let final_target_id =
-                    naviscope_api::models::symbol::NodeId::Structured(structured_parts);
-
-                unit.add_edge(rel.source_id.clone(), final_target_id, edge);
             }
         }
 
-        Ok(unit)
+        // 2. Handle 'this' specifically
+        if context.node.kind() == "this" {
+            if let Some(enclosing) = &infer_ctx.enclosing_class {
+                return Some(SymbolResolution::Precise(
+                    enclosing.clone(),
+                    naviscope_api::models::SymbolIntent::Type,
+                ));
+            }
+        }
+
+        // 2.5. Check for local variable references (returns Local resolution)
+        if context.node.kind() == "identifier" {
+            if let Some(sm) = infer_ctx.scope_manager {
+                // Walk up to find the nearest scope
+                let mut current = context.node;
+                let mut start_scope_id = None;
+                while let Some(parent) = current.parent() {
+                    if let Some(sid) = sm.get_scope_id(parent.id()) {
+                        start_scope_id = Some(sid);
+                        break;
+                    }
+                    current = parent;
+                }
+
+                if let Some(sid) = start_scope_id {
+                    if let Some(info) = sm.lookup_symbol(sid, &context.name) {
+                        // Ensure declaration is before usage
+                        let usage_point = context.node.start_position();
+                        let decl_line = info.range.start_line;
+                        let decl_col = info.range.start_col;
+
+                        // Compare position (row/line are 0-indexed in TS, assuming Range follows TS or is consistent)
+                        if decl_line < usage_point.row
+                            || (decl_line == usage_point.row && decl_col < usage_point.column)
+                        {
+                            // Extract type name from reference if possible, or stringify the type
+                            // The old find_local_declaration returned Option<String> for type name.
+                            // We have info.type_ref.
+                            let type_name = match &info.type_ref {
+                                TypeRef::Id(id) | TypeRef::Raw(id) => Some(id.clone()),
+                                _ => None, // Complex types might need rendering
+                            };
+                            return Some(SymbolResolution::Local(info.range.clone(), type_name));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Resolve context-sensitive references (Methods, Fields)
+        // If it's a method name identifier, resolve to the method FQN
+        if let Some(parent) = context.node.parent() {
+            if parent.kind() == "method_invocation"
+                && parent.child_by_field_name("name") == Some(context.node)
+            {
+                if let Some(type_ref) =
+                    crate::inference::strategy::MethodCallInfer.infer_member(&parent, &infer_ctx)
+                {
+                    return Some(SymbolResolution::Precise(type_ref, context.intent));
+                }
+            }
+            if parent.kind() == "field_access"
+                && parent.child_by_field_name("field") == Some(context.node)
+            {
+                if let Some(type_ref) =
+                    crate::inference::strategy::FieldAccessInfer.infer_member(&parent, &infer_ctx)
+                {
+                    return Some(SymbolResolution::Precise(type_ref, context.intent));
+                }
+            }
+        }
+
+        // 4. Main inference path for everything else
+        if let Some(type_ref) =
+            crate::inference::strategy::infer_expression(&context.node, &infer_ctx)
+        {
+            if let TypeRef::Id(fqn) = &type_ref {
+                return Some(SymbolResolution::Precise(fqn.clone(), context.intent));
+            }
+        }
+
+        None
     }
 }
