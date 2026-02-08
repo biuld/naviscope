@@ -84,7 +84,7 @@ impl JavaResolver {
                     "method_declaration" | "constructor_declaration" => {
                         // Build method FQN using canonical member separator
                         if let Some(ref enclosing) = infer_ctx.enclosing_class {
-                            let method_fqn = crate::naming::JavaNamingConvention::build_member_fqn(
+                            let method_fqn = crate::naming::build_member_fqn(
                                 enclosing,
                                 &context.name,
                             );
@@ -112,7 +112,7 @@ impl JavaResolver {
                                 // Build field FQN using canonical member separator
                                 if let Some(ref enclosing) = infer_ctx.enclosing_class {
                                     let field_fqn =
-                                        crate::naming::JavaNamingConvention::build_member_fqn(
+                                        crate::naming::build_member_fqn(
                                             enclosing,
                                             &context.name,
                                         );

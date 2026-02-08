@@ -30,7 +30,7 @@ pub struct JavaPlugin {
 impl NodeAdapter for JavaPlugin {
     fn render_display_node(&self, node: &GraphNode, fqns: &dyn FqnReader) -> DisplayGraphNode {
         let mut display = DisplayGraphNode {
-            id: crate::naming::JavaNamingConvention.render_fqn(node.id, fqns),
+            id: crate::naming::JavaNamingConvention::default().render_fqn(node.id, fqns),
             name: fqns.resolve_atom(node.name).to_string(),
             kind: node.kind.clone(),
             lang: "java".to_string(),
@@ -256,7 +256,7 @@ impl JavaPlugin {
 
 impl PluginInstance for JavaPlugin {
     fn get_naming_convention(&self) -> Option<Arc<dyn naviscope_plugin::NamingConvention>> {
-        Some(Arc::new(crate::naming::JavaNamingConvention))
+        Some(Arc::new(crate::naming::JavaNamingConvention::default()))
     }
 
     fn get_node_adapter(&self) -> Option<Arc<dyn NodeAdapter>> {

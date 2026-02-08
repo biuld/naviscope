@@ -19,7 +19,7 @@ pub fn setup_java_test_graph(
     let mut builder = CodeGraphBuilder::new();
     builder.naming_conventions.insert(
         Language::JAVA,
-        Arc::new(naviscope_java::naming::JavaNamingConvention),
+        Arc::new(naviscope_java::naming::JavaNamingConvention::default()),
     );
     let mut parsed_files = Vec::new();
     let java_parser = JavaParser::new().unwrap();

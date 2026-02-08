@@ -55,7 +55,7 @@ impl NodeAdapter for MockPlugin {
         node: &naviscope_api::models::graph::GraphNode,
         rodeo: &dyn naviscope_api::models::symbol::FqnReader,
     ) -> DisplayGraphNode {
-        let display_id = naviscope_plugin::DotPathConvention.render_fqn(node.id, rodeo);
+        let display_id = naviscope_plugin::StandardNamingConvention.render_fqn(node.id, rodeo);
         let mut display = DisplayGraphNode {
             id: display_id,
             name: rodeo.resolve_atom(node.name).to_string(),

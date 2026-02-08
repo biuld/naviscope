@@ -37,6 +37,13 @@ public class App {
 
     let handle = setup_java_engine(&temp_dir, files).await;
     let graph = handle.graph().await;
+
+    // Demonstrate registering a convention (even if default is already Standard)
+    // This verifies the API is accessible and working.
+    graph.register_naming_convention(Box::new(
+        naviscope_plugin::StandardNamingConvention::default(),
+    ));
+
     graph.topology(); // Ensure graph is usable
 
     // 1. Resolve 'run' call in App.java (line 6 roughly)

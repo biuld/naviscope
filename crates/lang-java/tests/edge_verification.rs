@@ -15,7 +15,7 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
             use naviscope_plugin::NamingConvention;
             println!(
                 " - {}",
-                naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns())
+                naviscope_plugin::StandardNamingConvention.render_fqn(*id, graph.fqns())
             );
         }
         panic!("Source node not found: {}", from_fqn);
@@ -26,7 +26,7 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
             use naviscope_plugin::NamingConvention;
             println!(
                 " - {}",
-                naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns())
+                naviscope_plugin::StandardNamingConvention.render_fqn(*id, graph.fqns())
             );
         }
         panic!("Target node not found: {}", to_fqn);
@@ -42,7 +42,7 @@ fn assert_edge(graph: &CodeGraph, from_fqn: &str, to_fqn: &str, expected_type: E
             use naviscope_plugin::NamingConvention;
             println!(
                 " - {}",
-                naviscope_plugin::DotPathConvention.render_fqn(*id, graph.fqns())
+                naviscope_plugin::StandardNamingConvention.render_fqn(*id, graph.fqns())
             );
         }
         println!("Edges from {}:", from_fqn);

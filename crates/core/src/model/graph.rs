@@ -59,7 +59,6 @@ pub struct CodeGraphInner {
     /// Reference Index: Token (e.g. Method Name) -> Files that contain this token.
     /// Used for fast "scouting" during reference discovery.
     pub reference_index: HashMap<Symbol, Vec<Symbol>>,
-
 }
 
 /// Metadata and nodes associated with a single source file
@@ -102,6 +101,16 @@ impl CodeGraph {
     /// building/updating the index, not during queries.
     pub fn to_builder(&self) -> CodeGraphBuilder {
         CodeGraphBuilder::from_inner((*self.inner).clone())
+    }
+
+    /// Register a new naming convention for this graph instance.
+    /// This allows plugins to provide language-specific FQN parsing logic.
+    /// Note: This affects global query behavior for this graph instance.
+    pub fn register_naming_convention(
+        &self,
+        convention: Box<dyn naviscope_plugin::NamingConvention>,
+    ) {
+        self.inner.fqns.register_convention(convention);
     }
 
     // ---- Read-only accessors ----
@@ -467,5 +476,4 @@ mod tests {
         assert_eq!(recovered_node.name(symbols), "node");
         assert_eq!(recovered_node.language(symbols).as_str(), "java");
     }
-
 }

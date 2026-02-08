@@ -63,9 +63,7 @@ impl SemanticResolver for JavaResolver {
             SymbolResolution::Precise(fqn, intent) => {
                 // If it's a member (Field/Method), find its type via MemberProvider
                 // Use unified member FQN parsing
-                if let Some((type_fqn, member_name)) =
-                    crate::naming::JavaNamingConvention::parse_member_fqn(fqn)
-                {
+                if let Some((type_fqn, member_name)) = crate::naming::parse_member_fqn(fqn) {
                     if let Some(member) = ts.get_members(type_fqn, member_name).first() {
                         match &member.type_ref {
                             TypeRef::Raw(s) => type_resolutions
@@ -135,8 +133,8 @@ impl SemanticResolver for JavaResolver {
                 for parent_id in parents {
                     // 2. Find all implementations of this parent
                     use naviscope_plugin::NamingConvention;
-                    let parent_fqn =
-                        crate::naming::JavaNamingConvention.render_fqn(parent_id, index.fqns());
+                    let parent_fqn = crate::naming::JavaNamingConvention::default()
+                        .render_fqn(parent_id, index.fqns());
 
                     // 3. Walk all descendants of the parent class
                     for desc_fqn in ts.walk_descendants(&parent_fqn) {
@@ -151,7 +149,8 @@ impl SemanticResolver for JavaResolver {
             }
 
             // For classes/interfaces, get all descendants
-            let fqn = crate::naming::JavaNamingConvention.render_fqn(node_id, index.fqns());
+            let fqn =
+                crate::naming::JavaNamingConvention::default().render_fqn(node_id, index.fqns());
             for desc_fqn in ts.walk_descendants(&fqn) {
                 results.extend(index.resolve_fqn(&desc_fqn));
             }

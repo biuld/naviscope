@@ -10,7 +10,7 @@ use naviscope_api::models::BuildTool;
 use naviscope_api::models::graph::DisplayGraphNode;
 use naviscope_api::models::symbol::FqnReader;
 use naviscope_plugin::{
-    BuildContent, BuildParseResult, BuildToolPlugin, DotPathConvention, NamingConvention,
+    BuildContent, BuildParseResult, BuildToolPlugin, StandardNamingConvention, NamingConvention,
     NodeAdapter, PluginInstance, StorageContext,
 };
 use std::sync::Arc;
@@ -25,7 +25,7 @@ impl NodeAdapter for GradlePlugin {
         node: &naviscope_api::models::graph::GraphNode,
         fqns: &dyn FqnReader,
     ) -> DisplayGraphNode {
-        let display_id = DotPathConvention.render_fqn(node.id, fqns);
+        let display_id = StandardNamingConvention.render_fqn(node.id, fqns);
         let mut display = DisplayGraphNode {
             id: display_id,
             name: fqns.resolve_atom(node.name).to_string(),

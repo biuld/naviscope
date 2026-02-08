@@ -13,6 +13,6 @@ pub use converter::*;
 pub use graph::*;
 pub use interner::*;
 pub use model::*;
-pub use naming::{DotPathConvention, NamingConvention};
+pub use naming::{NamingConvention, StandardNamingConvention};
 pub use plugin::*;
 pub use resolver::*;

@@ -22,7 +22,7 @@ fn cap_structural_nesting() {
         use naviscope_plugin::NamingConvention;
         println!(
             " - {:?}",
-            naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns())
+            naviscope_plugin::StandardNamingConvention.render_fqn(node.id, index.fqns())
         );
     }
 
@@ -71,7 +71,7 @@ fn cap_inheritance_tracking() {
         println!(
             " -> {:?} connection {:?} (Target ID: {:?})",
             edge.edge_type,
-            naviscope_plugin::DotPathConvention.render_fqn(target.id, index.fqns()),
+            naviscope_plugin::StandardNamingConvention.render_fqn(target.id, index.fqns()),
             target.id
         );
     }

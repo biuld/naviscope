@@ -192,7 +192,10 @@ fn test_call_hierarchy_recursion() {
             }
             let node = &index.topology()[c_idx];
             let fqn = index
-                .render_fqn(node, Some(&naviscope_java::naming::JavaNamingConvention))
+                .render_fqn(
+                    node,
+                    Some(&naviscope_java::naming::JavaNamingConvention::default()),
+                )
                 .to_string();
             if !callers.contains(&fqn) {
                 callers.push(fqn);

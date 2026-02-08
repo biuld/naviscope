@@ -75,7 +75,7 @@ impl<'a> CodeGraphTypeSystem<'a> {
         use naviscope_plugin::NamingConvention;
 
         // Use Java naming convention to render FQN
-        JavaNamingConvention.render_fqn(node_id, self.graph.fqns())
+        JavaNamingConvention::default().render_fqn(node_id, self.graph.fqns())
     }
 
     /// Extract parameters from metadata.
@@ -254,8 +254,7 @@ impl<'a> InheritanceProvider for CodeGraphTypeSystem<'a> {
 impl<'a> MemberProvider for CodeGraphTypeSystem<'a> {
     fn get_members(&self, type_fqn: &str, member_name: &str) -> Vec<MemberInfo> {
         // Use unified member FQN format
-        let member_fqn =
-            crate::naming::JavaNamingConvention::build_member_fqn(type_fqn, member_name);
+        let member_fqn = crate::naming::build_member_fqn(type_fqn, member_name);
         let node_ids = self.graph.resolve_fqn(&member_fqn);
         let mut members = Vec::new();
 
@@ -307,7 +306,7 @@ impl<'a> MemberProvider for CodeGraphTypeSystem<'a> {
                     let child_fqn = self.render_fqn_id(child_id);
                     // Extract member name using unified convention
                     // Members always use '#' separator, so this should always succeed
-                    let name = crate::naming::JavaNamingConvention::extract_member_name(&child_fqn)
+                    let name = crate::naming::extract_member_name(&child_fqn)
                         .unwrap_or_else(|| self.graph.fqns().resolve_atom(node.name))
                         .to_string();
 

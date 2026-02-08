@@ -37,7 +37,7 @@ pub trait CodeGraphLike: Send + Sync {
             nc.render_fqn(node.id, self.fqns())
         } else {
             // Fallback to default dot convention
-            naviscope_plugin::DotPathConvention.render_fqn(node.id, self.fqns())
+            naviscope_plugin::StandardNamingConvention.render_fqn(node.id, self.fqns())
         }
     }
 

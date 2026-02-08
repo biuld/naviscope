@@ -92,7 +92,7 @@ fn test_inheritance_and_implementations() {
     assert_eq!(
         {
             use naviscope_plugin::NamingConvention;
-            naviscope_plugin::DotPathConvention.render_fqn(node.id, index.fqns())
+            naviscope_plugin::StandardNamingConvention.render_fqn(node.id, index.fqns())
         },
         "C"
     );
@@ -428,7 +428,7 @@ public class DefaultApplicationArguments {
             use naviscope_plugin::NamingConvention;
             println!(
                 " - {} ({:?})",
-                naviscope_plugin::DotPathConvention.render_fqn(*fqn, index.fqns()),
+                naviscope_plugin::StandardNamingConvention.render_fqn(*fqn, index.fqns()),
                 node.kind()
             );
         }

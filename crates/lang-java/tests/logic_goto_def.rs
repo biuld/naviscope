@@ -65,7 +65,7 @@ fn test_goto_definition_cross_file() {
     assert_eq!(
         index.render_fqn(
             &index.topology()[idx],
-            Some(&naviscope_java::naming::JavaNamingConvention)
+            Some(&naviscope_java::naming::JavaNamingConvention::default())
         ),
         "com.A"
     );
@@ -82,7 +82,7 @@ fn test_goto_definition_cross_file() {
     assert_eq!(
         index.render_fqn(
             &index.topology()[idx],
-            Some(&naviscope_java::naming::JavaNamingConvention)
+            Some(&naviscope_java::naming::JavaNamingConvention::default())
         ),
         "com.A#hello"
     );
@@ -143,7 +143,7 @@ fn test_goto_definition_constructor() {
         index
             .render_fqn(
                 &index.topology()[idx],
-                Some(&naviscope_java::naming::JavaNamingConvention)
+                Some(&naviscope_java::naming::JavaNamingConvention::default())
             )
             .contains("A")
     );
@@ -174,7 +174,7 @@ fn test_goto_definition_static() {
     assert_eq!(
         index.render_fqn(
             &index.topology()[idx],
-            Some(&naviscope_java::naming::JavaNamingConvention)
+            Some(&naviscope_java::naming::JavaNamingConvention::default())
         ),
         "A#VAL"
     );
