@@ -138,7 +138,10 @@ impl LanguagePlugin for MockPlugin {
     fn lang_resolver(&self) -> Arc<dyn LangResolver> {
         self.lang_resolver.clone()
     }
-    fn lsp_parser(&self) -> Arc<dyn LspService> {
+    fn type_system(&self) -> Arc<dyn naviscope_plugin::type_system::TypeSystem> {
+        Arc::new(naviscope_plugin::type_system::NoOpTypeSystem)
+    }
+    fn lsp_service(&self) -> Arc<dyn LspService> {
         Arc::new(MockLspParserWrapper {
             parser: self.lsp_parser.clone(),
         })

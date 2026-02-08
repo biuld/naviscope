@@ -6,6 +6,7 @@ pub mod model;
 pub mod naming;
 pub mod plugin;
 pub mod resolver;
+pub mod type_system;
 pub mod utils;
 
 pub use asset::*;
@@ -16,3 +17,4 @@ pub use model::*;
 pub use naming::{NamingConvention, StandardNamingConvention};
 pub use plugin::*;
 pub use resolver::*;
+pub use type_system::*;

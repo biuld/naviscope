@@ -85,14 +85,16 @@ public class App {
     assert!(impls[0].path.to_string_lossy().contains("Impl.java"));
 
     // 3. Find incoming calls to 'Impl#run'
-    // In this simple case, b.run() is a call to Base#run, so it might not show up for Impl#run unless we have advanced pointer analysis
+    // With TypeSystem integration, searching for an implementation should find
+    // calls to the base method as well.
     let calls = handle
         .find_incoming_calls("com.example.Impl#run")
         .await
         .unwrap();
-    assert!(
-        calls.is_empty(),
-        "Direct lookup of Impl#run should be empty if only Base#run is called"
+    assert_eq!(
+        calls.len(),
+        1,
+        "Lookup of Impl#run should find the call via Base type"
     );
 
     // 4. Find incoming calls to 'Base#run'

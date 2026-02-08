@@ -63,7 +63,17 @@ impl IndexResolver {
         self.lang_plugins
             .iter()
             .find(|p| p.name() == language)
-            .map(|p| p.lsp_parser())
+            .map(|p| p.lsp_service())
+    }
+
+    pub fn get_type_system(
+        &self,
+        language: Language,
+    ) -> Option<Arc<dyn naviscope_plugin::type_system::TypeSystem>> {
+        self.lang_plugins
+            .iter()
+            .find(|p| p.name() == language)
+            .map(|p| p.type_system())
     }
 
     pub fn get_node_adapter(

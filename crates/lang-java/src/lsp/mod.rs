@@ -1,5 +1,6 @@
 mod references;
 mod symbols;
+pub mod type_system;
 
 use crate::parser::JavaParser;
 use naviscope_api::models::SymbolResolution;
@@ -48,6 +49,9 @@ impl LspService for JavaLspService {
         tree: &Tree,
         target: &SymbolResolution,
     ) -> Vec<naviscope_api::models::symbol::Range> {
+        // In the fast syntactic path, we don't strictly need the full type system,
+        // but we could use it for early filtering if needed.
+        // For now, we perform the syntactic scan.
         references::find_occurrences(&self.parser, source, tree, target)
     }
 }

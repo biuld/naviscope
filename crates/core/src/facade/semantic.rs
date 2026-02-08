@@ -31,13 +31,8 @@ impl SymbolNavigator for EngineHandle {
             PathBuf::from(uri_str)
         };
 
-        let (lsp_service, lang) = match self.get_lsp_service_and_lang_for_path(&path) {
+        let (lsp_service, _type_system, resolver, _lang) = match self.get_services_for_path(&path) {
             Some(x) => x,
-            None => return Ok(None),
-        };
-
-        let resolver = match self.get_semantic_resolver(lang.clone()) {
-            Some(r) => r,
             None => return Ok(None),
         };
 
@@ -66,7 +61,7 @@ impl SymbolNavigator for EngineHandle {
             PathBuf::from(uri_str)
         };
 
-        let (lsp_service, _) = match self.get_lsp_service_and_lang_for_path(&path) {
+        let (lsp_service, _type_system, _resolver, _) = match self.get_services_for_path(&path) {
             Some(x) => x,
             None => return Ok(vec![]),
         };
@@ -190,7 +185,13 @@ impl ReferenceAnalyzer for EngineHandle {
         };
         let graph = self.graph().await;
 
-        let matches = resolver.find_matches(&graph, &query.resolution);
+        let mut matches = resolver.find_matches(&graph, &query.resolution);
+
+        // If searching for a method/class, also include implementations as "matches"
+        // for the purpose of filtering declarations.
+        let impls = resolver.find_implementations(&graph, &query.resolution);
+        matches.extend(impls);
+
         let match_indices: Vec<_> = matches
             .iter()
             .filter_map(|id| graph.fqn_map().get(id).copied())
@@ -209,16 +210,11 @@ impl ReferenceAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (lsp_service, file_lang) = match handle.get_lsp_service_and_lang_for_path(&path)
-                {
-                    Some(x) => x,
-                    None => return Vec::new(),
-                };
-
-                let file_resolver = match handle.get_semantic_resolver(file_lang) {
-                    Some(r) => r,
-                    None => return Vec::new(),
-                };
+                let (lsp_service, type_system, file_resolver, _file_lang) =
+                    match handle.get_services_for_path(&path) {
+                        Some(x) => x,
+                        None => return Vec::new(),
+                    };
 
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -235,6 +231,7 @@ impl ReferenceAnalyzer for EngineHandle {
 
                 let locations = discovery.scan_file(
                     lsp_service.as_ref(),
+                    type_system.as_ref(),
                     file_resolver.as_ref(),
                     &content,
                     &resolution,
@@ -309,9 +306,34 @@ impl CallHierarchyAnalyzer for EngineHandle {
         fqn: &str,
     ) -> SemanticResult<Vec<CallHierarchyIncomingCall>> {
         let graph = self.graph().await;
-        let target_indices = graph.find_matches_by_fqn(fqn);
+        let mut target_indices = graph.find_matches_by_fqn(fqn);
+
         if target_indices.is_empty() {
             return Ok(vec![]);
+        }
+
+        // 2. Identify unique languages from the found nodes to expand potential implementation targets
+        let mut unique_langs = std::collections::HashSet::new();
+        for &idx in &target_indices {
+            let lang_symbol = graph.topology()[idx].lang.0;
+            unique_langs.insert(graph.symbols().resolve(&lang_symbol).to_string());
+        }
+
+        // 3. For each language, find implementations to avoid them being counted
+        // as callers when they are actually override sites.
+        let resolution = SymbolResolution::Global(fqn.to_string());
+        for lang_str in unique_langs {
+            let language = Language::new(lang_str);
+            if let Some(resolver) = self.get_semantic_resolver(language) {
+                let impls = resolver.find_implementations(&graph, &resolution);
+                for impl_id in impls {
+                    if let Some(&node_idx) = graph.fqn_map().get(&impl_id) {
+                        if !target_indices.contains(&node_idx) {
+                            target_indices.push(node_idx);
+                        }
+                    }
+                }
+            }
         }
 
         // 1. Meso-level scouting for candidate files
@@ -331,16 +353,11 @@ impl CallHierarchyAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (lsp_service, file_lang) = match handle.get_lsp_service_and_lang_for_path(&path)
-                {
-                    Some(x) => x,
-                    None => return vec![],
-                };
-
-                let file_resolver = match handle.get_semantic_resolver(file_lang) {
-                    Some(r) => r,
-                    None => return vec![],
-                };
+                let (lsp_service, type_system, file_resolver, _file_lang) =
+                    match handle.get_services_for_path(&path) {
+                        Some(x) => x,
+                        None => return vec![],
+                    };
 
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -357,6 +374,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
                 // Verification
                 discovery.scan_file(
                     lsp_service.as_ref(),
+                    type_system.as_ref(),
                     file_resolver.as_ref(),
                     &content,
                     &res,
@@ -446,12 +464,9 @@ impl CallHierarchyAnalyzer for EngineHandle {
             .range()
             .ok_or_else(|| SemanticError::Internal("Node has no range".into()))?;
 
-        let (lsp_service, lang) = self
-            .get_lsp_service_and_lang_for_path(&path)
-            .ok_or_else(|| SemanticError::Internal("No parser for file".into()))?;
-        let resolver = self
-            .get_semantic_resolver(lang)
-            .ok_or_else(|| SemanticError::Internal("No resolver for file".into()))?;
+        let (lsp_service, _type_system, resolver, _lang) = self
+            .get_services_for_path(&path)
+            .ok_or_else(|| SemanticError::Internal("No services for file".into()))?;
 
         let content =
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
@@ -555,7 +570,8 @@ impl SymbolInfoProvider for EngineHandle {
             PathBuf::from(uri)
         };
 
-        let (lsp_service, _lang) = match self.get_lsp_service_and_lang_for_path(&path) {
+        let (lsp_service, _type_system, _resolver, _lang) = match self.get_services_for_path(&path)
+        {
             Some(x) => x,
             None => return Ok(vec![]),
         };

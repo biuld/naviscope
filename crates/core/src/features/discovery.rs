@@ -149,6 +149,7 @@ impl<'a> DiscoveryEngine<'a> {
     pub fn scan_file(
         &self,
         lsp_service: &dyn LspService,
+        type_system: &dyn naviscope_plugin::TypeSystem,
         resolver: &dyn crate::ingest::resolver::SemanticResolver,
         source: &str,
         target_resolution: &SymbolResolution,
@@ -170,23 +171,12 @@ impl<'a> DiscoveryEngine<'a> {
                     range.start_col,
                     self.index.as_plugin_graph(),
                 ) {
-                    // 3. Identity Check (Lenient)
-                    let matched = match (&resolved_at_loc, target_resolution) {
-                        (SymbolResolution::Local(r1, _), SymbolResolution::Local(r2, _)) => {
-                            r1 == r2
-                        }
-                        _ => {
-                            if let (Some(f1), Some(f2)) =
-                                (resolved_at_loc.fqn(), target_resolution.fqn())
-                            {
-                                f1 == f2
-                            } else {
-                                false
-                            }
-                        }
-                    };
-
-                    if matched {
+                    // 3. Identity & Inheritance Check via TypeSystem
+                    if type_system.is_reference_to(
+                        self.index.as_plugin_graph(),
+                        &resolved_at_loc,
+                        target_resolution,
+                    ) {
                         valid_locations.push(Location {
                             uri: uri.clone(),
                             range: lsp_types::Range {

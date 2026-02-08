@@ -25,6 +25,7 @@ use std::sync::Arc;
 pub struct JavaPlugin {
     parser: Arc<parser::JavaParser>,
     resolver: Arc<resolver::JavaResolver>,
+    type_system: Arc<lsp::type_system::JavaTypeSystem>,
 }
 
 impl NodeAdapter for JavaPlugin {
@@ -250,7 +251,12 @@ impl JavaPlugin {
         let resolver = Arc::new(resolver::JavaResolver {
             parser: (*parser).clone(),
         });
-        Ok(Self { parser, resolver })
+        let type_system = Arc::new(lsp::type_system::JavaTypeSystem::new());
+        Ok(Self {
+            parser,
+            resolver,
+            type_system,
+        })
     }
 }
 
@@ -285,11 +291,15 @@ impl LanguagePlugin for JavaPlugin {
         self.resolver.clone()
     }
 
+    fn type_system(&self) -> Arc<dyn naviscope_plugin::type_system::TypeSystem> {
+        self.type_system.clone()
+    }
+
     fn lang_resolver(&self) -> Arc<dyn LangResolver> {
         self.resolver.clone()
     }
 
-    fn lsp_parser(&self) -> Arc<dyn LspService> {
+    fn lsp_service(&self) -> Arc<dyn LspService> {
         Arc::new(crate::lsp::JavaLspService::new(self.parser.clone()))
     }
 

@@ -84,10 +84,8 @@ impl JavaResolver {
                     "method_declaration" | "constructor_declaration" => {
                         // Build method FQN using canonical member separator
                         if let Some(ref enclosing) = infer_ctx.enclosing_class {
-                            let method_fqn = crate::naming::build_member_fqn(
-                                enclosing,
-                                &context.name,
-                            );
+                            let method_fqn =
+                                crate::naming::build_member_fqn(enclosing, &context.name);
                             return Some(SymbolResolution::Precise(
                                 method_fqn,
                                 naviscope_api::models::SymbolIntent::Method,
@@ -112,10 +110,7 @@ impl JavaResolver {
                                 // Build field FQN using canonical member separator
                                 if let Some(ref enclosing) = infer_ctx.enclosing_class {
                                     let field_fqn =
-                                        crate::naming::build_member_fqn(
-                                            enclosing,
-                                            &context.name,
-                                        );
+                                        crate::naming::build_member_fqn(enclosing, &context.name);
                                     return Some(SymbolResolution::Precise(
                                         field_fqn,
                                         naviscope_api::models::SymbolIntent::Field,

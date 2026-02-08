@@ -79,11 +79,14 @@ pub trait LanguagePlugin: PluginInstance + Send + Sync {
     /// Get the semantic resolver for this language
     fn resolver(&self) -> Arc<dyn SemanticResolver>;
 
+    /// Get the type system for this language
+    fn type_system(&self) -> Arc<dyn crate::type_system::TypeSystem>;
+
     /// Get the language-level resolver for graph builds
     fn lang_resolver(&self) -> Arc<dyn LangResolver>;
 
     /// Get the LSP parser for this language
-    fn lsp_parser(&self) -> Arc<dyn LspService>;
+    fn lsp_service(&self) -> Arc<dyn LspService>;
 
     /// Get the external resolver for classpath resolution (Phase 2+)
     fn external_resolver(&self) -> Option<Arc<dyn crate::resolver::ExternalResolver>> {
