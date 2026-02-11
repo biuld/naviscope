@@ -173,12 +173,5 @@ impl StubRequest {
     }
 }
 
-/// Stub request sender (producer side)
-pub trait StubRequestSender: Send + Sync {
-    fn send(&self, request: StubRequest);
-}
-
-/// Stub request receiver (consumer side)
-pub trait StubRequestReceiver: Send {
-    fn recv(&mut self) -> Option<StubRequest>;
-}
+pub type StubRequestSender = std::sync::mpsc::Sender<StubRequest>;
+pub type StubRequestReceiver = std::sync::mpsc::Receiver<StubRequest>;
