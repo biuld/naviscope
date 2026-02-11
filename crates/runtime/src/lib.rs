@@ -1,5 +1,5 @@
 use naviscope_api::NaviscopeEngine;
-use naviscope_api::lifecycle::EngineResult;
+use naviscope_api::{ApiError, ApiResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -37,12 +37,9 @@ pub fn init_logging(component: &str, to_stderr: bool) -> Option<impl Drop> {
 }
 
 /// Utility to clear all indices stored on the local system.
-pub fn clear_all_indices() -> EngineResult<()> {
-    naviscope_core::runtime::orchestrator::NaviscopeEngine::clear_all_indices().map_err(
-        |e: naviscope_core::error::NaviscopeError| {
-            naviscope_api::lifecycle::EngineError::Internal(e.to_string())
-        },
-    )
+pub fn clear_all_indices() -> ApiResult<()> {
+    naviscope_core::runtime::orchestrator::NaviscopeEngine::clear_all_indices()
+        .map_err(|e: naviscope_core::error::NaviscopeError| ApiError::Internal(e.to_string()))
 }
 
 /// Get the global stub cache manager.

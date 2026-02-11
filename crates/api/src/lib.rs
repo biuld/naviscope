@@ -1,4 +1,5 @@
 pub mod cache;
+pub mod error;
 pub mod graph;
 pub mod lifecycle;
 pub mod models;
@@ -7,8 +8,9 @@ pub mod semantic;
 
 // Re-export commonly used types
 pub use cache::{CacheInspectResult, CacheStats, CachedAssetSummary, StubCacheManager};
+pub use error::{ApiError, ApiResult};
 pub use graph::GraphService;
-pub use lifecycle::EngineLifecycle;
+pub use lifecycle::{EngineLifecycle, EngineWatchHandle};
 pub use models::*;
 pub use navigation::NavigationService;
 pub use semantic::{CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolInfoProvider, SymbolNavigator};

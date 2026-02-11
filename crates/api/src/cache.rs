@@ -1,3 +1,4 @@
+use crate::ApiResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -41,5 +42,5 @@ pub trait StubCacheManager: Send + Sync {
     fn inspect_asset(&self, hash_prefix: &str) -> Option<CacheInspectResult>;
 
     /// Clear all cached data
-    fn clear(&self) -> Result<(), String>;
+    fn clear(&self) -> ApiResult<()>;
 }

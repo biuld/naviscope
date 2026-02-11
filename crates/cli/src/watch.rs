@@ -9,12 +9,13 @@ pub async fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     info!("Initial indexing complete.");
 
     // Start background watcher via trait
-    engine.watch().await?;
+    let watch_handle = engine.start_watch().await?;
     info!("File watcher started. Ready for changes.");
     info!("Press Ctrl+C to stop.");
 
     // Keep the main thread alive
     tokio::signal::ctrl_c().await?;
+    watch_handle.stop();
     info!("Watcher stopped.");
 
     Ok(())

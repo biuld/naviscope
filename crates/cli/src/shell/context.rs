@@ -50,11 +50,11 @@ impl ShellContext {
     }
 
     /// Resolves a user input path using the NavigationService API.
-    pub fn resolve_node(&self, target: &str) -> ResolveResult {
+    pub fn resolve_node(&self, target: &str) -> Result<ResolveResult, Box<dyn std::error::Error>> {
         let nav_service: &dyn NavigationService = self.engine.as_ref();
         let current_context = self.current_fqn();
 
-        if tokio::runtime::Handle::try_current().is_ok() {
+        let result = if tokio::runtime::Handle::try_current().is_ok() {
             tokio::task::block_in_place(|| {
                 self.rt_handle
                     .block_on(nav_service.resolve_path(target, current_context.as_deref()))
@@ -62,6 +62,7 @@ impl ShellContext {
         } else {
             self.rt_handle
                 .block_on(nav_service.resolve_path(target, current_context.as_deref()))
-        }
+        };
+        Ok(result?)
     }
 }

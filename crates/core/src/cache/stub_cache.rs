@@ -135,6 +135,7 @@ pub struct GlobalStubCache {
 }
 
 use naviscope_api::cache::{CacheInspectResult, CacheStats, CachedAssetSummary, StubCacheManager};
+use naviscope_api::{ApiError, ApiResult};
 
 impl StubCacheManager for GlobalStubCache {
     fn stats(&self) -> CacheStats {
@@ -149,8 +150,8 @@ impl StubCacheManager for GlobalStubCache {
         self.inspect_asset(hash_prefix)
     }
 
-    fn clear(&self) -> Result<(), String> {
-        self.clear().map_err(|e| e.to_string())
+    fn clear(&self) -> ApiResult<()> {
+        self.clear().map_err(|e| ApiError::Internal(e.to_string()))
     }
 }
 

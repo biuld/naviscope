@@ -1,3 +1,4 @@
+use crate::error::ApiResult;
 use async_trait::async_trait;
 
 /// Result of resolving a user-provided path to a node FQN.
@@ -53,8 +54,13 @@ pub trait NavigationService: Send + Sync {
     /// service.resolve_path("../OtherClass", Some("com.example.MyClass")).await
     /// // => Found("com.example.OtherClass")
     /// ```
-    async fn resolve_path(&self, target: &str, current_context: Option<&str>) -> ResolveResult;
+    async fn resolve_path(
+        &self,
+        target: &str,
+        current_context: Option<&str>,
+    ) -> ApiResult<ResolveResult>;
 
     /// Get completion candidates for a prefix.
-    async fn get_completion_candidates(&self, prefix: &str) -> Vec<String>;
+    async fn get_completion_candidates(&self, prefix: &str, limit: usize)
+    -> ApiResult<Vec<String>>;
 }

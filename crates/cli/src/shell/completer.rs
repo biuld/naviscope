@@ -72,27 +72,29 @@ impl<'a> Completer for NaviscopeCompleter<'a> {
                         tokio::task::block_in_place(|| {
                             self.context
                                 .rt_handle
-                                .block_on(nav_service.get_completion_candidates(last_word))
+                                .block_on(nav_service.get_completion_candidates(last_word, 50))
                         })
                     } else {
                         self.context
                             .rt_handle
-                            .block_on(nav_service.get_completion_candidates(last_word))
+                            .block_on(nav_service.get_completion_candidates(last_word, 50))
                     };
 
-                    for fqn in matches {
-                        suggestions.push(Suggestion {
-                            value: fqn,
-                            description: None,
-                            style: None,
-                            extra: None,
-                            span: reedline::Span {
-                                start: span_start,
-                                end: pos,
-                            },
-                            append_whitespace: true,
-                            match_indices: None,
-                        });
+                    if let Ok(matches) = matches {
+                        for fqn in matches {
+                            suggestions.push(Suggestion {
+                                value: fqn,
+                                description: None,
+                                style: None,
+                                extra: None,
+                                span: reedline::Span {
+                                    start: span_start,
+                                    end: pos,
+                                },
+                                append_whitespace: true,
+                                match_indices: None,
+                            });
+                        }
                     }
                 }
 

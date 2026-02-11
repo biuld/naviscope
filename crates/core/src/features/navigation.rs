@@ -1,30 +1,42 @@
 use super::CodeGraphLike;
 use crate::model::{EdgeType, NodeKind};
 use naviscope_api::navigation::ResolveResult;
+use naviscope_api::{ApiError, ApiResult};
 
 /// NavigationEngine provides logic for resolving fuzzy/relative paths within a graph.
 pub struct NavigationEngine<'a> {
     graph: &'a dyn CodeGraphLike,
-    naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
+    naming_conventions:
+        std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
 }
 
 impl<'a> NavigationEngine<'a> {
     pub fn new(
         graph: &'a dyn CodeGraphLike,
-        naming_conventions: std::collections::HashMap<String, std::sync::Arc<dyn naviscope_plugin::NamingConvention>>,
+        naming_conventions: std::collections::HashMap<
+            String,
+            std::sync::Arc<dyn naviscope_plugin::NamingConvention>,
+        >,
     ) -> Self {
         Self {
             graph,
             naming_conventions,
         }
     }
-    
-    fn get_convention(&self, node: &crate::model::GraphNode) -> Option<&dyn naviscope_plugin::NamingConvention> {
+
+    fn get_convention(
+        &self,
+        node: &crate::model::GraphNode,
+    ) -> Option<&dyn naviscope_plugin::NamingConvention> {
         let lang_str = self.graph.symbols().resolve(&node.lang.0);
         self.naming_conventions.get(lang_str).map(|c| c.as_ref())
     }
 
-    pub fn resolve_path(&self, target: &str, current_context: Option<&str>) -> ResolveResult {
+    pub fn resolve_path(
+        &self,
+        target: &str,
+        current_context: Option<&str>,
+    ) -> ApiResult<ResolveResult> {
         // 1. Handle special paths ("/" or "root")
         if target == "/" || target == "root" {
             let project_nodes: Vec<_> = self
@@ -43,9 +55,9 @@ impl<'a> NavigationEngine<'a> {
                 .collect();
 
             return match project_nodes.len() {
-                1 => ResolveResult::Found(project_nodes[0].clone()),
-                0 => ResolveResult::Found("".to_string()),
-                _ => ResolveResult::Ambiguous(project_nodes),
+                1 => Ok(ResolveResult::Found(project_nodes[0].clone())),
+                0 => Err(ApiError::NotFound("project root node".to_string())),
+                _ => Ok(ResolveResult::Ambiguous(project_nodes)),
             };
         }
 
@@ -67,18 +79,20 @@ impl<'a> NavigationEngine<'a> {
                             if let Some(parent_node) = self.graph.topology().node_weight(parent_idx)
                             {
                                 let convention = self.get_convention(parent_node);
-                                return ResolveResult::Found(self.graph.render_fqn(parent_node, convention));
+                                return Ok(ResolveResult::Found(
+                                    self.graph.render_fqn(parent_node, convention),
+                                ));
                             }
                         }
                     }
                 }
             }
-            return ResolveResult::NotFound;
+            return Ok(ResolveResult::NotFound);
         }
 
         // 3. Try exact match (absolute FQN)
         if self.graph.find_node(target).is_some() {
-            return ResolveResult::Found(target.to_string());
+            return Ok(ResolveResult::Found(target.to_string()));
         }
 
         // 4. Try relative path from current context
@@ -90,7 +104,7 @@ impl<'a> NavigationEngine<'a> {
             };
             let joined = format!("{}{}{}", current_fqn, separator, target);
             if self.graph.find_node(&joined).is_some() {
-                return ResolveResult::Found(joined);
+                return Ok(ResolveResult::Found(joined));
             }
         }
 
@@ -152,15 +166,16 @@ impl<'a> NavigationEngine<'a> {
                 .collect()
         };
 
-        match candidates.len() {
+        Ok(match candidates.len() {
             0 => ResolveResult::NotFound,
             1 => ResolveResult::Found(candidates[0].clone()),
             _ => ResolveResult::Ambiguous(candidates),
-        }
+        })
     }
 
-    pub fn get_completion_candidates(&self, prefix: &str) -> Vec<String> {
-        self.graph
+    pub fn get_completion_candidates(&self, prefix: &str, limit: usize) -> ApiResult<Vec<String>> {
+        let candidates = self
+            .graph
             .fqn_map()
             .keys()
             .filter_map(|&fid| {
@@ -174,7 +189,8 @@ impl<'a> NavigationEngine<'a> {
                 }
                 None
             })
-            .take(50) // Reasonable limit for candidates
-            .collect()
+            .take(limit)
+            .collect();
+        Ok(candidates)
     }
 }

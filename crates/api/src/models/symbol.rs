@@ -1,3 +1,4 @@
+pub use super::fqn::{FqnNode, FqnReader};
 use super::graph::{DisplayGraphNode, NodeKind};
 use super::language::Language;
 use schemars::JsonSchema;
@@ -83,18 +84,6 @@ impl JsonSchema for FqnId {
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         u32::json_schema(generator)
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
-pub struct FqnNode {
-    pub parent: Option<FqnId>,
-    pub name: Symbol,
-    pub kind: NodeKind,
-}
-
-pub trait FqnReader {
-    fn resolve_node(&self, id: FqnId) -> Option<FqnNode>;
-    fn resolve_atom(&self, atom: Symbol) -> &str;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]

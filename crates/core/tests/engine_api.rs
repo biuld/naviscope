@@ -44,7 +44,7 @@ async fn test_engine_handle_query() {
         limit: 5,
     };
 
-    let result: naviscope_api::graph::Result<naviscope_api::models::QueryResult> =
+    let result: naviscope_api::ApiResult<naviscope_api::models::QueryResult> =
         handle.query(&query).await;
     assert!(result.is_ok());
 

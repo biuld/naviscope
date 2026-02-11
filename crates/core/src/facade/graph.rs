@@ -2,11 +2,11 @@ use super::EngineHandle;
 use crate::error::NaviscopeError;
 use crate::features::query::QueryEngine;
 use async_trait::async_trait;
-use naviscope_api::{graph, models};
+use naviscope_api::{ApiError, ApiResult, graph, models};
 
 #[async_trait]
 impl graph::GraphService for EngineHandle {
-    async fn query(&self, query: &models::GraphQuery) -> graph::Result<models::QueryResult> {
+    async fn query(&self, query: &models::GraphQuery) -> ApiResult<models::QueryResult> {
         let graph = self.graph().await;
         let query_clone = query.clone();
         let handle = self.clone();
@@ -20,8 +20,8 @@ impl graph::GraphService for EngineHandle {
             },
         )
         .await
-        .map_err(|e| graph::GraphError::Internal(e.to_string()))?
-        .map_err(|e| graph::GraphError::Internal(e.to_string()))?;
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
         Ok(models::QueryResult {
             nodes: result.nodes,
@@ -29,7 +29,7 @@ impl graph::GraphService for EngineHandle {
         })
     }
 
-    async fn get_stats(&self) -> graph::Result<graph::GraphStats> {
+    async fn get_stats(&self) -> ApiResult<graph::GraphStats> {
         let graph = self.graph().await;
         Ok(graph::GraphStats {
             node_count: graph.topology().node_count(),
@@ -37,7 +37,7 @@ impl graph::GraphService for EngineHandle {
         })
     }
 
-    async fn get_node_display(&self, fqn: &str) -> graph::Result<Option<models::DisplayGraphNode>> {
+    async fn get_node_display(&self, fqn: &str) -> ApiResult<Option<models::DisplayGraphNode>> {
         let query = models::GraphQuery::Cat {
             fqn: fqn.to_string(),
         };

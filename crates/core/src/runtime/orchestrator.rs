@@ -262,11 +262,10 @@ impl NaviscopeEngine {
         let build_caps = self.build_caps.clone();
 
         // Load in blocking pool
-        let graph_opt = tokio::task::spawn_blocking(move || {
-            Self::load_from_disk(&path, lang_caps, build_caps)
-        })
-        .await
-        .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
+        let graph_opt =
+            tokio::task::spawn_blocking(move || Self::load_from_disk(&path, lang_caps, build_caps))
+                .await
+                .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
 
         if let Some(graph) = graph_opt {
             // Atomically update current
@@ -302,13 +301,7 @@ impl NaviscopeEngine {
 
         let stub_tx = self.stub_tx.clone();
         let (new_graph, stubs) = tokio::task::spawn_blocking(move || {
-            Self::build_index(
-                &project_root,
-                build_caps,
-                lang_caps,
-                stub_tx,
-                global_routes,
-            )
+            Self::build_index(&project_root, build_caps, lang_caps, stub_tx, global_routes)
         })
         .await
         .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
@@ -381,9 +374,8 @@ impl NaviscopeEngine {
             let (build_files, source_files): (Vec<_>, Vec<_>) =
                 scan_results.into_iter().partition(|f| f.is_build());
 
-            let resolver =
-                IndexResolver::with_caps((*build_caps).clone(), (*lang_caps).clone())
-                    .with_stubbing(StubbingManager::new(stub_tx.clone()));
+            let resolver = IndexResolver::with_caps((*build_caps).clone(), (*lang_caps).clone())
+                .with_stubbing(StubbingManager::new(stub_tx.clone()));
 
             // 2. Phase 1: Heavy Build Resolution (Global Context)
             let mut project_context_inner = crate::ingest::resolver::ProjectContext::new();
@@ -473,8 +465,12 @@ impl NaviscopeEngine {
         self.update_files(paths).await
     }
 
-    /// Watch for filesystem changes and update incrementally
-    pub async fn watch(self: Arc<Self>) -> Result<()> {
+    /// Watch for filesystem changes and update incrementally.
+    /// The watcher task exits when `cancel_token` is cancelled.
+    pub async fn start_watch_with_token(
+        self: Arc<Self>,
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) -> Result<()> {
         use crate::runtime::watcher::Watcher;
         use std::collections::HashSet;
         use std::time::Duration;
@@ -484,7 +480,6 @@ impl NaviscopeEngine {
             Watcher::new(&root).map_err(|e| NaviscopeError::Internal(e.to_string()))?;
 
         let engine_weak = Arc::downgrade(&self);
-        let cancel_token = self.cancel_token.clone();
 
         tokio::spawn(async move {
             tracing::info!("Started watching {}", root.display());
@@ -531,6 +526,12 @@ impl NaviscopeEngine {
         });
 
         Ok(())
+    }
+
+    /// Backward-compatible helper that uses the engine-wide cancellation token.
+    pub async fn watch(self: Arc<Self>) -> Result<()> {
+        let cancel_token = self.cancel_token.clone();
+        self.start_watch_with_token(cancel_token).await
     }
 
     /// Start the background stubbing worker

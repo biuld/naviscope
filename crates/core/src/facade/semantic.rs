@@ -4,14 +4,14 @@ use crate::features::discovery::DiscoveryEngine;
 use crate::util::utf16_col_to_byte_col;
 use async_trait::async_trait;
 use naviscope_api::graph::GraphService;
+use naviscope_api::{ApiError, ApiResult};
 
 use naviscope_api::models::{
     CallHierarchyIncomingCall, CallHierarchyOutgoingCall, DisplayGraphNode, Language, NodeKind,
     PositionContext, Range, ReferenceQuery, SymbolLocation, SymbolQuery, SymbolResolution,
 };
 use naviscope_api::semantic::{
-    CallHierarchyAnalyzer, ReferenceAnalyzer, SemanticError, SemanticResult, SymbolInfoProvider,
-    SymbolNavigator,
+    CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolInfoProvider, SymbolNavigator,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -23,7 +23,7 @@ impl SymbolNavigator for EngineHandle {
     async fn resolve_symbol_at(
         &self,
         ctx: &PositionContext,
-    ) -> SemanticResult<Option<SymbolResolution>> {
+    ) -> ApiResult<Option<SymbolResolution>> {
         let uri_str = &ctx.uri;
         let path = if uri_str.starts_with("file://") {
             PathBuf::from(uri_str.strip_prefix("file://").unwrap())
@@ -33,18 +33,23 @@ impl SymbolNavigator for EngineHandle {
 
         let (semantic, _lang) = match self.get_services_for_path(&path) {
             Some(x) => x,
-            None => return Ok(None),
+            None => {
+                return Err(ApiError::UnsupportedCapability {
+                    capability: "semantic.resolve_symbol_at",
+                    language: "unknown".to_string(),
+                });
+            }
         };
 
         let content = if let Some(c) = &ctx.content {
             c.clone()
         } else {
-            fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?
+            fs::read_to_string(&path).map_err(|e| ApiError::Internal(e.to_string()))?
         };
 
         let tree = semantic
             .parse(&content, None)
-            .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
+            .ok_or_else(|| ApiError::Internal("Failed to parse".into()))?;
 
         let byte_col = utf16_col_to_byte_col(&content, ctx.line as usize, ctx.char as usize);
 
@@ -53,7 +58,7 @@ impl SymbolNavigator for EngineHandle {
         Ok(semantic.resolve_at(&tree, &content, ctx.line as usize, byte_col, &graph))
     }
 
-    async fn find_highlights(&self, ctx: &PositionContext) -> SemanticResult<Vec<Range>> {
+    async fn find_highlights(&self, ctx: &PositionContext) -> ApiResult<Vec<Range>> {
         let uri_str = &ctx.uri;
         let path = if uri_str.starts_with("file://") {
             PathBuf::from(uri_str.strip_prefix("file://").unwrap())
@@ -63,18 +68,23 @@ impl SymbolNavigator for EngineHandle {
 
         let (semantic, _) = match self.get_services_for_path(&path) {
             Some(x) => x,
-            None => return Ok(vec![]),
+            None => {
+                return Err(ApiError::UnsupportedCapability {
+                    capability: "semantic.find_highlights",
+                    language: "unknown".to_string(),
+                });
+            }
         };
 
         let content = if let Some(c) = &ctx.content {
             c.clone()
         } else {
-            fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?
+            fs::read_to_string(&path).map_err(|e| ApiError::Internal(e.to_string()))?
         };
 
         let tree = semantic
             .parse(&content, None)
-            .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
+            .ok_or_else(|| ApiError::Internal("Failed to parse".into()))?;
 
         let res = match self.resolve_symbol_at(ctx).await? {
             Some(r) => r,
@@ -84,10 +94,15 @@ impl SymbolNavigator for EngineHandle {
         Ok(semantic.find_occurrences(&content, &tree, &res))
     }
 
-    async fn find_definitions(&self, query: &SymbolQuery) -> SemanticResult<Vec<SymbolLocation>> {
+    async fn find_definitions(&self, query: &SymbolQuery) -> ApiResult<Vec<SymbolLocation>> {
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
-            None => return Ok(vec![]),
+            None => {
+                return Err(ApiError::UnsupportedCapability {
+                    capability: "semantic.find_definitions",
+                    language: query.language.to_string(),
+                });
+            }
         };
 
         let graph = self.graph().await;
@@ -112,13 +127,15 @@ impl SymbolNavigator for EngineHandle {
         Ok(locations)
     }
 
-    async fn find_type_definitions(
-        &self,
-        query: &SymbolQuery,
-    ) -> SemanticResult<Vec<SymbolLocation>> {
+    async fn find_type_definitions(&self, query: &SymbolQuery) -> ApiResult<Vec<SymbolLocation>> {
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
-            None => return Ok(vec![]),
+            None => {
+                return Err(ApiError::UnsupportedCapability {
+                    capability: "semantic.find_type_definitions",
+                    language: query.language.to_string(),
+                });
+            }
         };
         let graph = self.graph().await;
 
@@ -145,13 +162,15 @@ impl SymbolNavigator for EngineHandle {
         Ok(locations)
     }
 
-    async fn find_implementations(
-        &self,
-        query: &SymbolQuery,
-    ) -> SemanticResult<Vec<SymbolLocation>> {
+    async fn find_implementations(&self, query: &SymbolQuery) -> ApiResult<Vec<SymbolLocation>> {
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
-            None => return Ok(vec![]),
+            None => {
+                return Err(ApiError::UnsupportedCapability {
+                    capability: "semantic.find_implementations",
+                    language: query.language.to_string(),
+                });
+            }
         };
         let graph = self.graph().await;
         let matches = resolver.find_implementations(&graph, &query.resolution);
@@ -178,10 +197,15 @@ impl SymbolNavigator for EngineHandle {
 
 #[async_trait]
 impl ReferenceAnalyzer for EngineHandle {
-    async fn find_references(&self, query: &ReferenceQuery) -> SemanticResult<Vec<SymbolLocation>> {
+    async fn find_references(&self, query: &ReferenceQuery) -> ApiResult<Vec<SymbolLocation>> {
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
-            None => return Ok(vec![]),
+            None => {
+                return Err(ApiError::UnsupportedCapability {
+                    capability: "semantic.find_references",
+                    language: query.language.to_string(),
+                });
+            }
         };
         let graph = self.graph().await;
 
@@ -210,11 +234,10 @@ impl ReferenceAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (semantic, _file_lang) =
-                    match handle.get_services_for_path(&path) {
-                        Some(x) => x,
-                        None => return Vec::new(),
-                    };
+                let (semantic, _file_lang) = match handle.get_services_for_path(&path) {
+                    Some(x) => x,
+                    None => return Vec::new(),
+                };
 
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -229,12 +252,7 @@ impl ReferenceAnalyzer for EngineHandle {
                     Err(_) => return Vec::new(),
                 };
 
-                let locations = discovery.scan_file(
-                    semantic.as_ref(),
-                    &content,
-                    &resolution,
-                    &uri,
-                );
+                let locations = discovery.scan_file(semantic.as_ref(), &content, &resolution, &uri);
 
                 locations
                     .into_iter()
@@ -299,10 +317,7 @@ impl ReferenceAnalyzer for EngineHandle {
 
 #[async_trait]
 impl CallHierarchyAnalyzer for EngineHandle {
-    async fn find_incoming_calls(
-        &self,
-        fqn: &str,
-    ) -> SemanticResult<Vec<CallHierarchyIncomingCall>> {
+    async fn find_incoming_calls(&self, fqn: &str) -> ApiResult<Vec<CallHierarchyIncomingCall>> {
         let graph = self.graph().await;
         let mut target_indices = graph.find_matches_by_fqn(fqn);
 
@@ -351,11 +366,10 @@ impl CallHierarchyAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (semantic, _file_lang) =
-                    match handle.get_services_for_path(&path) {
-                        Some(x) => x,
-                        None => return vec![],
-                    };
+                let (semantic, _file_lang) = match handle.get_services_for_path(&path) {
+                    Some(x) => x,
+                    None => return vec![],
+                };
 
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -370,12 +384,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
                 };
 
                 // Verification
-                discovery.scan_file(
-                    semantic.as_ref(),
-                    &content,
-                    &res,
-                    &uri,
-                )
+                discovery.scan_file(semantic.as_ref(), &content, &res, &uri)
             });
         }
 
@@ -426,7 +435,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             if let Some(display_node) = self
                 .get_node_display(&fqn_str)
                 .await
-                .map_err(|e| SemanticError::Internal(e.to_string()))?
+                .map_err(|e| ApiError::Internal(e.to_string()))?
             {
                 results.push(CallHierarchyIncomingCall {
                     from: display_node,
@@ -438,10 +447,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
         Ok(results)
     }
 
-    async fn find_outgoing_calls(
-        &self,
-        fqn: &str,
-    ) -> SemanticResult<Vec<CallHierarchyOutgoingCall>> {
+    async fn find_outgoing_calls(&self, fqn: &str) -> ApiResult<Vec<CallHierarchyOutgoingCall>> {
         let graph = self.graph().await;
         let conventions = (*self.naming_conventions()).clone();
         let node_idx = match graph.find_node(fqn) {
@@ -453,24 +459,23 @@ impl CallHierarchyAnalyzer for EngineHandle {
         let symbols = graph.symbols();
         let path_str = node
             .path(symbols)
-            .ok_or_else(|| SemanticError::Internal("Node has no path".into()))?;
+            .ok_or_else(|| ApiError::Internal("Node has no path".into()))?;
         let path = PathBuf::from(path_str);
 
         let range = node
             .range()
-            .ok_or_else(|| SemanticError::Internal("Node has no range".into()))?;
+            .ok_or_else(|| ApiError::Internal("Node has no range".into()))?;
 
         let (semantic, _lang) = self
             .get_services_for_path(&path)
-            .ok_or_else(|| SemanticError::Internal("No services for file".into()))?;
+            .ok_or_else(|| ApiError::Internal("No services for file".into()))?;
 
-        let content =
-            fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
+        let content = fs::read_to_string(&path).map_err(|e| ApiError::Internal(e.to_string()))?;
 
         // Micro-level scanning: extract method body and find all calls
         let tree = semantic
             .parse(&content, None)
-            .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
+            .ok_or_else(|| ApiError::Internal("Failed to parse".into()))?;
 
         let mut outgoing_calls: HashMap<petgraph::stable_graph::NodeIndex, Vec<Range>> =
             HashMap::new();
@@ -538,7 +543,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             if let Some(display_node) = self
                 .get_node_display(&fqn_str)
                 .await
-                .map_err(|e| SemanticError::Internal(e.to_string()))?
+                .map_err(|e| ApiError::Internal(e.to_string()))?
             {
                 results.push(CallHierarchyOutgoingCall {
                     to: display_node,
@@ -553,13 +558,13 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
 #[async_trait]
 impl SymbolInfoProvider for EngineHandle {
-    async fn get_symbol_info(&self, fqn: &str) -> SemanticResult<Option<DisplayGraphNode>> {
+    async fn get_symbol_info(&self, fqn: &str) -> ApiResult<Option<DisplayGraphNode>> {
         self.get_node_display(fqn)
             .await
-            .map_err(|e| SemanticError::Internal(e.to_string()))
+            .map_err(|e| ApiError::Internal(e.to_string()))
     }
 
-    async fn get_document_symbols(&self, uri: &str) -> SemanticResult<Vec<DisplayGraphNode>> {
+    async fn get_document_symbols(&self, uri: &str) -> ApiResult<Vec<DisplayGraphNode>> {
         let path = if uri.starts_with("file://") {
             PathBuf::from(uri.strip_prefix("file://").unwrap())
         } else {
@@ -568,22 +573,26 @@ impl SymbolInfoProvider for EngineHandle {
 
         let (semantic, _lang) = match self.get_services_for_path(&path) {
             Some(x) => x,
-            None => return Ok(vec![]),
+            None => {
+                return Err(ApiError::UnsupportedCapability {
+                    capability: "semantic.get_document_symbols",
+                    language: "unknown".to_string(),
+                });
+            }
         };
 
-        let content =
-            fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
+        let content = fs::read_to_string(&path).map_err(|e| ApiError::Internal(e.to_string()))?;
 
         let tree = semantic
             .parse(&content, None)
-            .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
+            .ok_or_else(|| ApiError::Internal("Failed to parse".into()))?;
 
         let symbols = semantic.extract_symbols(&tree, &content);
 
         Ok(symbols)
     }
 
-    async fn get_language_for_document(&self, uri: &str) -> SemanticResult<Option<Language>> {
+    async fn get_language_for_document(&self, uri: &str) -> ApiResult<Option<Language>> {
         let path = if uri.starts_with("file://") {
             PathBuf::from(uri.strip_prefix("file://").unwrap())
         } else {

@@ -48,16 +48,25 @@ impl ReplServer {
         self.initialize_index().await?;
 
         // Start watcher (spawns background task on the runtime)
-        if let Err(e) = self.context.engine.watch().await {
-            error!("Failed to start file watcher: {}", e);
-        } else {
-            info!("File watcher started.");
-        }
+        let watch_handle = match self.context.engine.start_watch().await {
+            Ok(handle) => {
+                info!("File watcher started.");
+                Some(handle)
+            }
+            Err(e) => {
+                error!("Failed to start file watcher: {}", e);
+                None
+            }
+        };
 
         println!("Type 'help' for commands.");
 
         let line_editor = self.setup_line_editor()?;
-        self.run_loop(line_editor)
+        let run_result = self.run_loop(line_editor);
+        if let Some(handle) = watch_handle {
+            handle.stop();
+        }
+        run_result
     }
 
     async fn initialize_index(&self) -> Result<(), Box<dyn std::error::Error>> {
