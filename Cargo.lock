@@ -1521,6 +1521,7 @@ version = "0.5.5"
 dependencies = [
  "dirs",
  "lasso",
+ "lsp-types",
  "naviscope-api",
  "naviscope-core",
  "naviscope-plugin",

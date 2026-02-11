@@ -3,7 +3,7 @@ use naviscope_api::models::graph::{
 };
 use naviscope_api::models::symbol::{NodeId, Range};
 use naviscope_plugin::{
-    BuildResolver, IndexNode, ParsedContent, ParsedFile, ProjectContext, ResolvedUnit,
+    BuildIndexCap, IndexNode, ParsedContent, ParsedFile, ProjectContext, ResolvedUnit,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,8 +22,8 @@ impl GradleResolver {
     }
 }
 
-impl BuildResolver for GradleResolver {
-    fn resolve(
+impl BuildIndexCap for GradleResolver {
+    fn compile_build(
         &self,
         files: &[&ParsedFile],
     ) -> std::result::Result<(ResolvedUnit, ProjectContext), Box<dyn std::error::Error + Send + Sync>>
@@ -364,7 +364,7 @@ struct ModuleData<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use naviscope_plugin::{GraphOp, SourceFile};
+    use naviscope_plugin::{BuildIndexCap, GraphOp, SourceFile};
 
     fn create_mock_file(path: &str, content: ParsedContent) -> ParsedFile {
         ParsedFile {
@@ -411,7 +411,7 @@ mod tests {
         );
 
         let files = vec![&root_settings, &sub_project_build, &core_build];
-        let (unit, _) = resolver.resolve(&files).unwrap();
+        let (unit, _) = resolver.compile_build(&files).unwrap();
 
         let edges: Vec<_> = unit
             .ops

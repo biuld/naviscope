@@ -10,16 +10,18 @@ use naviscope_api::models::BuildTool;
 use naviscope_api::models::graph::DisplayGraphNode;
 use naviscope_api::models::symbol::FqnReader;
 use naviscope_plugin::{
-    BuildContent, BuildParseResult, BuildToolPlugin, StandardNamingConvention, NamingConvention,
-    NodeAdapter, PluginInstance, StorageContext,
+    AssetCap, AssetDiscoverer, BuildCaps, BuildContent, BuildIndexCap, BuildParseCap,
+    BuildParseResult, CodecContext, FileMatcherCap, MetadataCodecCap, NamingConvention,
+    NodeMetadataCodec, NodePresenter, PresentationCap, StandardNamingConvention,
 };
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct GradlePlugin {
     resolver: Arc<resolver::GradleResolver>,
 }
 
-impl NodeAdapter for GradlePlugin {
+impl NodePresenter for GradlePlugin {
     fn render_display_node(
         &self,
         node: &naviscope_api::models::graph::GraphNode,
@@ -51,10 +53,13 @@ impl NodeAdapter for GradlePlugin {
         display
     }
 
+}
+
+impl NodeMetadataCodec for GradlePlugin {
     fn encode_metadata(
         &self,
         metadata: &dyn naviscope_api::models::graph::NodeMetadata,
-        _ctx: &mut dyn StorageContext,
+        _ctx: &mut dyn CodecContext,
     ) -> Vec<u8> {
         if let Some(gradle_meta) = metadata
             .as_any()
@@ -69,7 +74,7 @@ impl NodeAdapter for GradlePlugin {
     fn decode_metadata(
         &self,
         bytes: &[u8],
-        _ctx: &dyn StorageContext,
+        _ctx: &dyn CodecContext,
     ) -> Arc<dyn naviscope_api::models::graph::NodeMetadata> {
         if let Ok(element) = rmp_serde::from_slice::<crate::model::GradleNodeMetadata>(bytes) {
             Arc::new(element)
@@ -87,24 +92,21 @@ impl GradlePlugin {
     }
 }
 
-impl PluginInstance for GradlePlugin {
-    fn get_node_adapter(&self) -> Option<Arc<dyn NodeAdapter>> {
-        Some(Arc::new(Self::new()))
+impl FileMatcherCap for GradlePlugin {
+    fn supports_path(&self, path: &Path) -> bool {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .map(|file_name| {
+                file_name == "build.gradle"
+                    || file_name == "build.gradle.kts"
+                    || file_name == "settings.gradle"
+                    || file_name == "settings.gradle.kts"
+            })
+            .unwrap_or(false)
     }
 }
 
-impl BuildToolPlugin for GradlePlugin {
-    fn name(&self) -> BuildTool {
-        BuildTool::GRADLE
-    }
-
-    fn recognize(&self, file_name: &str) -> bool {
-        file_name == "build.gradle"
-            || file_name == "build.gradle.kts"
-            || file_name == "settings.gradle"
-            || file_name == "settings.gradle.kts"
-    }
-
+impl BuildParseCap for GradlePlugin {
     fn parse_build_file(
         &self,
         source: &str,
@@ -131,11 +133,51 @@ impl BuildToolPlugin for GradlePlugin {
         }
     }
 
-    fn build_resolver(&self) -> Arc<dyn naviscope_plugin::BuildResolver> {
-        self.resolver.clone()
+}
+
+impl BuildIndexCap for GradlePlugin {
+    fn compile_build(
+        &self,
+        files: &[&naviscope_plugin::ParsedFile],
+    ) -> Result<(naviscope_plugin::ResolvedUnit, naviscope_plugin::ProjectContext), naviscope_plugin::BoxError> {
+        self.resolver.compile_build(files)
+    }
+}
+
+impl AssetCap for GradlePlugin {
+    fn global_asset_discoverer(&self) -> Option<Box<dyn AssetDiscoverer>> {
+        Some(Box::new(crate::discoverer::GradleCacheDiscoverer::new()))
+    }
+}
+
+impl PresentationCap for GradlePlugin {
+    fn node_presenter(&self) -> Option<Arc<dyn NodePresenter>> {
+        Some(Arc::new(Self::new()))
     }
 
-    fn asset_discoverer(&self) -> Option<Box<dyn naviscope_plugin::AssetDiscoverer>> {
-        Some(Box::new(crate::discoverer::GradleCacheDiscoverer::new()))
+    fn symbol_kind(
+        &self,
+        _kind: &naviscope_api::models::graph::NodeKind,
+    ) -> lsp_types::SymbolKind {
+        lsp_types::SymbolKind::MODULE
+    }
+}
+
+impl MetadataCodecCap for GradlePlugin {
+    fn metadata_codec(&self) -> Option<Arc<dyn NodeMetadataCodec>> {
+        Some(Arc::new(Self::new()))
+    }
+}
+
+pub fn gradle_caps() -> BuildCaps {
+    let plugin = Arc::new(GradlePlugin::new());
+    BuildCaps {
+        build_tool: BuildTool::GRADLE,
+        matcher: plugin.clone(),
+        parser: plugin.clone(),
+        indexing: plugin.clone(),
+        asset: plugin.clone(),
+        presentation: plugin.clone(),
+        metadata_codec: plugin,
     }
 }
