@@ -9,7 +9,7 @@ use crate::features::CodeGraphLike;
 use crate::model::FqnManager;
 use crate::model::source::SourceFile;
 use crate::model::{GraphEdge, GraphNode};
-use crate::plugin::NodeMetadataCodec;
+use crate::bridge::NodeMetadataCodec;
 use lasso::ThreadedRodeo;
 use naviscope_api::models::symbol::{FqnId, FqnReader, Symbol};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};

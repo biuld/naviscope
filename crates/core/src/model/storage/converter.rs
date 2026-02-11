@@ -1,7 +1,7 @@
 use super::model::*;
 use crate::model::graph::{CodeGraphInner, FileEntry};
 use crate::model::{EmptyMetadata, GraphNode, InternedLocation, NodeMetadata};
-use crate::plugin::NodeMetadataCodec;
+use crate::bridge::NodeMetadataCodec;
 use lasso::{Key, Spur, ThreadedRodeo};
 use naviscope_api::models::symbol::{FqnId, Symbol};
 use petgraph::stable_graph::NodeIndex;

@@ -693,7 +693,7 @@ impl NaviscopeEngine {
 
         let bytes = std::fs::read(path)?;
 
-        let get_codec = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeMetadataCodec>> {
+        let get_codec = |lang: &str| -> Option<Arc<dyn crate::bridge::NodeMetadataCodec>> {
             for caps in lang_caps.iter() {
                 if caps.language.as_str() == lang {
                     return caps.metadata_codec.metadata_codec();
@@ -745,7 +745,7 @@ impl NaviscopeEngine {
             std::fs::create_dir_all(parent)?;
         }
 
-        let get_codec = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeMetadataCodec>> {
+        let get_codec = |lang: &str| -> Option<Arc<dyn crate::bridge::NodeMetadataCodec>> {
             for caps in lang_caps.iter() {
                 if caps.language.as_str() == lang {
                     return caps.metadata_codec.metadata_codec();

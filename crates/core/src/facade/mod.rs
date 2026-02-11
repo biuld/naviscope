@@ -53,14 +53,14 @@ impl EngineHandle {
     pub fn get_node_presenter(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::plugin::NodePresenter>> {
+    ) -> Option<Arc<dyn crate::bridge::NodePresenter>> {
         self.engine.get_resolver().get_node_presenter(language)
     }
 
     pub fn get_metadata_codec(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::plugin::NodeMetadataCodec>> {
+    ) -> Option<Arc<dyn crate::bridge::NodeMetadataCodec>> {
         self.engine.get_resolver().get_metadata_codec(language)
     }
 
