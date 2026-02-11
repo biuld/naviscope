@@ -1,6 +1,6 @@
 use crate::asset::BoxError;
+use crate::indexing::ProjectContext;
 use crate::model::ParsedFile;
-use crate::resolver::ProjectContext;
 use crate::ResolvedUnit;
 
 pub trait SourceIndexCap: Send + Sync {

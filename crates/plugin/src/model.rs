@@ -1,4 +1,4 @@
-use crate::interner::SymbolInterner;
+use crate::core::SymbolInterner;
 use naviscope_api::models::graph::{
     DisplaySymbolLocation, EdgeType, EmptyMetadata, NodeKind, NodeMetadata, NodeSource,
     ResolutionStatus,

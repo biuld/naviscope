@@ -1,14 +1,14 @@
 use crate::inference::adapters::CodeGraphTypeSystem;
 use crate::inference::{InheritanceProvider, MemberProvider, TypeProvider, TypeResolutionContext};
-use crate::resolver::JavaResolver;
-use crate::resolver::context::ResolutionContext;
+use crate::JavaPlugin;
+use crate::resolve::context::ResolutionContext;
 use naviscope_api::models::graph::EdgeType;
 use naviscope_api::models::symbol::{FqnId, matches_intent};
 use naviscope_api::models::{SymbolIntent, SymbolResolution, TypeRef};
 use naviscope_plugin::{CodeGraph, NamingConvention, SymbolQueryService, SymbolResolveService};
 use tree_sitter::Tree;
 
-impl SymbolResolveService for JavaResolver {
+impl SymbolResolveService for JavaPlugin {
     fn resolve_at(
         &self,
         tree: &Tree,
@@ -36,7 +36,7 @@ impl SymbolResolveService for JavaResolver {
 
 }
 
-impl SymbolQueryService for JavaResolver {
+impl SymbolQueryService for JavaPlugin {
     fn find_matches(&self, index: &dyn CodeGraph, resolution: &SymbolResolution) -> Vec<FqnId> {
         match resolution {
             SymbolResolution::Local(_, _) => vec![],

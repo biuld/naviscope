@@ -6,7 +6,6 @@ use naviscope_core::features::discovery::DiscoveryEngine;
 use naviscope_core::ingest::parser::SymbolResolution;
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
 use naviscope_java::JavaPlugin;
-use naviscope_java::resolver::JavaResolver;
 
 #[test]
 fn test_call_hierarchy_incoming() {
@@ -20,7 +19,7 @@ fn test_call_hierarchy_incoming() {
         }",
     )];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
@@ -86,7 +85,7 @@ fn test_call_hierarchy_outgoing() {
         }",
     )];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
@@ -155,7 +154,7 @@ fn test_call_hierarchy_recursion() {
         }",
     )];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[0].1;
     let tree = &trees[0].2;

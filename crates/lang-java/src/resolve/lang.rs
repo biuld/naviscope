@@ -1,8 +1,8 @@
 use crate::inference::adapters::HeuristicAdapter;
 use crate::inference::{TypeProvider, TypeResolutionContext};
 use crate::model::JavaIndexMetadata;
-use crate::resolver::JavaResolver;
-use crate::resolver::context::ResolutionContext;
+use crate::JavaPlugin;
+use crate::resolve::context::ResolutionContext;
 use naviscope_api::models::graph::{EdgeType, GraphEdge, NodeKind};
 use naviscope_api::models::symbol::{NodeId, SymbolResolution, TypeRef};
 use naviscope_plugin::{
@@ -10,7 +10,7 @@ use naviscope_plugin::{
 };
 use std::sync::Arc;
 
-impl SourceIndexCap for JavaResolver {
+impl SourceIndexCap for JavaPlugin {
     fn compile_source(
         &self,
         file: &ParsedFile,

@@ -2,7 +2,7 @@ mod common;
 
 use common::{offset_to_point, setup_java_test_graph};
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
-use naviscope_java::resolver::JavaResolver;
+use naviscope_java::JavaPlugin;
 
 #[test]
 fn test_cross_file_resolution() {
@@ -18,7 +18,7 @@ fn test_cross_file_resolution() {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     // Test resolving 'A' in 'A a = new A();'
     let b_content = &trees[1].1;
@@ -70,7 +70,7 @@ fn test_inheritance_and_implementations() {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let i_content = &trees[0].1;
     let i_tree = &trees[0].2;
@@ -112,7 +112,7 @@ fn test_inner_class_resolution() {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let client_content = &trees[1].1;
     let client_tree = &trees[1].2;
@@ -156,7 +156,7 @@ fn test_chained_calls_resolution() {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let main_content = &trees[3].1;
     let main_tree = &trees[3].2;
@@ -204,7 +204,7 @@ fn test_lambda_parameter_resolution() {
     )];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
@@ -244,7 +244,7 @@ fn test_lambda_explicit_type_resolution() {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[1].1;
     let tree = &trees[1].2;
@@ -280,7 +280,7 @@ fn test_lambda_heuristic_type_inference() {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[1].1;
     let tree = &trees[1].2;
@@ -324,7 +324,7 @@ public class DefaultApplicationArguments {
     )];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
@@ -397,7 +397,7 @@ public class DefaultApplicationArguments {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let tree = &trees[0].2;
     let source_content = &trees[0].1;
@@ -447,7 +447,7 @@ fn test_field_method_call_resolution() {
     ];
 
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let a_content = &trees[0].1;
     let a_tree = &trees[0].2;

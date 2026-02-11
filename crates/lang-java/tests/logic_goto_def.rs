@@ -4,7 +4,7 @@ use common::{offset_to_point, setup_java_test_graph};
 use naviscope_core::features::CodeGraphLike;
 use naviscope_core::ingest::parser::SymbolResolution;
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
-use naviscope_java::resolver::JavaResolver;
+use naviscope_java::JavaPlugin;
 
 #[test]
 fn test_goto_definition_local() {
@@ -13,7 +13,7 @@ fn test_goto_definition_local() {
         "public class Test { void main() { int x = 1; int y = x + 1; } }",
     )];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
@@ -48,7 +48,7 @@ fn test_goto_definition_cross_file() {
         ),
     ];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let b_content = &trees[1].1;
     let b_tree = &trees[1].2;
@@ -95,7 +95,7 @@ fn test_goto_definition_shadowing() {
         "public class Test { int x = 0; void m() { int x = 1; x = 2; } }",
     )];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
@@ -123,7 +123,7 @@ fn test_goto_definition_constructor() {
         ("B.java", "public class B { A a = new A(); }"),
     ];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let b_content = &trees[1].1;
     let b_tree = &trees[1].2;
@@ -156,7 +156,7 @@ fn test_goto_definition_static() {
         ("B.java", "public class B { int x = A.VAL; }"),
     ];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let b_content = &trees[1].1;
     let b_tree = &trees[1].2;

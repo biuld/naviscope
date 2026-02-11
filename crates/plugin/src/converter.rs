@@ -1,4 +1,4 @@
-use crate::interner::FqnInterner;
+use crate::core::FqnInterner;
 use naviscope_api::models::graph::{DisplayGraphNode, DisplaySymbolLocation, GraphNode};
 use naviscope_api::models::symbol::InternedLocation;
 use std::sync::Arc;

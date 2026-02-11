@@ -1,4 +1,4 @@
-use crate::interner::FqnInterner;
+use crate::core::FqnInterner;
 
 pub trait CodecContext: Send + Sync {
     fn interner(&mut self) -> &mut dyn FqnInterner;

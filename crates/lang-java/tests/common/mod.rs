@@ -1,7 +1,7 @@
 use naviscope_api::models::Language;
 use naviscope_core::ingest::builder::CodeGraphBuilder;
 use naviscope_java::parser::JavaParser;
-use naviscope_java::resolver::JavaResolver;
+use naviscope_java::JavaPlugin;
 use naviscope_plugin::{
     GraphOp, ParsedContent, ParsedFile, ProjectContext, SourceFile, SourceIndexCap,
 };
@@ -43,7 +43,7 @@ pub fn setup_java_test_graph(
     }
 
     // Phase 2: Resolve (using JavaResolver source-index implementation)
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
     let context = ProjectContext::new(); // Uses default V2 context
 
     let mut all_ops = Vec::new();

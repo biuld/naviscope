@@ -1,4 +1,4 @@
-use crate::codec::CodecContext;
+use crate::core::CodecContext;
 use naviscope_api::models::graph::{NodeMetadata};
 use std::sync::Arc;
 

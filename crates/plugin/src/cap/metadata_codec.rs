@@ -1,4 +1,4 @@
-use crate::metadata_codec::NodeMetadataCodec;
+use crate::core::NodeMetadataCodec;
 use std::sync::Arc;
 
 pub trait MetadataCodecCap: Send + Sync {

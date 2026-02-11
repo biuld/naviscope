@@ -2,7 +2,7 @@ mod common;
 
 use common::{offset_to_point, setup_java_test_graph};
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
-use naviscope_java::resolver::JavaResolver;
+use naviscope_java::JavaPlugin;
 
 #[test]
 fn test_goto_references_method() {
@@ -12,7 +12,7 @@ fn test_goto_references_method() {
         ("C.java", "public class C { void m2(A a) { a.target(); } }"),
     ];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let a_content = &trees[0].1;
     let a_tree = &trees[0].2;

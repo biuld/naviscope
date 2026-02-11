@@ -7,22 +7,11 @@ pub mod semantic;
 pub mod types;
 
 use crate::inference::adapters::CodeGraphTypeSystem;
-use crate::parser::JavaParser;
+use crate::JavaPlugin;
 use context::ResolutionContext;
 use naviscope_api::models::{SymbolResolution, TypeRef};
 
-#[derive(Clone)]
-pub struct JavaResolver {
-    pub parser: JavaParser,
-}
-
-impl JavaResolver {
-    pub fn new() -> Self {
-        Self {
-            parser: JavaParser::new().expect("Failed to initialize JavaParser"),
-        }
-    }
-
+impl JavaPlugin {
     /// Helper to find enclosing class using ScopeManager
     fn find_enclosing_class_via_scope(
         &self,

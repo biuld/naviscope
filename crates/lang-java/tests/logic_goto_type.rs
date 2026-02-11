@@ -3,7 +3,7 @@ mod common;
 use common::{offset_to_point, setup_java_test_graph};
 use naviscope_core::features::CodeGraphLike;
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
-use naviscope_java::resolver::JavaResolver;
+use naviscope_java::JavaPlugin;
 
 #[test]
 fn test_goto_type_definition_variable() {
@@ -15,7 +15,7 @@ fn test_goto_type_definition_variable() {
         ),
     ];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let client_content = &trees[1].1;
     let client_tree = &trees[1].2;
@@ -52,7 +52,7 @@ fn test_goto_type_definition_method_return() {
         ),
     ];
     let (index, trees) = setup_java_test_graph(files);
-    let resolver = JavaResolver::new();
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
 
     let service_content = &trees[1].1;
     let service_tree = &trees[1].2;

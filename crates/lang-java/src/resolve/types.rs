@@ -1,8 +1,8 @@
 use crate::inference::{TypeProvider, TypeResolutionContext};
-use crate::resolver::JavaResolver;
+use crate::JavaPlugin;
 use naviscope_api::models::TypeRef;
 
-impl JavaResolver {
+impl JavaPlugin {
     pub(crate) fn resolve_type_ref(
         &self,
         type_ref: &TypeRef,
