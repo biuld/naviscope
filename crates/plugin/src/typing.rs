@@ -1,7 +1,7 @@
 use crate::cap::ReferenceCheckService;
 use crate::graph::{CodeGraph, Direction};
-use naviscope_api::models::graph::EdgeType;
 use naviscope_api::models::SymbolResolution;
+use naviscope_api::models::graph::EdgeType;
 
 pub struct NoOpReferenceCheckService;
 

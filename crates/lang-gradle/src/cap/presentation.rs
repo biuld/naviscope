@@ -1,7 +1,9 @@
 use crate::GradlePlugin;
 use naviscope_api::models::graph::{DisplayGraphNode, GraphNode, NodeKind};
 use naviscope_api::models::symbol::FqnReader;
-use naviscope_plugin::{NamingConvention, NodePresenter, PresentationCap, StandardNamingConvention};
+use naviscope_plugin::{
+    NamingConvention, NodePresenter, PresentationCap, StandardNamingConvention,
+};
 use std::sync::Arc;
 
 impl NodePresenter for GradlePlugin {

@@ -16,12 +16,13 @@ async fn test_global_asset_scan_produces_routes() {
 
     let routes = engine.global_asset_routes();
 
-    assert!(
-        scan.total_assets >= scan.indexed_assets + scan.skipped_assets + scan.failed_assets
-    );
+    assert!(scan.total_assets >= scan.indexed_assets + scan.skipped_assets + scan.failed_assets);
 
     if scan.total_assets > 0 {
-        assert!(scan.total_prefixes > 0, "Expected some prefixes to be indexed");
+        assert!(
+            scan.total_prefixes > 0,
+            "Expected some prefixes to be indexed"
+        );
         assert!(!routes.is_empty(), "Expected routes to be populated");
     }
 }

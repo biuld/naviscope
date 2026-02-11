@@ -1,6 +1,6 @@
+use crate::JavaPlugin;
 use crate::inference::adapters::CodeGraphTypeSystem;
 use crate::inference::{InheritanceProvider, MemberProvider, TypeProvider, TypeResolutionContext};
-use crate::JavaPlugin;
 use crate::resolve::context::ResolutionContext;
 use naviscope_api::models::graph::EdgeType;
 use naviscope_api::models::symbol::{FqnId, matches_intent};
@@ -33,7 +33,6 @@ impl SymbolResolveService for JavaPlugin {
 
         self.resolve_symbol_internal(&context)
     }
-
 }
 
 impl SymbolQueryService for JavaPlugin {

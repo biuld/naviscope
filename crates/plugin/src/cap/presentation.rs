@@ -1,5 +1,5 @@
-use crate::naming::NamingConvention;
 use crate::core::NodePresenter;
+use crate::naming::NamingConvention;
 use naviscope_api::models::graph::NodeKind;
 use std::sync::Arc;
 

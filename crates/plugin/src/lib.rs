@@ -1,7 +1,7 @@
 pub mod asset;
 pub mod cap;
-pub mod core;
 pub mod converter;
+pub mod core;
 pub mod graph;
 pub mod indexing;
 pub mod model;
@@ -12,8 +12,8 @@ pub mod utils;
 
 pub use asset::*;
 pub use cap::*;
-pub use core::*;
 pub use converter::*;
+pub use core::*;
 pub use graph::*;
 pub use indexing::*;
 pub use model::*;

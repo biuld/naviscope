@@ -6,8 +6,8 @@ pub mod lang;
 pub mod semantic;
 pub mod types;
 
-use crate::inference::adapters::CodeGraphTypeSystem;
 use crate::JavaPlugin;
+use crate::inference::adapters::CodeGraphTypeSystem;
 use context::ResolutionContext;
 use naviscope_api::models::{SymbolResolution, TypeRef};
 

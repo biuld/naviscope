@@ -85,7 +85,11 @@ pub async fn incoming_calls(
     let lsp_calls: Vec<CallHierarchyIncomingCall> = calls
         .into_iter()
         .map(|item| {
-            let loc = item.from.location.as_ref().expect("Caller must have location");
+            let loc = item
+                .from
+                .location
+                .as_ref()
+                .expect("Caller must have location");
             let lsp_range = Range {
                 start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
                 end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
@@ -140,7 +144,11 @@ pub async fn outgoing_calls(
     let lsp_calls: Vec<CallHierarchyOutgoingCall> = calls
         .into_iter()
         .map(|item| {
-            let loc = item.to.location.as_ref().expect("Callee must have location");
+            let loc = item
+                .to
+                .location
+                .as_ref()
+                .expect("Callee must have location");
             let lsp_range = Range {
                 start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
                 end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),

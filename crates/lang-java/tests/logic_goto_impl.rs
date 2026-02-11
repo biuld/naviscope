@@ -2,8 +2,8 @@ mod common;
 
 use common::{offset_to_point, setup_java_test_graph};
 use naviscope_core::features::CodeGraphLike;
-use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
 use naviscope_java::JavaPlugin;
+use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
 
 #[test]
 fn test_goto_implementation_interface() {

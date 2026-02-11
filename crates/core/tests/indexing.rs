@@ -106,9 +106,15 @@ async fn test_update_files_persistence_integration() {
         .with_build_caps(mock_build_caps())
         .build();
 
-    engine.update_files(vec![build_gradle.clone()]).await.unwrap();
+    engine
+        .update_files(vec![build_gradle.clone()])
+        .await
+        .unwrap();
     let graph = engine.snapshot().await;
-    assert!(graph.node_count() > 0, "Project node should exist after first indexing");
+    assert!(
+        graph.node_count() > 0,
+        "Project node should exist after first indexing"
+    );
 
     engine.update_files(vec![build_gradle]).await.unwrap();
     let graph = engine.snapshot().await;

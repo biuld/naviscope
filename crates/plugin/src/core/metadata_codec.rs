@@ -1,5 +1,5 @@
 use crate::core::CodecContext;
-use naviscope_api::models::graph::{NodeMetadata};
+use naviscope_api::models::graph::NodeMetadata;
 use std::sync::Arc;
 
 pub trait NodeMetadataCodec: Send + Sync {

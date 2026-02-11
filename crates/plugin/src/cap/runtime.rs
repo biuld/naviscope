@@ -1,7 +1,7 @@
 use crate::graph::CodeGraph;
+use naviscope_api::models::SymbolResolution;
 use naviscope_api::models::graph::DisplayGraphNode;
 use naviscope_api::models::symbol::{FqnId, Range};
-use naviscope_api::models::SymbolResolution;
 use tree_sitter::Tree;
 
 pub trait SymbolResolveService: Send + Sync {
@@ -17,7 +17,11 @@ pub trait SymbolResolveService: Send + Sync {
 
 pub trait SymbolQueryService: Send + Sync {
     fn find_matches(&self, index: &dyn CodeGraph, res: &SymbolResolution) -> Vec<FqnId>;
-    fn resolve_type_of(&self, index: &dyn CodeGraph, res: &SymbolResolution) -> Vec<SymbolResolution>;
+    fn resolve_type_of(
+        &self,
+        index: &dyn CodeGraph,
+        res: &SymbolResolution,
+    ) -> Vec<SymbolResolution>;
     fn find_implementations(&self, index: &dyn CodeGraph, res: &SymbolResolution) -> Vec<FqnId>;
 }
 
@@ -94,6 +98,11 @@ pub trait SemanticCap:
 }
 
 impl<T> SemanticCap for T where
-    T: SymbolResolveService + SymbolQueryService + LspSyntaxService + ReferenceCheckService + Send + Sync
+    T: SymbolResolveService
+        + SymbolQueryService
+        + LspSyntaxService
+        + ReferenceCheckService
+        + Send
+        + Sync
 {
 }

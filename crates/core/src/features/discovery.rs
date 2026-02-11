@@ -1,7 +1,7 @@
 use super::CodeGraphLike;
-use naviscope_plugin::SemanticCap;
 use lsp_types::{Location, Url};
 pub use naviscope_api::models::SymbolResolution;
+use naviscope_plugin::SemanticCap;
 use std::collections::HashSet;
 
 /// DiscoveryEngine bridges Meso-level graph knowledge with Micro-level file scanning.

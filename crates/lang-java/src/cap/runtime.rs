@@ -2,7 +2,11 @@ use crate::JavaPlugin;
 use naviscope_plugin::{LspSyntaxService, ReferenceCheckService};
 
 impl LspSyntaxService for JavaPlugin {
-    fn parse(&self, source: &str, old_tree: Option<&tree_sitter::Tree>) -> Option<tree_sitter::Tree> {
+    fn parse(
+        &self,
+        source: &str,
+        old_tree: Option<&tree_sitter::Tree>,
+    ) -> Option<tree_sitter::Tree> {
         crate::lsp::JavaLspService::new(self.parser.clone()).parse(source, old_tree)
     }
 
@@ -20,8 +24,7 @@ impl LspSyntaxService for JavaPlugin {
         tree: &tree_sitter::Tree,
         target: &naviscope_api::models::SymbolResolution,
     ) -> Vec<naviscope_api::models::symbol::Range> {
-        crate::lsp::JavaLspService::new(self.parser.clone())
-            .find_occurrences(source, tree, target)
+        crate::lsp::JavaLspService::new(self.parser.clone()).find_occurrences(source, tree, target)
     }
 }
 

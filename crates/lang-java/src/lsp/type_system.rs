@@ -1,6 +1,6 @@
 use naviscope_api::models::SymbolResolution;
-use naviscope_plugin::graph::CodeGraph;
 use naviscope_plugin::ReferenceCheckService;
+use naviscope_plugin::graph::CodeGraph;
 
 pub struct JavaTypeSystem;
 

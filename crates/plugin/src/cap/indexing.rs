@@ -1,12 +1,19 @@
+use crate::ResolvedUnit;
 use crate::asset::BoxError;
 use crate::indexing::ProjectContext;
 use crate::model::ParsedFile;
-use crate::ResolvedUnit;
 
 pub trait SourceIndexCap: Send + Sync {
-    fn compile_source(&self, file: &ParsedFile, context: &ProjectContext) -> Result<ResolvedUnit, BoxError>;
+    fn compile_source(
+        &self,
+        file: &ParsedFile,
+        context: &ProjectContext,
+    ) -> Result<ResolvedUnit, BoxError>;
 }
 
 pub trait BuildIndexCap: Send + Sync {
-    fn compile_build(&self, files: &[&ParsedFile]) -> Result<(ResolvedUnit, ProjectContext), BoxError>;
+    fn compile_build(
+        &self,
+        files: &[&ParsedFile],
+    ) -> Result<(ResolvedUnit, ProjectContext), BoxError>;
 }

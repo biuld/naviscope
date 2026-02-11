@@ -1,5 +1,5 @@
-use crate::inference::{TypeProvider, TypeResolutionContext};
 use crate::JavaPlugin;
+use crate::inference::{TypeProvider, TypeResolutionContext};
 use naviscope_api::models::TypeRef;
 
 impl JavaPlugin {

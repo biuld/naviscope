@@ -8,8 +8,8 @@ use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
 use naviscope_plugin::{
     AssetCap, CodecContext, FileMatcherCap, GlobalParseResult, LanguageCaps, LanguageParseCap,
     LspSyntaxService, MetadataCodecCap, NamingConvention, NodeMetadataCodec, NodePresenter,
-    ParsedContent, ParsedFile, PresentationCap, ProjectContext, ReferenceCheckService, ResolvedUnit,
-    SemanticCap, SourceIndexCap, StandardNamingConvention, SymbolQueryService,
+    ParsedContent, ParsedFile, PresentationCap, ProjectContext, ReferenceCheckService,
+    ResolvedUnit, SemanticCap, SourceIndexCap, StandardNamingConvention, SymbolQueryService,
     SymbolResolveService,
 };
 use std::path::Path;
@@ -131,7 +131,9 @@ impl SymbolQueryService for MockCap {
 impl LspSyntaxService for MockCap {
     fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree> {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_java::LANGUAGE.into()).ok()?;
+        parser
+            .set_language(&tree_sitter_java::LANGUAGE.into())
+            .ok()?;
         parser.parse(source, old_tree)
     }
 

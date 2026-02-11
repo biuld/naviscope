@@ -1,8 +1,8 @@
 use crate::JavaPlugin;
 use lasso::Key;
+use naviscope_api::models::DisplayGraphNode;
 use naviscope_api::models::graph::{GraphNode, NodeKind};
 use naviscope_api::models::symbol::{FqnReader, Symbol};
-use naviscope_api::models::DisplayGraphNode;
 use naviscope_plugin::{NamingConvention, NodePresenter, PresentationCap};
 use std::sync::Arc;
 

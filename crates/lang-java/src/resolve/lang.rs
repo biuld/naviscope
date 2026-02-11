@@ -1,7 +1,7 @@
+use crate::JavaPlugin;
 use crate::inference::adapters::HeuristicAdapter;
 use crate::inference::{TypeProvider, TypeResolutionContext};
 use crate::model::JavaIndexMetadata;
-use crate::JavaPlugin;
 use crate::resolve::context::ResolutionContext;
 use naviscope_api::models::graph::{EdgeType, GraphEdge, NodeKind};
 use naviscope_api::models::symbol::{NodeId, SymbolResolution, TypeRef};

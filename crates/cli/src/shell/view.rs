@@ -20,10 +20,7 @@ pub struct ShellNodeViewShort {
 }
 
 impl ShellNodeView {
-    pub fn from_node(
-        node: &DisplayGraphNode,
-        relation: Option<String>,
-    ) -> Self {
+    pub fn from_node(node: &DisplayGraphNode, relation: Option<String>) -> Self {
         let location = node
             .location
             .as_ref()

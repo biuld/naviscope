@@ -74,7 +74,10 @@ impl EngineHandle {
     pub fn get_services_for_path(
         &self,
         path: &std::path::Path,
-    ) -> Option<(Arc<dyn naviscope_plugin::SemanticCap>, crate::model::source::Language)> {
+    ) -> Option<(
+        Arc<dyn naviscope_plugin::SemanticCap>,
+        crate::model::source::Language,
+    )> {
         let lang = self.get_language_for_path(path)?;
         let resolver = self.get_semantic_resolver(lang.clone())?;
         Some((resolver, lang))

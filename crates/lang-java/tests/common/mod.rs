@@ -1,7 +1,7 @@
 use naviscope_api::models::Language;
 use naviscope_core::ingest::builder::CodeGraphBuilder;
-use naviscope_java::parser::JavaParser;
 use naviscope_java::JavaPlugin;
+use naviscope_java::parser::JavaParser;
 use naviscope_plugin::{
     GraphOp, ParsedContent, ParsedFile, ProjectContext, SourceFile, SourceIndexCap,
 };

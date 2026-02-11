@@ -246,7 +246,10 @@ impl IndexResolver {
         let source_results: Vec<Result<ResolvedUnit>> = source_files
             .par_iter()
             .map(|file| {
-                let caps = self.lang_caps.iter().find(|c| c.matcher.supports_path(file.path()));
+                let caps = self
+                    .lang_caps
+                    .iter()
+                    .find(|c| c.matcher.supports_path(file.path()));
 
                 if let Some(c) = caps {
                     c.indexing
