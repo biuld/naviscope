@@ -5,10 +5,10 @@ use crate::resolver::context::ResolutionContext;
 use naviscope_api::models::graph::EdgeType;
 use naviscope_api::models::symbol::{FqnId, matches_intent};
 use naviscope_api::models::{SymbolIntent, SymbolResolution, TypeRef};
-use naviscope_plugin::{CodeGraph, NamingConvention, SemanticResolver};
+use naviscope_plugin::{CodeGraph, NamingConvention, SymbolQueryService, SymbolResolveService};
 use tree_sitter::Tree;
 
-impl SemanticResolver for JavaResolver {
+impl SymbolResolveService for JavaResolver {
     fn resolve_at(
         &self,
         tree: &Tree,
@@ -34,6 +34,9 @@ impl SemanticResolver for JavaResolver {
         self.resolve_symbol_internal(&context)
     }
 
+}
+
+impl SymbolQueryService for JavaResolver {
     fn find_matches(&self, index: &dyn CodeGraph, resolution: &SymbolResolution) -> Vec<FqnId> {
         match resolution {
             SymbolResolution::Local(_, _) => vec![],

@@ -1,6 +1,6 @@
 use naviscope_plugin::{
-    AssetEntry, AssetIndexer, AssetSource, AssetSourceLocator, ExternalResolver, GlobalParseResult,
-    IndexNode,
+    AssetEntry, AssetIndexer, AssetSource, AssetSourceLocator, GlobalParseResult, IndexNode,
+    StubGenerator,
 };
 use ristretto_jimage::Image;
 use std::collections::HashSet;
@@ -64,8 +64,8 @@ impl JavaExternalResolver {
     }
 }
 
-impl ExternalResolver for JavaExternalResolver {
-    fn index_asset(
+impl JavaExternalResolver {
+    pub fn index_asset(
         &self,
         asset: &Path,
     ) -> std::result::Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
@@ -101,7 +101,7 @@ impl ExternalResolver for JavaExternalResolver {
         Ok(result)
     }
 
-    fn generate_stub(
+    pub fn generate_stub(
         &self,
         fqn: &str,
         asset: &Path,
@@ -305,7 +305,7 @@ impl ExternalResolver for JavaExternalResolver {
         Err(format!("Member {} not found in class {}", member_name, current_fqn).into())
     }
 
-    fn resolve_source(
+    pub fn resolve_source(
         &self,
         _fqn: &str,
         _source_asset: &Path,
@@ -330,7 +330,21 @@ impl AssetIndexer for JavaExternalResolver {
         &self,
         asset: &Path,
     ) -> std::result::Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        ExternalResolver::index_asset(self, asset)
+        self.index_asset(asset)
+    }
+}
+
+impl StubGenerator for JavaExternalResolver {
+    fn can_generate(&self, asset: &Path) -> bool {
+        self.can_index(asset)
+    }
+
+    fn generate(
+        &self,
+        fqn: &str,
+        entry: &AssetEntry,
+    ) -> std::result::Result<IndexNode, Box<dyn std::error::Error + Send + Sync>> {
+        self.generate_stub(fqn, &entry.path)
     }
 }
 

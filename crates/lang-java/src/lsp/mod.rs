@@ -4,8 +4,8 @@ pub mod type_system;
 
 use crate::parser::JavaParser;
 use naviscope_api::models::SymbolResolution;
-use naviscope_api::models::graph::{DisplayGraphNode, NodeKind};
-use naviscope_plugin::LspService;
+use naviscope_api::models::graph::DisplayGraphNode;
+use naviscope_plugin::LspSyntaxService;
 use std::sync::Arc;
 use tree_sitter::Tree;
 
@@ -19,28 +19,13 @@ impl JavaLspService {
     }
 }
 
-impl LspService for JavaLspService {
+impl LspSyntaxService for JavaLspService {
     fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree> {
         self.parser.parse(source, old_tree)
     }
 
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DisplayGraphNode> {
         symbols::extract_symbols(&self.parser, tree, source)
-    }
-
-    fn symbol_kind(&self, kind: &NodeKind) -> lsp_types::SymbolKind {
-        use lsp_types::SymbolKind;
-        match kind {
-            NodeKind::Class => SymbolKind::CLASS,
-            NodeKind::Interface => SymbolKind::INTERFACE,
-            NodeKind::Enum => SymbolKind::ENUM,
-            NodeKind::Annotation => SymbolKind::INTERFACE,
-            NodeKind::Method => SymbolKind::METHOD,
-            NodeKind::Constructor => SymbolKind::CONSTRUCTOR,
-            NodeKind::Field => SymbolKind::FIELD,
-            NodeKind::Package => SymbolKind::PACKAGE,
-            _ => SymbolKind::VARIABLE,
-        }
     }
 
     fn find_occurrences(

@@ -6,12 +6,12 @@ use crate::resolver::context::ResolutionContext;
 use naviscope_api::models::graph::{EdgeType, GraphEdge, NodeKind};
 use naviscope_api::models::symbol::{NodeId, SymbolResolution, TypeRef};
 use naviscope_plugin::{
-    GraphOp, IndexNode, LangResolver, ParsedContent, ParsedFile, ProjectContext, ResolvedUnit,
+    GraphOp, IndexNode, ParsedContent, ParsedFile, ProjectContext, ResolvedUnit, SourceIndexCap,
 };
 use std::sync::Arc;
 
-impl LangResolver for JavaResolver {
-    fn resolve(
+impl SourceIndexCap for JavaResolver {
+    fn compile_source(
         &self,
         file: &ParsedFile,
         context: &ProjectContext,

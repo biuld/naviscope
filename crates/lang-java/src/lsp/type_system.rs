@@ -1,6 +1,6 @@
 use naviscope_api::models::SymbolResolution;
 use naviscope_plugin::graph::CodeGraph;
-use naviscope_plugin::type_system::TypeSystem;
+use naviscope_plugin::ReferenceCheckService;
 
 pub struct JavaTypeSystem;
 
@@ -10,7 +10,7 @@ impl JavaTypeSystem {
     }
 }
 
-impl TypeSystem for JavaTypeSystem {
+impl ReferenceCheckService for JavaTypeSystem {
     fn is_reference_to(
         &self,
         graph: &dyn CodeGraph,
