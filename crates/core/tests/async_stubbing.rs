@@ -4,8 +4,7 @@ use naviscope_api::models::graph::ResolutionStatus;
 use naviscope_core::ingest::resolver::StubbingManager;
 use naviscope_core::model::GraphOp;
 use naviscope_core::runtime::orchestrator::NaviscopeEngine;
-use naviscope_java::JavaPlugin;
-use naviscope_plugin::LanguagePlugin;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -30,17 +29,21 @@ async fn test_stubbing_manager_sends_requests() {
 /// Test that JavaPlugin correctly reports external asset handling
 #[test]
 fn test_java_plugin_handles_external_assets() {
-    let plugin = JavaPlugin::new().expect("Failed to create JavaPlugin");
+    let java_caps = naviscope_java::java_caps().expect("Failed to create Java caps");
+    let generator = java_caps
+        .asset
+        .stub_generator()
+        .expect("Java should provide a stub generator");
 
     // Java plugin should handle these
-    assert!(plugin.can_handle_external_asset("jar"));
-    assert!(plugin.can_handle_external_asset("jmod"));
-    assert!(plugin.can_handle_external_asset("class"));
+    assert!(generator.can_generate(Path::new("test.jar")));
+    assert!(generator.can_generate(Path::new("java.base.jmod")));
+    assert!(generator.can_generate(Path::new("modules")));
 
     // Java plugin should NOT handle these
-    assert!(!plugin.can_handle_external_asset("rs"));
-    assert!(!plugin.can_handle_external_asset("py"));
-    assert!(!plugin.can_handle_external_asset("go"));
+    assert!(!generator.can_generate(Path::new("foo.rs")));
+    assert!(!generator.can_generate(Path::new("foo.py")));
+    assert!(!generator.can_generate(Path::new("foo.go")));
 }
 
 /// Test the full async stubbing flow with a real JAR file
@@ -56,9 +59,9 @@ async fn test_async_stubbing_with_jar() {
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     // Create engine with Java plugin
-    let java_plugin = Arc::new(JavaPlugin::new().expect("Failed to create JavaPlugin"));
+    let java_caps = naviscope_java::java_caps().expect("Failed to create Java caps");
     let engine = NaviscopeEngine::builder(temp_dir.clone())
-        .with_language(java_plugin)
+        .with_language_caps(java_caps)
         .build();
 
     // Find a real JAR file (use JDK's rt.jar or similar)

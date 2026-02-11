@@ -4,8 +4,8 @@ use common::{offset_to_point, setup_java_test_graph};
 use naviscope_core::features::CodeGraphLike;
 use naviscope_core::features::discovery::DiscoveryEngine;
 use naviscope_core::ingest::parser::SymbolResolution;
-use naviscope_core::ingest::resolver::SemanticResolver;
-use naviscope_java::lsp::JavaLspService;
+use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
+use naviscope_java::JavaPlugin;
 use naviscope_java::resolver::JavaResolver;
 
 #[test]
@@ -42,10 +42,9 @@ fn test_call_hierarchy_incoming() {
     let abs_path = std::env::current_dir().unwrap().join("Test.java");
     let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
 
-    let java_ts = naviscope_java::lsp::type_system::JavaTypeSystem::new();
+    let semantic = JavaPlugin::new().expect("failed to create java plugin");
     for path in candidate_files {
-        let lsp_service = JavaLspService::new(std::sync::Arc::new(resolver.parser.clone()));
-        let locations = discovery.scan_file(&lsp_service, &java_ts, &resolver, content, &res, &uri);
+        let locations = discovery.scan_file(&semantic, content, &res, &uri);
         for loc in locations {
             if let Some(container_idx) = index.find_container_node_at(
                 &path,
@@ -175,9 +174,8 @@ fn test_call_hierarchy_recursion() {
     let abs_path = std::env::current_dir().unwrap().join("Test.java");
     let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
 
-    let java_ts = naviscope_java::lsp::type_system::JavaTypeSystem::new();
-    let lsp_service = JavaLspService::new(std::sync::Arc::new(resolver.parser.clone()));
-    let locations = discovery.scan_file(&lsp_service, &java_ts, &resolver, content, &res, &uri);
+    let semantic = JavaPlugin::new().expect("failed to create java plugin");
+    let locations = discovery.scan_file(&semantic, content, &res, &uri);
     for loc in locations {
         if let Some(c_idx) = index.find_container_node_at(
             &std::path::PathBuf::from("Test.java"),

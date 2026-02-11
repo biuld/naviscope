@@ -1,14 +1,12 @@
 use naviscope_core::runtime::orchestrator::NaviscopeEngine;
-use naviscope_java::JavaPlugin;
-use std::sync::Arc;
 use tempfile::tempdir;
 
 #[tokio::test]
 async fn test_global_asset_scan_produces_routes() {
     let dir = tempdir().unwrap();
-    let java_plugin = Arc::new(JavaPlugin::new().expect("Failed to create JavaPlugin"));
+    let java_caps = naviscope_java::java_caps().expect("Failed to create Java caps");
     let engine = NaviscopeEngine::builder(dir.path().to_path_buf())
-        .with_language(java_plugin)
+        .with_language_caps(java_caps)
         .build();
 
     let scan = engine

@@ -3,10 +3,11 @@ use naviscope_core::ingest::builder::CodeGraphBuilder;
 use naviscope_java::parser::JavaParser;
 use naviscope_java::resolver::JavaResolver;
 use naviscope_plugin::{
-    GraphOp, LangResolver, ParsedContent, ParsedFile, ProjectContext, SourceFile,
+    GraphOp, ParsedContent, ParsedFile, ProjectContext, SourceFile, SourceIndexCap,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Once;
 use tree_sitter::Parser;
 
 #[allow(dead_code)]
@@ -41,7 +42,7 @@ pub fn setup_java_test_graph(
         all_parsed_files.push((parsed_file, content.to_string()));
     }
 
-    // Phase 2: Resolve (using JavaResolver's LangResolver implementation)
+    // Phase 2: Resolve (using JavaResolver source-index implementation)
     let resolver = JavaResolver::new();
     let context = ProjectContext::new(); // Uses default V2 context
 
@@ -51,7 +52,7 @@ pub fn setup_java_test_graph(
         let tree = ts_parser.parse(&content, None).unwrap();
 
         // Use JavaResolver to get resolved unit
-        let unit = resolver.resolve(&pf, &context).unwrap();
+        let unit = resolver.compile_source(&pf, &context).unwrap();
 
         all_ops.extend(unit.ops);
 
@@ -90,12 +91,11 @@ pub async fn setup_java_engine(
     temp_dir: &std::path::Path,
     files: Vec<(&str, &str)>,
 ) -> naviscope_core::facade::EngineHandle {
+    ensure_test_index_dir();
     use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
-    use naviscope_java::JavaPlugin;
-
-    let java_plugin = JavaPlugin::new().expect("Failed to create JavaPlugin");
+    let java_caps = naviscope_java::java_caps().expect("Failed to create Java caps");
     let engine = CoreEngine::builder(temp_dir.to_path_buf())
-        .with_language(Arc::new(java_plugin))
+        .with_language_caps(java_caps)
         .build();
 
     // Create files
@@ -112,4 +112,15 @@ pub async fn setup_java_engine(
     engine.update_files(paths).await.unwrap();
 
     naviscope_core::facade::EngineHandle::from_engine(Arc::new(engine))
+}
+
+fn ensure_test_index_dir() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let dir = std::env::temp_dir().join("naviscope_test_index_dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe {
+            std::env::set_var("NAVISCOPE_INDEX_DIR", dir);
+        }
+    });
 }

@@ -85,7 +85,7 @@ public class App {
     assert!(impls[0].path.to_string_lossy().contains("Impl.java"));
 
     // 3. Find incoming calls to 'Impl#run'
-    // With TypeSystem integration, searching for an implementation should find
+    // With semantic reference checks, searching for an implementation should find
     // calls to the base method as well.
     let calls = handle
         .find_incoming_calls("com.example.Impl#run")

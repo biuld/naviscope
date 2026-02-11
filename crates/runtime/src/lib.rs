@@ -10,12 +10,12 @@ use std::sync::Arc;
 pub fn build_default_engine(path: PathBuf) -> Arc<dyn NaviscopeEngine> {
     let mut builder = naviscope_core::runtime::orchestrator::NaviscopeEngine::builder(path);
 
-    // Register Build Tool Plugins
-    builder = builder.with_build_tool(Arc::new(naviscope_gradle::GradlePlugin::new()));
+    // Register Build Tool Caps
+    builder = builder.with_build_caps(naviscope_gradle::gradle_caps());
 
-    // Register Language Plugins
-    builder = match naviscope_java::JavaPlugin::new() {
-        Ok(plugin) => builder.with_language(Arc::new(plugin)),
+    // Register Language Caps
+    builder = match naviscope_java::java_caps() {
+        Ok(caps) => builder.with_language_caps(caps),
         Err(e) => {
             tracing::error!("Failed to load Java plugin: {}", e);
             builder

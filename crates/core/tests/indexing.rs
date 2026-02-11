@@ -1,71 +1,44 @@
 use naviscope_api::models::graph::{NodeKind, NodeSource, ResolutionStatus};
 use naviscope_api::models::{BuildTool, EmptyMetadata, Range};
-use naviscope_core::ingest::parser::IndexNode;
-use naviscope_core::ingest::resolver::BuildResolver;
 use naviscope_core::runtime::orchestrator::NaviscopeEngine;
 use naviscope_plugin::{
-    BuildParseResult, BuildToolPlugin, NodeAdapter, ParsedFile, PluginInstance, ProjectContext,
-    ResolvedUnit, StorageContext,
+    AssetCap, BuildCaps, BuildContent, BuildIndexCap, BuildParseCap, FileMatcherCap,
+    MetadataCodecCap, ParsedFile, PresentationCap, ProjectContext, ResolvedUnit,
 };
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
+use std::sync::Once;
 use tempfile::tempdir;
 
-struct MockBuildPlugin;
+struct MockBuildCap;
 
-impl PluginInstance for MockBuildPlugin {
-    fn get_node_adapter(&self) -> Option<Arc<dyn NodeAdapter>> {
-        Some(Arc::new(MockBuildPlugin))
+impl FileMatcherCap for MockBuildCap {
+    fn supports_path(&self, path: &Path) -> bool {
+        path.file_name().and_then(|n| n.to_str()) == Some("build.gradle")
     }
 }
 
-impl NodeAdapter for MockBuildPlugin {
-    fn render_display_node(
-        &self,
-        _node: &naviscope_api::models::GraphNode,
-        _rodeo: &dyn naviscope_api::models::symbol::FqnReader,
-    ) -> naviscope_api::models::DisplayGraphNode {
-        unimplemented!()
-    }
-
-    fn decode_metadata(
-        &self,
-        _bytes: &[u8],
-        _ctx: &dyn StorageContext,
-    ) -> Arc<dyn naviscope_api::models::NodeMetadata> {
-        Arc::new(EmptyMetadata)
-    }
-}
-
-impl BuildToolPlugin for MockBuildPlugin {
-    fn name(&self) -> BuildTool {
-        BuildTool::GRADLE
-    }
-    fn recognize(&self, name: &str) -> bool {
-        name == "build.gradle"
-    }
+impl BuildParseCap for MockBuildCap {
     fn parse_build_file(
         &self,
         _source: &str,
-    ) -> Result<BuildParseResult, Box<dyn std::error::Error + Send + Sync>> {
-        unimplemented!()
-    }
-    fn build_resolver(&self) -> Arc<dyn BuildResolver> {
-        Arc::new(MockBuildResolver)
+    ) -> Result<naviscope_plugin::BuildParseResult, naviscope_plugin::BoxError> {
+        Ok(naviscope_plugin::BuildParseResult {
+            content: BuildContent::Unparsed(String::new()),
+        })
     }
 }
 
-struct MockBuildResolver;
-
-impl BuildResolver for MockBuildResolver {
-    fn resolve(
+impl BuildIndexCap for MockBuildCap {
+    fn compile_build(
         &self,
         files: &[&ParsedFile],
-    ) -> Result<(ResolvedUnit, ProjectContext), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(ResolvedUnit, ProjectContext), naviscope_plugin::BoxError> {
         let mut unit = ResolvedUnit::new();
         let mut context = ProjectContext::new();
         if let Some(f) = files.first() {
-            unit.add_node(IndexNode {
+            unit.add_node(naviscope_plugin::IndexNode {
                 id: naviscope_api::models::symbol::NodeId::Flat("project:test".to_string()),
                 name: "test".to_string(),
                 kind: NodeKind::Project,
@@ -88,34 +61,56 @@ impl BuildResolver for MockBuildResolver {
     }
 }
 
+impl AssetCap for MockBuildCap {}
+
+impl PresentationCap for MockBuildCap {
+    fn symbol_kind(&self, _kind: &NodeKind) -> lsp_types::SymbolKind {
+        lsp_types::SymbolKind::MODULE
+    }
+}
+
+impl MetadataCodecCap for MockBuildCap {}
+
+fn mock_build_caps() -> BuildCaps {
+    let cap = Arc::new(MockBuildCap);
+    BuildCaps {
+        build_tool: BuildTool::GRADLE,
+        matcher: cap.clone(),
+        parser: cap.clone(),
+        indexing: cap.clone(),
+        asset: cap.clone(),
+        presentation: cap.clone(),
+        metadata_codec: cap,
+    }
+}
+
+fn ensure_test_index_dir() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let dir = std::env::temp_dir().join("naviscope_test_index_dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe {
+            std::env::set_var("NAVISCOPE_INDEX_DIR", dir);
+        }
+    });
+}
+
 #[tokio::test]
 async fn test_update_files_persistence_integration() {
+    ensure_test_index_dir();
     let dir = tempdir().unwrap();
     let build_gradle = dir.path().join("build.gradle");
     fs::write(&build_gradle, "println 'hello'").unwrap();
 
     let engine = NaviscopeEngine::builder(dir.path().to_path_buf())
-        .with_build_tool(Arc::new(MockBuildPlugin)) // This requires MockBuildPlugin to implement Clone if not wrapped in Arc, but `with_build_tool` takes Arc so we need to construct it
+        .with_build_caps(mock_build_caps())
         .build();
 
-    // First index
-    engine
-        .update_files(vec![build_gradle.clone()])
-        .await
-        .unwrap();
-
+    engine.update_files(vec![build_gradle.clone()]).await.unwrap();
     let graph = engine.snapshot().await;
+    assert!(graph.node_count() > 0, "Project node should exist after first indexing");
 
-    // Use a more direct check on nodes
-    let has_project = graph.node_count() > 0;
-    assert!(
-        has_project,
-        "Project node should exist after first indexing"
-    );
-
-    // Second index (incremental update on the same file)
     engine.update_files(vec![build_gradle]).await.unwrap();
-
     let graph = engine.snapshot().await;
     assert!(
         graph.node_count() > 0,
