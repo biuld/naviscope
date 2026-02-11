@@ -9,7 +9,7 @@ use crate::features::CodeGraphLike;
 use crate::model::FqnManager;
 use crate::model::source::SourceFile;
 use crate::model::{GraphEdge, GraphNode};
-use crate::plugin::NodeAdapter;
+use crate::plugin::NodeMetadataCodec;
 use lasso::ThreadedRodeo;
 use naviscope_api::models::symbol::{FqnId, FqnReader, Symbol};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -253,10 +253,10 @@ impl CodeGraph {
     /// Serialize to bytes for persistence
     pub fn serialize(
         &self,
-        get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+        get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
     ) -> Result<Vec<u8>> {
         use super::storage::to_storage;
-        let storage = to_storage(&self.inner, get_plugin);
+        let storage = to_storage(&self.inner, get_codec);
         let bytes = rmp_serde::to_vec(&storage)
             .map_err(|e| NaviscopeError::Internal(format!("MSGPACK error: {}", e)))?;
 
@@ -269,7 +269,7 @@ impl CodeGraph {
     /// Deserialize from bytes
     pub fn deserialize(
         bytes: &[u8],
-        get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+        get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
     ) -> Result<Self> {
         use super::storage::{StorageGraph, from_storage};
 
@@ -280,7 +280,7 @@ impl CodeGraph {
         let storage: StorageGraph = rmp_serde::from_read(decoder)
             .map_err(|e| NaviscopeError::Internal(format!("MSGPACK error: {}", e)))?;
 
-        let inner = from_storage(storage, get_plugin);
+        let inner = from_storage(storage, get_codec);
         Ok(Self::from_inner(inner))
     }
 
@@ -288,12 +288,12 @@ impl CodeGraph {
     pub fn save_to_json<P: AsRef<std::path::Path>>(
         &self,
         path: P,
-        get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+        get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
     ) -> crate::error::Result<()> {
         use super::storage::to_storage;
         let file = std::fs::File::create(path)?;
         let writer = std::io::BufWriter::new(file);
-        let storage = to_storage(&self.inner, get_plugin);
+        let storage = to_storage(&self.inner, get_codec);
         serde_json::to_writer_pretty(writer, &storage)
             .map_err(|e| crate::error::NaviscopeError::Parsing(e.to_string()))?;
         Ok(())

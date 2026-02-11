@@ -1,7 +1,7 @@
 use crate::error::{NaviscopeError, Result};
 use crate::model::source::Language;
 use crate::model::{DisplayGraphNode, EdgeType, NodeKind};
-use crate::plugin::NodeAdapter;
+use crate::plugin::NodePresenter;
 pub use naviscope_api::models::{GraphQuery, QueryResult, QueryResultEdge};
 use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;
@@ -19,7 +19,7 @@ pub struct QueryEngine<G, L> {
 impl<G, L> QueryEngine<G, L>
 where
     G: CodeGraphLike,
-    L: Fn(Language) -> Option<Arc<dyn NodeAdapter>>,
+    L: Fn(Language) -> Option<Arc<dyn NodePresenter>>,
 {
     pub fn new(
         graph: G,

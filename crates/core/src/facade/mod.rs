@@ -43,53 +43,41 @@ impl EngineHandle {
 
     // ---- Language specific services (internal) ----
 
-    pub fn get_lsp_service(
-        &self,
-        language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::ingest::parser::LspService>> {
-        self.engine.get_resolver().get_lsp_service(language)
-    }
-
     pub fn get_semantic_resolver(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::ingest::resolver::SemanticResolver>> {
-        self.engine.get_resolver().get_semantic_resolver(language)
+    ) -> Option<Arc<dyn naviscope_plugin::SemanticCap>> {
+        self.engine.get_resolver().get_semantic_cap(language)
     }
 
-    pub fn get_type_system(
+    pub fn get_node_presenter(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn naviscope_plugin::type_system::TypeSystem>> {
-        self.engine.get_resolver().get_type_system(language)
+    ) -> Option<Arc<dyn crate::plugin::NodePresenter>> {
+        self.engine.get_resolver().get_node_presenter(language)
     }
 
-    pub fn get_node_adapter(
+    pub fn get_metadata_codec(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
-        self.engine.get_resolver().get_node_adapter(language)
+    ) -> Option<Arc<dyn crate::plugin::NodeMetadataCodec>> {
+        self.engine.get_resolver().get_metadata_codec(language)
     }
 
-    pub fn get_language_by_extension(&self, ext: &str) -> Option<crate::model::source::Language> {
-        self.engine.get_resolver().get_language_by_extension(ext)
+    pub fn get_language_for_path(
+        &self,
+        path: &std::path::Path,
+    ) -> Option<crate::model::source::Language> {
+        self.engine.get_resolver().get_language_for_path(path)
     }
 
     pub fn get_services_for_path(
         &self,
         path: &std::path::Path,
-    ) -> Option<(
-        Arc<dyn crate::ingest::parser::LspService>,
-        Arc<dyn naviscope_plugin::type_system::TypeSystem>,
-        Arc<dyn crate::ingest::resolver::SemanticResolver>,
-        crate::model::source::Language,
-    )> {
-        let ext = path.extension()?.to_str()?;
-        let lang = self.get_language_by_extension(ext)?;
-        let lsp_service = self.get_lsp_service(lang.clone())?;
-        let type_system = self.get_type_system(lang.clone())?;
+    ) -> Option<(Arc<dyn naviscope_plugin::SemanticCap>, crate::model::source::Language)> {
+        let lang = self.get_language_for_path(path)?;
         let resolver = self.get_semantic_resolver(lang.clone())?;
-        Some((lsp_service, type_system, resolver, lang))
+        Some((resolver, lang))
     }
 
     /// Get naming convention for a specific language

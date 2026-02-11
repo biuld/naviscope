@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Context for interning and resolving symbols during storage conversion.
-pub trait StorageContext: crate::model::metadata::SymbolInterner {
+pub trait CodecContext: crate::model::metadata::SymbolInterner {
     fn intern_path(&mut self, p: &std::path::Path) -> u32;
     fn resolve_str(&self, sid: u32) -> &str;
     fn resolve_path(&self, pid: u32) -> &std::path::Path;
@@ -18,7 +18,7 @@ pub struct GenericStorageContext {
     pub rodeo: Arc<ThreadedRodeo>,
 }
 
-impl naviscope_plugin::StorageContext for GenericStorageContext {
+impl naviscope_plugin::CodecContext for GenericStorageContext {
     fn interner(&mut self) -> &mut dyn FqnInterner {
         self
     }
@@ -73,7 +73,7 @@ impl crate::model::metadata::SymbolInterner for GenericStorageContext {
     }
 }
 
-impl StorageContext for GenericStorageContext {
+impl CodecContext for GenericStorageContext {
     fn intern_path(&mut self, p: &std::path::Path) -> u32 {
         let s = p.to_string_lossy();
         crate::model::metadata::SymbolInterner::intern_str(self, s.as_ref())

@@ -7,14 +7,15 @@ use crate::ingest::resolver::{IndexResolver, StubRequest, StubbingManager};
 use crate::ingest::scanner::Scanner;
 use crate::model::CodeGraph;
 use crate::model::GraphOp;
-use naviscope_plugin::{AssetDiscoverer, AssetIndexer, AssetSourceLocator, NamingConvention};
+use naviscope_plugin::{
+    AssetDiscoverer, AssetEntry, AssetIndexer, AssetSource, AssetSourceLocator, BuildCaps,
+    LanguageCaps, NamingConvention,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use xxhash_rust::xxh3::xxh3_64;
-
-use crate::plugin::{BuildToolPlugin, LanguagePlugin};
 
 /// Naviscope indexing engine
 ///
@@ -32,9 +33,9 @@ pub struct NaviscopeEngine {
     /// Index storage path
     index_path: PathBuf,
 
-    /// Plugins
-    build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
-    lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
+    /// Registered capabilities
+    build_caps: Arc<Vec<BuildCaps>>,
+    lang_caps: Arc<Vec<LanguageCaps>>,
 
     /// Runtime registry: language name -> naming convention
     naming_conventions: Arc<HashMap<String, Arc<dyn NamingConvention>>>,
@@ -54,26 +55,26 @@ pub struct NaviscopeEngine {
 
 pub struct NaviscopeEngineBuilder {
     project_root: PathBuf,
-    build_plugins: Vec<Arc<dyn BuildToolPlugin>>,
-    lang_plugins: Vec<Arc<dyn LanguagePlugin>>,
+    build_caps: Vec<BuildCaps>,
+    lang_caps: Vec<LanguageCaps>,
 }
 
 impl NaviscopeEngineBuilder {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
             project_root,
-            build_plugins: Vec::new(),
-            lang_plugins: Vec::new(),
+            build_caps: Vec::new(),
+            lang_caps: Vec::new(),
         }
     }
 
-    pub fn with_language(mut self, plugin: Arc<dyn LanguagePlugin>) -> Self {
-        self.lang_plugins.push(plugin);
+    pub fn with_language_caps(mut self, caps: LanguageCaps) -> Self {
+        self.lang_caps.push(caps);
         self
     }
 
-    pub fn with_build_tool(mut self, plugin: Arc<dyn BuildToolPlugin>) -> Self {
-        self.build_plugins.push(plugin);
+    pub fn with_build_caps(mut self, caps: BuildCaps) -> Self {
+        self.build_caps.push(caps);
         self
     }
 
@@ -91,58 +92,58 @@ impl NaviscopeEngineBuilder {
 
         // Process naming conventions
         let mut conventions = HashMap::new();
-        for plugin in &self.lang_plugins {
-            if let Some(nc) = plugin.get_naming_convention() {
-                conventions.insert(plugin.name().to_string(), nc);
+        for caps in &self.lang_caps {
+            if let Some(nc) = caps.presentation.naming_convention() {
+                conventions.insert(caps.language.to_string(), nc);
             }
         }
 
         // Collect asset indexers from language plugins
         let indexers: Vec<Arc<dyn AssetIndexer>> = self
-            .lang_plugins
+            .lang_caps
             .iter()
-            .filter_map(|p| p.asset_indexer())
+            .filter_map(|c| c.asset.asset_indexer())
             .collect();
 
         // Collect asset discoverers from all plugins
         let mut discoverers: Vec<Box<dyn AssetDiscoverer>> = Vec::new();
 
         // From language plugins (e.g., JdkDiscoverer from Java)
-        for plugin in &self.lang_plugins {
-            if let Some(d) = plugin.global_asset_discoverer() {
+        for caps in &self.lang_caps {
+            if let Some(d) = caps.asset.global_asset_discoverer() {
                 discoverers.push(d);
             }
         }
 
         // From build tool plugins (e.g., GradleCacheDiscoverer from Gradle)
-        for plugin in &self.build_plugins {
-            if let Some(d) = plugin.asset_discoverer() {
+        for caps in &self.build_caps {
+            if let Some(d) = caps.asset.global_asset_discoverer() {
                 discoverers.push(d);
             }
         }
 
         // Collect asset source locators from all plugins
         let mut source_locators: Vec<Arc<dyn AssetSourceLocator>> = Vec::new();
-        for plugin in &self.lang_plugins {
-            if let Some(locator) = plugin.asset_source_locator() {
+        for caps in &self.lang_caps {
+            if let Some(locator) = caps.asset.asset_source_locator() {
                 source_locators.push(locator);
             }
         }
-        for plugin in &self.build_plugins {
-            if let Some(locator) = plugin.asset_source_locator() {
+        for caps in &self.build_caps {
+            if let Some(locator) = caps.asset.asset_source_locator() {
                 source_locators.push(locator);
             }
         }
 
         // Project-local asset discoverers (optional hook)
-        for plugin in &self.lang_plugins {
-            if let Some(d) = plugin.project_asset_discoverer(&canonical_root) {
+        for caps in &self.lang_caps {
+            if let Some(d) = caps.asset.project_asset_discoverer(&canonical_root) {
                 discoverers.push(d);
             }
         }
 
-        for plugin in &self.build_plugins {
-            if let Some(d) = plugin.project_asset_discoverer(&canonical_root) {
+        for caps in &self.build_caps {
+            if let Some(d) = caps.asset.project_asset_discoverer(&canonical_root) {
                 discoverers.push(d);
             }
         }
@@ -163,8 +164,8 @@ impl NaviscopeEngineBuilder {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
             project_root: canonical_root,
             index_path,
-            build_plugins: Arc::new(self.build_plugins),
-            lang_plugins: Arc::new(self.lang_plugins),
+            build_caps: Arc::new(self.build_caps),
+            lang_caps: Arc::new(self.lang_caps),
             naming_conventions: Arc::new(conventions),
             cancel_token: cancel_token.clone(),
             stub_tx,
@@ -199,7 +200,7 @@ impl NaviscopeEngine {
 
     /// Get the index resolver configured with current plugins
     pub fn get_resolver(&self) -> IndexResolver {
-        IndexResolver::with_plugins((*self.build_plugins).clone(), (*self.lang_plugins).clone())
+        IndexResolver::with_caps((*self.build_caps).clone(), (*self.lang_caps).clone())
             .with_stubbing(StubbingManager::new(self.stub_tx.clone()))
     }
 
@@ -257,12 +258,12 @@ impl NaviscopeEngine {
     /// Load index from disk
     pub async fn load(&self) -> Result<bool> {
         let path = self.index_path.clone();
-        let lang_plugins = self.lang_plugins.clone();
-        let build_plugins = self.build_plugins.clone();
+        let lang_caps = self.lang_caps.clone();
+        let build_caps = self.build_caps.clone();
 
         // Load in blocking pool
         let graph_opt = tokio::task::spawn_blocking(move || {
-            Self::load_from_disk(&path, lang_plugins, build_plugins)
+            Self::load_from_disk(&path, lang_caps, build_caps)
         })
         .await
         .map_err(|e| NaviscopeError::Internal(e.to_string()))??;
@@ -281,11 +282,11 @@ impl NaviscopeEngine {
     pub async fn save(&self) -> Result<()> {
         let graph = self.snapshot().await;
         let path = self.index_path.clone();
-        let lang_plugins = self.lang_plugins.clone();
-        let build_plugins = self.build_plugins.clone();
+        let lang_caps = self.lang_caps.clone();
+        let build_caps = self.build_caps.clone();
 
         tokio::task::spawn_blocking(move || {
-            Self::save_to_disk(&graph, &path, lang_plugins, build_plugins)
+            Self::save_to_disk(&graph, &path, lang_caps, build_caps)
         })
         .await
         .map_err(|e| NaviscopeError::Internal(e.to_string()))?
@@ -295,16 +296,16 @@ impl NaviscopeEngine {
     pub async fn rebuild(&self) -> Result<()> {
         let _ = self.scan_global_assets().await;
         let project_root = self.project_root.clone();
-        let build_plugins = self.build_plugins.clone();
-        let lang_plugins = self.lang_plugins.clone();
+        let build_caps = self.build_caps.clone();
+        let lang_caps = self.lang_caps.clone();
         let global_routes = self.global_asset_routes();
 
         let stub_tx = self.stub_tx.clone();
         let (new_graph, stubs) = tokio::task::spawn_blocking(move || {
             Self::build_index(
                 &project_root,
-                build_plugins,
-                lang_plugins,
+                build_caps,
+                lang_caps,
                 stub_tx,
                 global_routes,
             )
@@ -338,8 +339,8 @@ impl NaviscopeEngine {
     pub async fn update_files(&self, files: Vec<PathBuf>) -> Result<()> {
         let _ = self.scan_global_assets().await;
         let base_graph = self.snapshot().await;
-        let build_plugins = self.build_plugins.clone();
-        let lang_plugins = self.lang_plugins.clone();
+        let build_caps = self.build_caps.clone();
+        let lang_caps = self.lang_caps.clone();
         let global_routes = Arc::new(self.global_asset_routes());
 
         // Prepare existing file metadata for change detection
@@ -381,7 +382,7 @@ impl NaviscopeEngine {
                 scan_results.into_iter().partition(|f| f.is_build());
 
             let resolver =
-                IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone())
+                IndexResolver::with_caps((*build_caps).clone(), (*lang_caps).clone())
                     .with_stubbing(StubbingManager::new(stub_tx.clone()));
 
             // 2. Phase 1: Heavy Build Resolution (Global Context)
@@ -417,9 +418,9 @@ impl NaviscopeEngine {
             let mut builder = base_graph.to_builder();
 
             // Register naming conventions
-            for plugin in lang_plugins.iter() {
-                if let Some(nc) = plugin.get_naming_convention() {
-                    builder.naming_conventions.insert(plugin.name(), nc);
+            for caps in lang_caps.iter() {
+                if let Some(nc) = caps.presentation.naming_convention() {
+                    builder.naming_conventions.insert(caps.language.clone(), nc);
                 }
             }
 
@@ -540,7 +541,7 @@ impl NaviscopeEngine {
         stub_cache: Arc<crate::cache::GlobalStubCache>,
     ) {
         let current = self.current.clone();
-        let lang_plugins = self.lang_plugins.clone();
+        let lang_caps = self.lang_caps.clone();
         let naming_conventions = self.naming_conventions.clone();
 
         tokio::spawn(async move {
@@ -588,41 +589,32 @@ impl NaviscopeEngine {
                             }
 
                             // If not in cache, generate stub
-                            let ext = asset_path
-                                .extension()
-                                .and_then(|e| e.to_str())
-                                .unwrap_or("")
-                                .to_lowercase();
+                            for caps in lang_caps.iter() {
+                                let Some(generator) = caps.asset.stub_generator() else {
+                                    continue;
+                                };
+                                if !generator.can_generate(&asset_path) {
+                                    continue;
+                                }
 
-                            // Also check if file_name is "modules" (JImage without extension)
-                            let file_name =
-                                asset_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                            let is_jimage = file_name == "modules";
-
-                            for plugin in lang_plugins.iter() {
-                                let can_handle = plugin.can_handle_external_asset(&ext);
-                                let jimage_match = is_jimage && plugin.name().as_str() == "java";
-
-                                if can_handle || jimage_match {
-                                    if let Some(external) = plugin.external_resolver() {
-                                        match external.generate_stub(&req.fqn, &asset_path) {
-                                            Ok(stub) => {
-                                                // Store in cache for future use
-                                                if let Some(ref key) = asset_key {
-                                                    stub_cache.store(key, &stub);
-                                                    tracing::trace!("Cached stub for {}", req.fqn);
-                                                }
-                                                ops.push(GraphOp::AddNode { data: Some(stub) });
-                                                break;
-                                            }
-                                            Err(e) => {
-                                                tracing::debug!(
-                                                    "Failed to generate stub for {}: {}",
-                                                    req.fqn,
-                                                    e
-                                                );
-                                            }
+                                let entry =
+                                    AssetEntry::new(asset_path.clone(), AssetSource::Unknown);
+                                match generator.generate(&req.fqn, &entry) {
+                                    Ok(stub) => {
+                                        // Store in cache for future use
+                                        if let Some(ref key) = asset_key {
+                                            stub_cache.store(key, &stub);
+                                            tracing::trace!("Cached stub for {}", req.fqn);
                                         }
+                                        ops.push(GraphOp::AddNode { data: Some(stub) });
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "Failed to generate stub for {}: {}",
+                                            req.fqn,
+                                            e
+                                        );
                                     }
                                 }
                             }
@@ -691,8 +683,8 @@ impl NaviscopeEngine {
 
     fn load_from_disk(
         path: &Path,
-        lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
-        build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
+        lang_caps: Arc<Vec<LanguageCaps>>,
+        build_caps: Arc<Vec<BuildCaps>>,
     ) -> Result<Option<CodeGraph>> {
         if !path.exists() {
             return Ok(None);
@@ -700,21 +692,21 @@ impl NaviscopeEngine {
 
         let bytes = std::fs::read(path)?;
 
-        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
-            for p in lang_plugins.iter() {
-                if p.name().as_str() == lang {
-                    return p.get_node_adapter();
+        let get_codec = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeMetadataCodec>> {
+            for caps in lang_caps.iter() {
+                if caps.language.as_str() == lang {
+                    return caps.metadata_codec.metadata_codec();
                 }
             }
-            for p in build_plugins.iter() {
-                if p.name().as_str() == lang {
-                    return p.get_node_adapter();
+            for caps in build_caps.iter() {
+                if caps.build_tool.as_str() == lang {
+                    return caps.metadata_codec.metadata_codec();
                 }
             }
             None
         };
 
-        match CodeGraph::deserialize(&bytes, get_plugin) {
+        match CodeGraph::deserialize(&bytes, get_codec) {
             Ok(graph) => {
                 if graph.version() != crate::model::graph::CURRENT_VERSION {
                     tracing::warn!(
@@ -744,30 +736,30 @@ impl NaviscopeEngine {
     fn save_to_disk(
         graph: &CodeGraph,
         path: &Path,
-        lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
-        build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
+        lang_caps: Arc<Vec<LanguageCaps>>,
+        build_caps: Arc<Vec<BuildCaps>>,
     ) -> Result<()> {
         // Ensure directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        let get_plugin = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
-            for p in lang_plugins.iter() {
-                if p.name().as_str() == lang {
-                    return p.get_node_adapter();
+        let get_codec = |lang: &str| -> Option<Arc<dyn crate::plugin::NodeMetadataCodec>> {
+            for caps in lang_caps.iter() {
+                if caps.language.as_str() == lang {
+                    return caps.metadata_codec.metadata_codec();
                 }
             }
-            for p in build_plugins.iter() {
-                if p.name().as_str() == lang {
-                    return p.get_node_adapter();
+            for caps in build_caps.iter() {
+                if caps.build_tool.as_str() == lang {
+                    return caps.metadata_codec.metadata_codec();
                 }
             }
             None
         };
 
         // Serialize the graph
-        let bytes = graph.serialize(get_plugin)?;
+        let bytes = graph.serialize(get_codec)?;
 
         // Write to file atomically (write to temp, then rename)
         let temp_path = path.with_extension("tmp");
@@ -781,8 +773,8 @@ impl NaviscopeEngine {
 
     fn build_index(
         project_root: &Path,
-        build_plugins: Arc<Vec<Arc<dyn BuildToolPlugin>>>,
-        lang_plugins: Arc<Vec<Arc<dyn LanguagePlugin>>>,
+        build_caps: Arc<Vec<BuildCaps>>,
+        lang_caps: Arc<Vec<LanguageCaps>>,
         stub_tx: tokio::sync::mpsc::UnboundedSender<StubRequest>,
         global_routes: HashMap<String, Vec<PathBuf>>,
     ) -> Result<(CodeGraph, Vec<StubRequest>)> {
@@ -791,9 +783,8 @@ impl NaviscopeEngine {
             Scanner::scan_and_parse(project_root, &std::collections::HashMap::new());
 
         // Resolve
-        let resolver =
-            IndexResolver::with_plugins((*build_plugins).clone(), (*lang_plugins).clone())
-                .with_stubbing(StubbingManager::new(stub_tx));
+        let resolver = IndexResolver::with_caps((*build_caps).clone(), (*lang_caps).clone())
+            .with_stubbing(StubbingManager::new(stub_tx));
 
         // resolve() now returns both ops and the filled ProjectContext
         let (ops, _project_context) = resolver.resolve(parse_results)?;
@@ -802,9 +793,9 @@ impl NaviscopeEngine {
         let mut builder = CodeGraphBuilder::new();
 
         // Register naming conventions
-        for plugin in lang_plugins.iter() {
-            if let Some(nc) = plugin.get_naming_convention() {
-                builder.naming_conventions.insert(plugin.name(), nc);
+        for caps in lang_caps.iter() {
+            if let Some(nc) = caps.presentation.naming_convention() {
+                builder.naming_conventions.insert(caps.language.clone(), nc);
             }
         }
 

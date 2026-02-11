@@ -31,7 +31,7 @@ impl SymbolNavigator for EngineHandle {
             PathBuf::from(uri_str)
         };
 
-        let (lsp_service, _type_system, resolver, _lang) = match self.get_services_for_path(&path) {
+        let (semantic, _lang) = match self.get_services_for_path(&path) {
             Some(x) => x,
             None => return Ok(None),
         };
@@ -42,7 +42,7 @@ impl SymbolNavigator for EngineHandle {
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?
         };
 
-        let tree = lsp_service
+        let tree = semantic
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
@@ -50,7 +50,7 @@ impl SymbolNavigator for EngineHandle {
 
         let graph = self.graph().await;
 
-        Ok(resolver.resolve_at(&tree, &content, ctx.line as usize, byte_col, &graph))
+        Ok(semantic.resolve_at(&tree, &content, ctx.line as usize, byte_col, &graph))
     }
 
     async fn find_highlights(&self, ctx: &PositionContext) -> SemanticResult<Vec<Range>> {
@@ -61,7 +61,7 @@ impl SymbolNavigator for EngineHandle {
             PathBuf::from(uri_str)
         };
 
-        let (lsp_service, _type_system, _resolver, _) = match self.get_services_for_path(&path) {
+        let (semantic, _) = match self.get_services_for_path(&path) {
             Some(x) => x,
             None => return Ok(vec![]),
         };
@@ -72,7 +72,7 @@ impl SymbolNavigator for EngineHandle {
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?
         };
 
-        let tree = lsp_service
+        let tree = semantic
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
@@ -81,7 +81,7 @@ impl SymbolNavigator for EngineHandle {
             None => return Ok(vec![]),
         };
 
-        Ok(lsp_service.find_occurrences(&content, &tree, &res))
+        Ok(semantic.find_occurrences(&content, &tree, &res))
     }
 
     async fn find_definitions(&self, query: &SymbolQuery) -> SemanticResult<Vec<SymbolLocation>> {
@@ -210,7 +210,7 @@ impl ReferenceAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (lsp_service, type_system, file_resolver, _file_lang) =
+                let (semantic, _file_lang) =
                     match handle.get_services_for_path(&path) {
                         Some(x) => x,
                         None => return Vec::new(),
@@ -230,9 +230,7 @@ impl ReferenceAnalyzer for EngineHandle {
                 };
 
                 let locations = discovery.scan_file(
-                    lsp_service.as_ref(),
-                    type_system.as_ref(),
-                    file_resolver.as_ref(),
+                    semantic.as_ref(),
                     &content,
                     &resolution,
                     &uri,
@@ -353,7 +351,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             let conventions_clone = conventions.clone();
 
             tasks.spawn(async move {
-                let (lsp_service, type_system, file_resolver, _file_lang) =
+                let (semantic, _file_lang) =
                     match handle.get_services_for_path(&path) {
                         Some(x) => x,
                         None => return vec![],
@@ -373,9 +371,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
                 // Verification
                 discovery.scan_file(
-                    lsp_service.as_ref(),
-                    type_system.as_ref(),
-                    file_resolver.as_ref(),
+                    semantic.as_ref(),
                     &content,
                     &res,
                     &uri,
@@ -464,7 +460,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             .range()
             .ok_or_else(|| SemanticError::Internal("Node has no range".into()))?;
 
-        let (lsp_service, _type_system, resolver, _lang) = self
+        let (semantic, _lang) = self
             .get_services_for_path(&path)
             .ok_or_else(|| SemanticError::Internal("No services for file".into()))?;
 
@@ -472,7 +468,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
 
         // Micro-level scanning: extract method body and find all calls
-        let tree = lsp_service
+        let tree = semantic
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
@@ -508,7 +504,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
                 };
 
                 if let Ok(Some(res)) = self.resolve_symbol_at(&pos_ctx).await {
-                    let matches = resolver.find_matches(&graph, &res);
+                    let matches = semantic.find_matches(&graph, &res);
                     for fqn_id in matches {
                         if let Some(&m_idx) = graph.fqn_map().get(&fqn_id) {
                             let m_node = &graph.topology()[m_idx];
@@ -570,8 +566,7 @@ impl SymbolInfoProvider for EngineHandle {
             PathBuf::from(uri)
         };
 
-        let (lsp_service, _type_system, _resolver, _lang) = match self.get_services_for_path(&path)
-        {
+        let (semantic, _lang) = match self.get_services_for_path(&path) {
             Some(x) => x,
             None => return Ok(vec![]),
         };
@@ -579,11 +574,11 @@ impl SymbolInfoProvider for EngineHandle {
         let content =
             fs::read_to_string(&path).map_err(|e| SemanticError::Internal(e.to_string()))?;
 
-        let tree = lsp_service
+        let tree = semantic
             .parse(&content, None)
             .ok_or_else(|| SemanticError::Internal("Failed to parse".into()))?;
 
-        let symbols = lsp_service.extract_symbols(&tree, &content);
+        let symbols = semantic.extract_symbols(&tree, &content);
 
         Ok(symbols)
     }
@@ -595,11 +590,6 @@ impl SymbolInfoProvider for EngineHandle {
             PathBuf::from(uri)
         };
 
-        let ext = match path.extension().and_then(|e| e.to_str()) {
-            Some(e) => e,
-            None => return Ok(None),
-        };
-
-        Ok(self.get_language_by_extension(ext))
+        Ok(self.get_language_for_path(&path))
     }
 }

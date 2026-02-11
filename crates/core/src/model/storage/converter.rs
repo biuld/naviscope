@@ -1,7 +1,7 @@
 use super::model::*;
 use crate::model::graph::{CodeGraphInner, FileEntry};
 use crate::model::{EmptyMetadata, GraphNode, InternedLocation, NodeMetadata};
-use crate::plugin::NodeAdapter;
+use crate::plugin::NodeMetadataCodec;
 use lasso::{Key, Spur, ThreadedRodeo};
 use naviscope_api::models::symbol::{FqnId, Symbol};
 use petgraph::stable_graph::NodeIndex;
@@ -9,21 +9,13 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Fallback adapter that uses empty metadata
-struct DefaultNodeAdapter;
-impl NodeAdapter for DefaultNodeAdapter {
-    fn render_display_node(
-        &self,
-        _node: &GraphNode,
-        _fqns: &dyn naviscope_api::models::symbol::FqnReader,
-    ) -> naviscope_api::models::DisplayGraphNode {
-        unimplemented!("DefaultNodeAdapter should not be used for rendering")
-    }
-
+/// Fallback codec that uses empty metadata.
+struct DefaultNodeMetadataCodec;
+impl NodeMetadataCodec for DefaultNodeMetadataCodec {
     fn encode_metadata(
         &self,
         _metadata: &dyn NodeMetadata,
-        _ctx: &mut dyn naviscope_plugin::StorageContext,
+        _ctx: &mut dyn naviscope_plugin::CodecContext,
     ) -> Vec<u8> {
         Vec::new()
     }
@@ -31,7 +23,7 @@ impl NodeAdapter for DefaultNodeAdapter {
     fn decode_metadata(
         &self,
         _bytes: &[u8],
-        _ctx: &dyn naviscope_plugin::StorageContext,
+        _ctx: &dyn naviscope_plugin::CodecContext,
     ) -> Arc<dyn NodeMetadata> {
         Arc::new(EmptyMetadata)
     }
@@ -46,7 +38,7 @@ impl crate::model::metadata::SymbolInterner for ReadOnlyStorageContext {
     }
 }
 
-impl naviscope_plugin::StorageContext for ReadOnlyStorageContext {
+impl naviscope_plugin::CodecContext for ReadOnlyStorageContext {
     fn interner(&mut self) -> &mut dyn naviscope_plugin::FqnInterner {
         unreachable!("Read-only context cannot intern")
     }
@@ -69,7 +61,7 @@ impl naviscope_api::models::symbol::FqnReader for ReadOnlyStorageContext {
     }
 }
 
-impl StorageContext for ReadOnlyStorageContext {
+impl CodecContext for ReadOnlyStorageContext {
     fn intern_path(&mut self, _p: &Path) -> u32 {
         unreachable!("Read-only context")
     }
@@ -89,12 +81,12 @@ impl StorageContext for ReadOnlyStorageContext {
 
 pub fn to_storage(
     inner: &CodeGraphInner,
-    get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+    get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
 ) -> StorageGraph {
     let rodeo_ref = inner.symbols.clone();
     let mut ctx = GenericStorageContext { rodeo: rodeo_ref };
 
-    let default_plugin = Arc::new(DefaultNodeAdapter);
+    let default_codec = Arc::new(DefaultNodeMetadataCodec);
     let mut node_id_map = HashMap::new();
     let mut nodes = Vec::new();
 
@@ -105,8 +97,8 @@ pub fn to_storage(
 
         // Resolve language string for plugin lookup
         let lang_str = ctx.resolve_str(node.lang.0.into_usize() as u32).to_string();
-        let plugin = get_plugin(&lang_str).unwrap_or_else(|| default_plugin.clone());
-        let metadata = plugin.encode_metadata(&*node.metadata, &mut ctx);
+        let codec = get_codec(&lang_str).unwrap_or_else(|| default_codec.clone());
+        let metadata = codec.encode_metadata(&*node.metadata, &mut ctx);
 
         nodes.push(StorageNode {
             id_sid: node.id.0,
@@ -204,18 +196,18 @@ pub fn to_storage(
 
 pub fn from_storage(
     storage: StorageGraph,
-    get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+    get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
 ) -> CodeGraphInner {
     let mut topology = petgraph::stable_graph::StableDiGraph::new();
-    let default_plugin = Arc::new(DefaultNodeAdapter);
+    let default_codec = Arc::new(DefaultNodeMetadataCodec);
 
     let rodeo = storage.fqns.rodeo.clone();
     let ctx = ReadOnlyStorageContext(rodeo.clone());
 
     for snode in &storage.nodes {
         let lang_str = ctx.resolve_str(snode.lang_sid).to_string();
-        let plugin = get_plugin(&lang_str).unwrap_or_else(|| default_plugin.clone());
-        let metadata = plugin.decode_metadata(&snode.metadata, &ctx);
+        let codec = get_codec(&lang_str).unwrap_or_else(|| default_codec.clone());
+        let metadata = codec.decode_metadata(&snode.metadata, &ctx);
 
         let node = GraphNode {
             id: FqnId(snode.id_sid),

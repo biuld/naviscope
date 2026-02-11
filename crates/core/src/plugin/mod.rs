@@ -1,8 +1,5 @@
 pub use naviscope_api::models::graph::DisplayGraphNode;
 pub use naviscope_plugin::{
-    NamingConvention, NodeAdapter, PluginHandle, PluginInfo, PluginInstance,
+    BuildCaps, BuildContent, BuildParseResult, LanguageCaps, NamingConvention, NodeMetadataCodec,
+    NodePresenter,
 };
-
-pub use naviscope_plugin::{BuildToolPlugin, LanguagePlugin};
-
-pub use naviscope_plugin::{BuildContent, BuildParseResult};

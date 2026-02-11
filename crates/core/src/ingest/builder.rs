@@ -7,7 +7,7 @@
 use crate::model::CodeGraph;
 use crate::model::graph::CodeGraphInner;
 use crate::model::source::SourceFile;
-// StorageContext unused
+// codec context unused
 use crate::model::{GraphEdge, GraphOp};
 use naviscope_api::models::symbol::Symbol;
 use naviscope_plugin::{FqnInterner, ModelConverter};
