@@ -106,11 +106,73 @@ Naviscope is built on a **layered crate architecture** that separates concerns a
 - **Interface Layer** (`naviscope-cli`, `naviscope-lsp`, `naviscope-mcp`): Entry points for different use cases (CLI shell, LSP for editors, MCP for AI agents).
 - **Runtime Layer** (`naviscope-runtime`): Orchestrates the engine assembly, registering language plugins and providing a unified factory.
 - **Language Layer** (`naviscope-java`, `naviscope-gradle`): Language-specific implementations that implement the standard plugin contracts.
-- **Plugin Layer** (`naviscope-plugin`): Defines the standard contracts and traits (`LanguagePlugin`, `BuildToolPlugin`, `Resolver`) effectively decoupling the core engine from specific language logic.
+- **Plugin Layer** (`naviscope-plugin`): Defines capability traits (parse/indexing/runtime/asset/presentation/metadata) that decouple Core from language-specific implementations.
 - **Core Layer** (`naviscope-core`): The heart of the system - graph storage, indexing, file scanning, and persistence. It consumes the plugin traits to process files.
 - **API Layer** (`naviscope-api`): Common traits and models shared across all crates, ensuring a consistent interface.
 
 The core is a language-agnostic graph structure populated by language-specific strategies (currently Java/Gradle via Tree-sitter), exposing a unified query engine to both AI agents and developer tools.
+
+### Trait Organization
+
+Naviscope's trait design is split into two layers: engine-facing API traits (`naviscope-api`) and language capability traits (`naviscope-plugin`).
+
+```mermaid
+graph TB
+    subgraph A["Layer 1: Engine API (`naviscope-api`)"]
+        APIComposite["API Composite<br/>NaviscopeEngine"]
+        APIServices["API Services<br/>GraphService | NavigationService<br/>SymbolNavigator | ReferenceAnalyzer<br/>CallHierarchyAnalyzer | SymbolInfoProvider<br/>EngineLifecycle | StubCacheManager"]
+    end
+
+    subgraph B["Layer 2: Runtime Semantics (`naviscope-plugin`)"]
+        RuntimeSemantic["Runtime Semantic Cap<br/>SemanticCap"]
+        RuntimeServices["Semantic Services<br/>SymbolResolveService | SymbolQueryService<br/>LspSyntaxService | ReferenceCheckService"]
+    end
+
+    subgraph C["Layer 3: Parse & Index (`naviscope-plugin`)"]
+        ParseCap["Parse Cap<br/>FileMatcherCap | LanguageParseCap | BuildParseCap"]
+        IndexCap["Index Cap<br/>SourceIndexCap | BuildIndexCap | ProjectContext"]
+    end
+
+    subgraph D["Layer 4: Asset & Output (`naviscope-plugin`)"]
+        AssetCap["Asset Cap"]
+        PresentationCap["Presentation Cap"]
+        MetadataCodecCap["Metadata Codec Cap"]
+    end
+
+    APIComposite --> APIServices
+    APIServices --> RuntimeSemantic
+    RuntimeSemantic --> RuntimeServices
+
+    RuntimeServices --> ParseCap
+    RuntimeServices --> IndexCap
+    ParseCap --> IndexCap
+
+    IndexCap --> AssetCap
+    RuntimeServices --> PresentationCap
+    RuntimeServices --> MetadataCodecCap
+```
+
+#### `naviscope-api` service traits
+
+- `GraphService`: graph query, stats, and node display retrieval.
+- `NavigationService`: CLI-style path resolution and completion.
+- `SymbolNavigator`: resolve/go-to-definition/type-definition/implementation/highlights.
+- `ReferenceAnalyzer`: find references.
+- `CallHierarchyAnalyzer`: incoming/outgoing calls.
+- `SymbolInfoProvider`: symbol info, document symbols, language detection.
+- `EngineLifecycle`: rebuild/load/save/refresh/watch/clear.
+- `StubCacheManager`: cache stats/scan/inspect/clear.
+- `NaviscopeEngine`: composite trait that bundles all service traits above.
+
+#### `naviscope-plugin` capability traits
+
+- File routing and parsing: `FileMatcherCap`, `LanguageParseCap`, `BuildParseCap`.
+- Indexing: `SourceIndexCap`, `BuildIndexCap`.
+- Runtime semantics: `SymbolResolveService`, `SymbolQueryService`, `LspSyntaxService`, `ReferenceCheckService` (grouped by `SemanticCap`).
+- Asset integration: `AssetCap` (discover/index/source-locate/stub-generate).
+- Output shaping: `PresentationCap`, `MetadataCodecCap`.
+
+This split keeps runtime interfaces stable for clients while allowing per-language capability composition internally.
 
 ### 🔍 Reference Discovery Strategy
 

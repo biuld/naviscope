@@ -37,8 +37,8 @@ graph TD
 ```
 
 ## What Each Layer Provides
-- **API**: shared models, identifiers, and common traits used across crates.
-- **Plugin**: contracts for language/build tool integrations; keeps Core independent.
+- **API**: shared models plus engine service traits (`GraphService`, `NavigationService`, semantic traits, `EngineLifecycle`) and the composite `NaviscopeEngine`.
+- **Plugin**: capability traits (`*Cap` + runtime semantic services) for language/build integrations; keeps Core independent.
 - **Core**: graph storage, indexing, persistence, and asset services.
 - **Runtime**: orchestration, lifecycle, background tasks, and query serving.
 - **Language/Build**: concrete strategies (Java parsing, Gradle structure resolution).
