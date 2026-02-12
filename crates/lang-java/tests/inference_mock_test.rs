@@ -802,3 +802,125 @@ class Demo {
         })
     );
 }
+
+#[test]
+fn test_resolve_method_autoboxing_primitive_to_wrapper() {
+    let ts = MockTypeSystem::new().add_class("java.lang.Integer", Some("java.lang.Object"));
+
+    let candidates = vec![MemberInfo {
+        name: "set".to_string(),
+        fqn: "Demo#set".to_string(),
+        kind: MemberKind::Method,
+        declaring_type: "Demo".to_string(),
+        type_ref: TypeRef::Raw("void".into()),
+        parameters: Some(vec![naviscope_java::inference::ParameterInfo {
+            name: "value".to_string(),
+            type_ref: TypeRef::Id("java.lang.Integer".into()),
+        }]),
+        modifiers: vec![],
+        generic_signature: None,
+    }];
+
+    let resolved = ts.resolve_method(&candidates, &[TypeRef::Raw("int".into())]);
+    assert!(resolved.is_some());
+}
+
+#[test]
+fn test_resolve_method_unboxing_with_widening() {
+    let ts = MockTypeSystem::new().add_class("java.lang.Integer", Some("java.lang.Object"));
+
+    let candidates = vec![MemberInfo {
+        name: "set".to_string(),
+        fqn: "Demo#set".to_string(),
+        kind: MemberKind::Method,
+        declaring_type: "Demo".to_string(),
+        type_ref: TypeRef::Raw("void".into()),
+        parameters: Some(vec![naviscope_java::inference::ParameterInfo {
+            name: "value".to_string(),
+            type_ref: TypeRef::Raw("long".into()),
+        }]),
+        modifiers: vec![],
+        generic_signature: None,
+    }];
+
+    let resolved = ts.resolve_method(&candidates, &[TypeRef::Id("java.lang.Integer".into())]);
+    assert!(resolved.is_some());
+}
+
+#[test]
+fn test_resolve_method_varargs_expanded_arguments() {
+    let ts = MockTypeSystem::new().add_class("java.lang.String", Some("java.lang.Object"));
+
+    let candidates = vec![MemberInfo {
+        name: "log".to_string(),
+        fqn: "Demo#log".to_string(),
+        kind: MemberKind::Method,
+        declaring_type: "Demo".to_string(),
+        type_ref: TypeRef::Raw("void".into()),
+        parameters: Some(vec![
+            naviscope_java::inference::ParameterInfo {
+                name: "tag".to_string(),
+                type_ref: TypeRef::Id("java.lang.String".into()),
+            },
+            naviscope_java::inference::ParameterInfo {
+                name: "args".to_string(),
+                type_ref: TypeRef::Array {
+                    element: Box::new(TypeRef::Id("java.lang.String".into())),
+                    dimensions: 1,
+                },
+            },
+        ]),
+        modifiers: vec![],
+        generic_signature: None,
+    }];
+
+    let resolved = ts.resolve_method(
+        &candidates,
+        &[
+            TypeRef::Id("java.lang.String".into()),
+            TypeRef::Id("java.lang.String".into()),
+            TypeRef::Id("java.lang.String".into()),
+        ],
+    );
+    assert!(resolved.is_some());
+}
+
+#[test]
+fn test_resolve_method_varargs_array_passthrough() {
+    let ts = MockTypeSystem::new().add_class("java.lang.String", Some("java.lang.Object"));
+
+    let candidates = vec![MemberInfo {
+        name: "log".to_string(),
+        fqn: "Demo#log".to_string(),
+        kind: MemberKind::Method,
+        declaring_type: "Demo".to_string(),
+        type_ref: TypeRef::Raw("void".into()),
+        parameters: Some(vec![
+            naviscope_java::inference::ParameterInfo {
+                name: "tag".to_string(),
+                type_ref: TypeRef::Id("java.lang.String".into()),
+            },
+            naviscope_java::inference::ParameterInfo {
+                name: "args".to_string(),
+                type_ref: TypeRef::Array {
+                    element: Box::new(TypeRef::Id("java.lang.String".into())),
+                    dimensions: 1,
+                },
+            },
+        ]),
+        modifiers: vec![],
+        generic_signature: None,
+    }];
+
+    let resolved = ts.resolve_method(
+        &candidates,
+        &[
+            TypeRef::Id("java.lang.String".into()),
+            TypeRef::Array {
+                element: Box::new(TypeRef::Id("java.lang.String".into())),
+                dimensions: 1,
+            },
+        ],
+    );
+    assert!(resolved.is_some());
+}

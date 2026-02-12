@@ -3,7 +3,7 @@
 //! These traits abstract away the data source, allowing the inference
 //! engine to work with CodeGraph, stubs, or mock implementations.
 
-use super::types::{MemberInfo, TypeInfo, TypeResolutionContext};
+use super::types::{MemberInfo, ParameterInfo, TypeInfo, TypeResolutionContext};
 
 /// Provides type information by FQN.
 ///
@@ -122,17 +122,30 @@ pub trait JavaTypeSystem: TypeProvider + InheritanceProvider + MemberProvider {
         // 2. Subtype match (widening)
         for cand in candidates {
             if let Some(params) = &cand.parameters {
-                if params.len() == arg_types.len() {
-                    let mut match_all = true;
-                    for (p, a) in params.iter().zip(arg_types.iter()) {
-                        if !self.is_subtype(a, &p.type_ref) {
-                            match_all = false;
-                            break;
-                        }
-                    }
-                    if match_all {
-                        return Some(cand.clone());
-                    }
+                if matches_fixed_arity(params, arg_types, |arg, expected| {
+                    self.is_subtype(arg, expected)
+                }) {
+                    return Some(cand.clone());
+                }
+            }
+        }
+
+        // 3. Varargs exact match (heuristic: last array parameter is treated as varargs)
+        for cand in candidates {
+            if let Some(params) = &cand.parameters {
+                if matches_varargs_arity(params, arg_types, |arg, expected| arg == expected) {
+                    return Some(cand.clone());
+                }
+            }
+        }
+
+        // 4. Varargs subtype match
+        for cand in candidates {
+            if let Some(params) = &cand.parameters {
+                if matches_varargs_arity(params, arg_types, |arg, expected| {
+                    self.is_subtype(arg, expected)
+                }) {
+                    return Some(cand.clone());
                 }
             }
         }
@@ -155,3 +168,59 @@ pub trait JavaTypeSystem: TypeProvider + InheritanceProvider + MemberProvider {
 
 // Blanket implementation: any type implementing all three traits gets JavaTypeSystem
 impl<T: TypeProvider + InheritanceProvider + MemberProvider> JavaTypeSystem for T {}
+
+fn matches_fixed_arity<F>(params: &[ParameterInfo], arg_types: &[TypeRef], mut matches: F) -> bool
+where
+    F: FnMut(&TypeRef, &TypeRef) -> bool,
+{
+    if params.len() != arg_types.len() {
+        return false;
+    }
+
+    params
+        .iter()
+        .zip(arg_types.iter())
+        .all(|(p, a)| matches(a, &p.type_ref))
+}
+
+fn matches_varargs_arity<F>(params: &[ParameterInfo], arg_types: &[TypeRef], mut matches: F) -> bool
+where
+    F: FnMut(&TypeRef, &TypeRef) -> bool,
+{
+    let Some(last_param) = params.last() else {
+        return false;
+    };
+
+    let TypeRef::Array { element, .. } = &last_param.type_ref else {
+        return false;
+    };
+
+    let fixed_count = params.len() - 1;
+    if arg_types.len() < fixed_count {
+        return false;
+    }
+
+    // Prefix arguments (before varargs tail)
+    if !params[..fixed_count]
+        .iter()
+        .zip(arg_types[..fixed_count].iter())
+        .all(|(p, a)| matches(a, &p.type_ref))
+    {
+        return false;
+    }
+
+    // No varargs arguments provided
+    if arg_types.len() == fixed_count {
+        return true;
+    }
+
+    // Direct array pass-through: foo(String[]) called with one String[] argument.
+    if arg_types.len() == params.len() && matches(&arg_types[fixed_count], &last_param.type_ref) {
+        return true;
+    }
+
+    // Expanded varargs: foo(String...) called with N String arguments.
+    arg_types[fixed_count..]
+        .iter()
+        .all(|a| matches(a, element.as_ref()))
+}

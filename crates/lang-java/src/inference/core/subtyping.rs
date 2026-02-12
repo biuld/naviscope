@@ -31,6 +31,25 @@ pub fn is_subtype<T: JavaTypeSystem + ?Sized>(sub: &TypeRef, super_type: &TypeRe
         // Primitive widening
         (TypeRef::Raw(s1), TypeRef::Raw(s2)) => is_primitive_subtype(s1, s2),
 
+        // Primitive boxing + reference widening, e.g. int -> Integer / Number / Object
+        (TypeRef::Raw(prim), TypeRef::Id(super_id)) => {
+            if let Some(wrapper) = primitive_to_wrapper(prim) {
+                if wrapper == super_id {
+                    return true;
+                }
+                return is_class_subtype(wrapper, super_id, ts);
+            }
+            false
+        }
+
+        // Wrapper unboxing (+ primitive widening), e.g. Integer -> int / long
+        (TypeRef::Id(sub_id), TypeRef::Raw(super_prim)) => {
+            if let Some(unboxed) = wrapper_to_primitive(sub_id) {
+                return unboxed == super_prim || is_primitive_subtype(unboxed, super_prim);
+            }
+            false
+        }
+
         // Class/Interface hierarchy
         (TypeRef::Id(sub_id), TypeRef::Id(super_id)) => is_class_subtype(sub_id, super_id, ts),
 
@@ -42,6 +61,34 @@ pub fn is_subtype<T: JavaTypeSystem + ?Sized>(sub: &TypeRef, super_type: &TypeRe
         // TODO: Generics (Invariant? Covariant with wildcards?)
         // For now, simple equality on generics was caught by step 1
         _ => false,
+    }
+}
+
+fn primitive_to_wrapper(primitive: &str) -> Option<&'static str> {
+    match primitive {
+        "byte" => Some("java.lang.Byte"),
+        "short" => Some("java.lang.Short"),
+        "char" => Some("java.lang.Character"),
+        "int" => Some("java.lang.Integer"),
+        "long" => Some("java.lang.Long"),
+        "float" => Some("java.lang.Float"),
+        "double" => Some("java.lang.Double"),
+        "boolean" => Some("java.lang.Boolean"),
+        _ => None,
+    }
+}
+
+fn wrapper_to_primitive(wrapper: &str) -> Option<&'static str> {
+    match wrapper {
+        "java.lang.Byte" => Some("byte"),
+        "java.lang.Short" => Some("short"),
+        "java.lang.Character" => Some("char"),
+        "java.lang.Integer" => Some("int"),
+        "java.lang.Long" => Some("long"),
+        "java.lang.Float" => Some("float"),
+        "java.lang.Double" => Some("double"),
+        "java.lang.Boolean" => Some("boolean"),
+        _ => None,
     }
 }
 
