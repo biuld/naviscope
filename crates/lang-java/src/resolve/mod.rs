@@ -149,13 +149,8 @@ impl JavaPlugin {
                         if decl_line < usage_point.row
                             || (decl_line == usage_point.row && decl_col < usage_point.column)
                         {
-                            // Extract type name from reference if possible, or stringify the type
-                            // The old find_local_declaration returned Option<String> for type name.
-                            // We have info.type_ref.
-                            let type_name = match &info.type_ref {
-                                TypeRef::Id(id) | TypeRef::Raw(id) => Some(id.clone()),
-                                _ => None, // Complex types might need rendering
-                            };
+                            // Render the full local type for hover/highlight consumers.
+                            let type_name = Some(crate::model::fmt_type(&info.type_ref));
                             return Some(SymbolResolution::Local(info.range.clone(), type_name));
                         }
                     }

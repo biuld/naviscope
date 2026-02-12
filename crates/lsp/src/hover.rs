@@ -36,11 +36,19 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
     let mut hover_text = String::new();
 
     match resolution {
-        naviscope_api::models::SymbolResolution::Local(_, type_name) => {
+        naviscope_api::models::SymbolResolution::Local(range, type_name) => {
             hover_text.push_str("**Local variable**");
             if let Some(t) = type_name {
                 hover_text.push_str(&format!(": `{}`", t));
             }
+            hover_text.push_str("\n\n");
+            hover_text.push_str(&format!(
+                "Declared at `{}:{}`",
+                range.start_line + 1,
+                range.start_col + 1
+            ));
+            hover_text.push_str("\n\n");
+            hover_text.push_str("*Scope: local*");
         }
         naviscope_api::models::SymbolResolution::Precise(fqn, _)
         | naviscope_api::models::SymbolResolution::Global(fqn) => {
@@ -55,6 +63,10 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
                         info.name,
                         info.kind.to_string()
                     ));
+                }
+
+                if let Some((owner, _member)) = fqn.split_once('#') {
+                    hover_text.push_str(&format!("Declared in `{}`\n\n", owner));
                 }
 
                 if let Some(detail) = info.detail {
