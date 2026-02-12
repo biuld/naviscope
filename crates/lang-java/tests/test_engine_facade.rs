@@ -2,7 +2,10 @@ mod common;
 
 use common::{offset_to_point, setup_java_engine};
 use naviscope_api::models::{PositionContext, ReferenceQuery, SymbolQuery, SymbolResolution};
-use naviscope_api::semantic::{CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolNavigator};
+use naviscope_api::semantic::{
+    CallHierarchyAnalyzer, ReferenceAnalyzer, SymbolInfoProvider, SymbolNavigator,
+};
+use std::collections::BTreeSet;
 
 #[tokio::test]
 async fn test_full_engine_java_facade() {
@@ -319,5 +322,122 @@ public class Use {
     assert!(
         prefix.contains("Base.ping"),
         "Reference should belong to Base.ping(), not Child.ping()"
+    );
+}
+
+#[tokio::test]
+async fn test_find_references_same_class_overloads_different_arity_via_engine_facade() {
+    let temp_dir = std::env::temp_dir().join("naviscope_java_ref_overload_arity_test");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let files = vec![(
+        "com/example/A.java",
+        "package com.example; public class A { void target() { target(1); target(1, 2); } void target(int a) {} void target(int a, int b) {} }",
+    )];
+
+    let handle = setup_java_engine(&temp_dir, files).await;
+
+    let a_path = temp_dir.join("com/example/A.java");
+    let content = std::fs::read_to_string(&a_path).unwrap();
+    let pos = content.find("target() {").unwrap();
+    let (line, col) = offset_to_point(&content, pos);
+
+    let ctx = PositionContext {
+        uri: format!("file://{}", a_path.display()),
+        line: line as u32,
+        char: col as u32,
+        content: Some(content.clone()),
+    };
+
+    let resolution = handle
+        .resolve_symbol_at(&ctx)
+        .await
+        .unwrap()
+        .expect("Should resolve A#target");
+
+    let refs = handle
+        .find_references(&ReferenceQuery {
+            language: naviscope_api::models::Language::JAVA,
+            resolution,
+            include_declaration: true,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(refs.len(), 5, "expected declarations + call sites for same-name overloads");
+    assert!(
+        refs.iter().all(|r| r.path.to_string_lossy().contains("com/example/A.java")),
+        "all references should stay in A.java for this scenario"
+    );
+
+    let starts: BTreeSet<(usize, usize)> = refs
+        .iter()
+        .map(|r| (r.range.start_line, r.range.start_col))
+        .collect();
+    let expected: BTreeSet<(usize, usize)> = [
+        content.find("target() {").unwrap(),
+        content.find("target(1);").unwrap(),
+        content.find("target(1, 2);").unwrap(),
+        content.find("target(int a) {}").unwrap(),
+        content.find("target(int a, int b) {}").unwrap(),
+    ]
+    .into_iter()
+    .map(|offset| offset_to_point(&content, offset))
+    .collect();
+    assert_eq!(starts, expected);
+}
+
+#[tokio::test]
+async fn test_resolve_method_declaration_name_and_symbol_info_for_overload_hover_input() {
+    let temp_dir = std::env::temp_dir().join("naviscope_java_hover_decl_overload_test");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let files = vec![(
+        "com/example/A.java",
+        "package com.example; public class A { void target(int a) {} void target(int a, int b) {} }",
+    )];
+
+    let handle = setup_java_engine(&temp_dir, files).await;
+
+    let a_path = temp_dir.join("com/example/A.java");
+    let content = std::fs::read_to_string(&a_path).unwrap();
+    let pos = content.find("target(int a)").unwrap();
+    let (line, col) = offset_to_point(&content, pos);
+
+    let ctx = PositionContext {
+        uri: format!("file://{}", a_path.display()),
+        line: line as u32,
+        char: col as u32,
+        content: Some(content.clone()),
+    };
+
+    let resolution = handle
+        .resolve_symbol_at(&ctx)
+        .await
+        .unwrap()
+        .expect("Should resolve method declaration name");
+
+    let fqn = match resolution {
+        SymbolResolution::Precise(fqn, _) | SymbolResolution::Global(fqn) => fqn,
+        SymbolResolution::Local(_, _) => panic!("method declaration should not resolve as local"),
+    };
+    assert_eq!(fqn, "com.example.A#target");
+
+    let info = handle
+        .get_symbol_info(&fqn)
+        .await
+        .unwrap()
+        .expect("symbol info should exist for hover input");
+
+    let sig = info.signature.unwrap_or_default();
+    assert!(
+        sig.contains("target("),
+        "signature should be suitable for hover at declaration name"
     );
 }
