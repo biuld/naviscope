@@ -233,7 +233,10 @@ impl JavaExternalResolver {
             };
 
             let modifiers = JavaModifierConverter::parse_class(class.access_flags);
-            let metadata = crate::model::JavaIndexMetadata::Class { modifiers };
+            let metadata = crate::model::JavaIndexMetadata::Class {
+                modifiers,
+                type_parameters: vec![],
+            };
 
             return Ok(IndexNode {
                 id: naviscope_api::models::symbol::NodeId::Flat(fqn.to_string()),

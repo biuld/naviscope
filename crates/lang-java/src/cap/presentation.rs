@@ -35,8 +35,8 @@ impl NodePresenter for JavaPlugin {
             .downcast_ref::<crate::model::JavaNodeMetadata>()
         {
             match java_meta {
-                crate::model::JavaNodeMetadata::Class { modifiers_sids }
-                | crate::model::JavaNodeMetadata::Interface { modifiers_sids }
+                crate::model::JavaNodeMetadata::Class { modifiers_sids, .. }
+                | crate::model::JavaNodeMetadata::Interface { modifiers_sids, .. }
                 | crate::model::JavaNodeMetadata::Annotation { modifiers_sids } => {
                     display.modifiers = modifiers_sids
                         .iter()
@@ -120,8 +120,8 @@ impl NodePresenter for JavaPlugin {
             .downcast_ref::<crate::model::JavaIndexMetadata>()
         {
             match java_idx_meta {
-                crate::model::JavaIndexMetadata::Class { modifiers }
-                | crate::model::JavaIndexMetadata::Interface { modifiers }
+                crate::model::JavaIndexMetadata::Class { modifiers, .. }
+                | crate::model::JavaIndexMetadata::Interface { modifiers, .. }
                 | crate::model::JavaIndexMetadata::Annotation { modifiers } => {
                     display.modifiers = modifiers.clone();
                     let prefix = match node.kind {

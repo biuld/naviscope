@@ -1,7 +1,9 @@
 //! Field access inference.
 
 use super::{InferStrategy, infer_expression};
+use crate::inference::core::unification::Substitution;
 use crate::inference::InferContext;
+use crate::inference::TypeRefExt;
 use naviscope_api::models::TypeRef;
 use tree_sitter::Node;
 
@@ -51,13 +53,47 @@ impl FieldAccessInfer {
         let receiver_type = infer_expression(&receiver, ctx)?;
 
         // Get the FQN from the receiver type
-        let type_fqn = match &receiver_type {
-            TypeRef::Id(fqn) => fqn.clone(),
-            _ => return None,
-        };
+        let type_fqn = receiver_type.as_fqn()?;
 
         // Look up the field in the type hierarchy
         let members = ctx.ts.find_member_in_hierarchy(&type_fqn, field_name);
-        members.first().cloned()
+        let mut member = members.first().cloned()?;
+
+        self.apply_receiver_substitution(&mut member, &receiver_type, ctx);
+        Some(member)
+    }
+
+    fn apply_receiver_substitution(
+        &self,
+        member: &mut crate::inference::MemberInfo,
+        receiver_type: &TypeRef,
+        ctx: &InferContext,
+    ) {
+        let (base_fqn, receiver_args) = match receiver_type {
+            TypeRef::Generic { base, args } => {
+                let Some(base_fqn) = base.as_fqn() else {
+                    return;
+                };
+                (base_fqn, args)
+            }
+            _ => return,
+        };
+
+        let Some(type_info) = ctx.ts.get_type_info(&base_fqn) else {
+            return;
+        };
+
+        if type_info.type_parameters.is_empty()
+            || type_info.type_parameters.len() != receiver_args.len()
+        {
+            return;
+        }
+
+        let mut subst = Substitution::new();
+        for (param, arg) in type_info.type_parameters.iter().zip(receiver_args.iter()) {
+            subst.insert(param.name.clone(), arg.clone());
+        }
+
+        member.type_ref = subst.apply(&member.type_ref);
     }
 }

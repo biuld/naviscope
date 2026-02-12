@@ -4,12 +4,16 @@
 
 use naviscope_api::models::TypeRef;
 use naviscope_api::models::graph::{EdgeType, NodeKind, NodeMetadata};
-use naviscope_api::models::symbol::FqnId;
+use naviscope_api::models::symbol::{FqnId, Symbol};
 use naviscope_plugin::{CodeGraph, Direction};
+use lasso::Key;
 use std::sync::Arc;
 
 use crate::inference::{InheritanceProvider, MemberProvider, TypeProvider};
-use crate::inference::{MemberInfo, MemberKind, TypeInfo, TypeKind, TypeResolutionContext};
+use crate::inference::{
+    MemberInfo, MemberKind, TypeInfo, TypeKind, TypeResolutionContext,
+};
+use crate::inference::core::types::TypeParameter;
 use crate::model::{JavaIndexMetadata, JavaNodeMetadata};
 
 /// Adapter that implements JavaTypeSystem using CodeGraph.
@@ -38,14 +42,62 @@ impl<'a> CodeGraphTypeSystem<'a> {
     fn extract_modifiers(&self, metadata: &Arc<dyn NodeMetadata>) -> Vec<String> {
         if let Some(java_meta) = metadata.as_any().downcast_ref::<JavaIndexMetadata>() {
             return match java_meta {
-                JavaIndexMetadata::Class { modifiers } => modifiers.clone(),
-                JavaIndexMetadata::Interface { modifiers } => modifiers.clone(),
+                JavaIndexMetadata::Class { modifiers, .. } => modifiers.clone(),
+                JavaIndexMetadata::Interface { modifiers, .. } => modifiers.clone(),
                 JavaIndexMetadata::Enum { modifiers, .. } => modifiers.clone(),
                 JavaIndexMetadata::Method { modifiers, .. } => modifiers.clone(),
                 JavaIndexMetadata::Field { modifiers, .. } => modifiers.clone(),
                 _ => vec![],
             };
         }
+        vec![]
+    }
+
+    fn extract_type_parameters(&self, metadata: &Arc<dyn NodeMetadata>) -> Vec<TypeParameter> {
+        if let Some(java_meta) = metadata.as_any().downcast_ref::<JavaNodeMetadata>() {
+            let names: Vec<String> = match java_meta {
+                JavaNodeMetadata::Class {
+                    type_parameters_sids,
+                    ..
+                }
+                | JavaNodeMetadata::Interface {
+                    type_parameters_sids,
+                    ..
+                } => type_parameters_sids
+                    .iter()
+                    .filter_map(|sid| lasso::Spur::try_from_usize(*sid as usize))
+                    .map(|spur| self.graph.fqns().resolve_atom(Symbol(spur)).to_string())
+                    .collect(),
+                _ => vec![],
+            };
+            return names
+                .into_iter()
+                .map(|name| TypeParameter {
+                    name,
+                    bounds: vec![],
+                })
+                .collect();
+        }
+
+        if let Some(java_meta) = metadata.as_any().downcast_ref::<JavaIndexMetadata>() {
+            let names: Vec<String> = match java_meta {
+                JavaIndexMetadata::Class {
+                    type_parameters, ..
+                }
+                | JavaIndexMetadata::Interface {
+                    type_parameters, ..
+                } => type_parameters.clone(),
+                _ => vec![],
+            };
+            return names
+                .into_iter()
+                .map(|name| TypeParameter {
+                    name,
+                    bounds: vec![],
+                })
+                .collect();
+        }
+
         vec![]
     }
 
@@ -133,7 +185,7 @@ impl<'a> TypeProvider for CodeGraphTypeSystem<'a> {
             fqn: fqn.to_string(),
             kind: self.node_kind_to_type_kind(&node.kind),
             modifiers: self.extract_modifiers(&node.metadata),
-            type_parameters: vec![],
+            type_parameters: self.extract_type_parameters(&node.metadata),
         })
     }
 

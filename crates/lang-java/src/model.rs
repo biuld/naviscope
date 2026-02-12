@@ -9,9 +9,11 @@ use std::sync::Arc;
 pub enum JavaIndexMetadata {
     Class {
         modifiers: Vec<String>,
+        type_parameters: Vec<String>,
     },
     Interface {
         modifiers: Vec<String>,
+        type_parameters: Vec<String>,
     },
     Enum {
         modifiers: Vec<String>,
@@ -52,9 +54,11 @@ impl IndexMetadata for JavaIndexMetadata {
 pub enum JavaNodeMetadata {
     Class {
         modifiers_sids: Vec<u32>,
+        type_parameters_sids: Vec<u32>,
     },
     Interface {
         modifiers_sids: Vec<u32>,
+        type_parameters_sids: Vec<u32>,
     },
     Enum {
         modifiers_sids: Vec<u32>,
@@ -95,11 +99,25 @@ impl JavaIndexMetadata {
 
     pub fn to_storage(&self, ctx: &mut dyn SymbolInterner) -> JavaNodeMetadata {
         match self {
-            JavaIndexMetadata::Class { modifiers } => JavaNodeMetadata::Class {
+            JavaIndexMetadata::Class {
+                modifiers,
+                type_parameters,
+            } => JavaNodeMetadata::Class {
                 modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+                type_parameters_sids: type_parameters
+                    .iter()
+                    .map(|s| ctx.intern_str(s))
+                    .collect(),
             },
-            JavaIndexMetadata::Interface { modifiers } => JavaNodeMetadata::Interface {
+            JavaIndexMetadata::Interface {
+                modifiers,
+                type_parameters,
+            } => JavaNodeMetadata::Interface {
                 modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+                type_parameters_sids: type_parameters
+                    .iter()
+                    .map(|s| ctx.intern_str(s))
+                    .collect(),
             },
             JavaIndexMetadata::Enum {
                 modifiers,

@@ -145,8 +145,14 @@ impl JavaParser {
         relations: &mut Vec<JavaRelation>,
     ) -> JavaIndexMetadata {
         match kind {
-            KIND_LABEL_CLASS => JavaIndexMetadata::Class { modifiers: vec![] },
-            KIND_LABEL_INTERFACE => JavaIndexMetadata::Interface { modifiers: vec![] },
+            KIND_LABEL_CLASS => JavaIndexMetadata::Class {
+                modifiers: vec![],
+                type_parameters: self.extract_type_parameters(captures, source),
+            },
+            KIND_LABEL_INTERFACE => JavaIndexMetadata::Interface {
+                modifiers: vec![],
+                type_parameters: self.extract_type_parameters(captures, source),
+            },
             KIND_LABEL_ENUM => JavaIndexMetadata::Enum {
                 modifiers: vec![],
                 constants: vec![],
@@ -200,5 +206,63 @@ impl JavaParser {
             }
             _ => unreachable!(),
         }
+    }
+
+    fn extract_type_parameters<'a>(
+        &self,
+        captures: &[QueryCapture<'a>],
+        source: &'a str,
+    ) -> Vec<String> {
+        let declaration_node = captures.iter().find_map(|c| {
+            if c.index == self.indices.class_def || c.index == self.indices.inter_def {
+                Some(c.node)
+            } else {
+                None
+            }
+        });
+
+        let Some(declaration_node) = declaration_node else {
+            return Vec::new();
+        };
+
+        let type_params_node = declaration_node
+            .child_by_field_name("type_parameters")
+            .or_else(|| {
+                let mut cursor = declaration_node.walk();
+                declaration_node
+                    .children(&mut cursor)
+                    .find(|n| n.kind() == "type_parameters")
+            });
+
+        let Some(type_params_node) = type_params_node else {
+            return Vec::new();
+        };
+
+        let mut result = Vec::new();
+        let mut cursor = type_params_node.walk();
+        for child in type_params_node.children(&mut cursor) {
+            if child.kind() != "type_parameter" {
+                continue;
+            }
+
+            if let Some(name_node) = child.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
+                    result.push(name.to_string());
+                }
+                continue;
+            }
+
+            let mut type_param_cursor = child.walk();
+            for gc in child.children(&mut type_param_cursor) {
+                if gc.kind() == "type_identifier" {
+                    if let Ok(name) = gc.utf8_text(source.as_bytes()) {
+                        result.push(name.to_string());
+                    }
+                    break;
+                }
+            }
+        }
+
+        result
     }
 }

@@ -1,7 +1,9 @@
 //! Method invocation inference.
 
 use super::{InferStrategy, infer_expression};
+use crate::inference::core::unification::Substitution;
 use crate::inference::InferContext;
+use crate::inference::TypeRefExt;
 use naviscope_api::models::TypeRef;
 use tree_sitter::Node;
 
@@ -59,10 +61,7 @@ impl MethodCallInfer {
         };
 
         // Get the FQN from the receiver type
-        let type_fqn = match &receiver_type {
-            TypeRef::Id(fqn) => fqn.clone(),
-            _ => return None,
-        };
+        let type_fqn = receiver_type.as_fqn()?;
 
         // Get argument types
         let mut arg_types = Vec::new();
@@ -81,8 +80,58 @@ impl MethodCallInfer {
 
         // Look up the method candidates in the type hierarchy
         let candidates = ctx.ts.find_member_in_hierarchy(&type_fqn, method_name);
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let candidates = self.apply_receiver_substitution(candidates, &receiver_type, ctx);
 
         // Resolve the best match among candidates
         ctx.ts.resolve_method(&candidates, &arg_types)
+    }
+
+    fn apply_receiver_substitution(
+        &self,
+        candidates: Vec<crate::inference::MemberInfo>,
+        receiver_type: &TypeRef,
+        ctx: &InferContext,
+    ) -> Vec<crate::inference::MemberInfo> {
+        let (base_fqn, receiver_args) = match receiver_type {
+            TypeRef::Generic { base, args } => {
+                let Some(base_fqn) = base.as_fqn() else {
+                    return candidates;
+                };
+                (base_fqn, args)
+            }
+            _ => return candidates,
+        };
+
+        let Some(type_info) = ctx.ts.get_type_info(&base_fqn) else {
+            return candidates;
+        };
+
+        if type_info.type_parameters.is_empty()
+            || type_info.type_parameters.len() != receiver_args.len()
+        {
+            return candidates;
+        }
+
+        let mut subst = Substitution::new();
+        for (param, arg) in type_info.type_parameters.iter().zip(receiver_args.iter()) {
+            subst.insert(param.name.clone(), arg.clone());
+        }
+
+        candidates
+            .into_iter()
+            .map(|mut member| {
+                member.type_ref = subst.apply(&member.type_ref);
+                if let Some(params) = &mut member.parameters {
+                    for p in params {
+                        p.type_ref = subst.apply(&p.type_ref);
+                    }
+                }
+                member
+            })
+            .collect()
     }
 }

@@ -96,7 +96,7 @@ impl JavaParser {
         }
 
         match element {
-            JavaIndexMetadata::Class { modifiers: _ } => {
+            JavaIndexMetadata::Class { .. } => {
                 if let Some(s) = captures
                     .iter()
                     .find(|c| c.index == self.indices.class_super)
@@ -143,7 +143,7 @@ impl JavaParser {
                     });
                 }
             }
-            JavaIndexMetadata::Interface { modifiers: _ } => {
+            JavaIndexMetadata::Interface { .. } => {
                 for cc in captures
                     .iter()
                     .filter(|c| c.index == self.indices.inter_ext)
@@ -234,12 +234,12 @@ impl JavaParser {
 
     fn add_modifier(&self, element: &mut JavaIndexMetadata, m_str: String) {
         match element {
-            JavaIndexMetadata::Class { modifiers } => {
+            JavaIndexMetadata::Class { modifiers, .. } => {
                 if !modifiers.contains(&m_str) {
                     modifiers.push(m_str);
                 }
             }
-            JavaIndexMetadata::Interface { modifiers } => {
+            JavaIndexMetadata::Interface { modifiers, .. } => {
                 if !modifiers.contains(&m_str) {
                     modifiers.push(m_str);
                 }

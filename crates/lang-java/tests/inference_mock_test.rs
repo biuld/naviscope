@@ -4,11 +4,15 @@
 use naviscope_api::models::TypeRef;
 use std::collections::HashMap;
 
+use naviscope_java::inference::{create_inference_context, infer_expression};
 use naviscope_java::inference::JavaTypeSystem;
 use naviscope_java::inference::{InheritanceProvider, MemberProvider, TypeProvider};
 use naviscope_java::inference::{
     MemberInfo, MemberKind, TypeInfo, TypeKind, TypeResolutionContext,
 };
+use naviscope_java::inference::core::types::TypeParameter;
+use naviscope_java::inference::scope::ScopeManager;
+use naviscope_java::parser::JavaParser;
 
 /// A mock type system for testing.
 ///
@@ -46,6 +50,37 @@ impl MockTypeSystem {
         self
     }
 
+    /// Add a class with generic type parameters.
+    pub fn add_class_with_type_params(
+        mut self,
+        fqn: &str,
+        super_class: Option<&str>,
+        type_parameters: Vec<&str>,
+    ) -> Self {
+        self.types.insert(
+            fqn.to_string(),
+            TypeInfo {
+                fqn: fqn.to_string(),
+                kind: TypeKind::Class,
+                modifiers: vec![],
+                type_parameters: type_parameters
+                    .into_iter()
+                    .map(|name| TypeParameter {
+                        name: name.to_string(),
+                        bounds: vec![],
+                    })
+                    .collect(),
+            },
+        );
+
+        self.inheritance.insert(
+            fqn.to_string(),
+            (super_class.map(|s| s.to_string()), vec![]),
+        );
+
+        self
+    }
+
     /// Add an interface to the mock.
     pub fn add_interface(mut self, fqn: &str) -> Self {
         self.types.insert(
@@ -55,6 +90,33 @@ impl MockTypeSystem {
                 kind: TypeKind::Interface,
                 modifiers: vec![],
                 type_parameters: vec![],
+            },
+        );
+
+        self.inheritance.insert(fqn.to_string(), (None, vec![]));
+
+        self
+    }
+
+    /// Add an interface with generic type parameters.
+    pub fn add_interface_with_type_params(
+        mut self,
+        fqn: &str,
+        type_parameters: Vec<&str>,
+    ) -> Self {
+        self.types.insert(
+            fqn.to_string(),
+            TypeInfo {
+                fqn: fqn.to_string(),
+                kind: TypeKind::Interface,
+                modifiers: vec![],
+                type_parameters: type_parameters
+                    .into_iter()
+                    .map(|name| TypeParameter {
+                        name: name.to_string(),
+                        bounds: vec![],
+                    })
+                    .collect(),
             },
         );
 
@@ -121,6 +183,19 @@ impl MockTypeSystem {
 
         self
     }
+}
+
+fn find_first_named<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+    if node.kind() == kind {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(found) = find_first_named(child, kind) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 impl TypeProvider for MockTypeSystem {
@@ -566,4 +641,164 @@ fn test_generic_return_type() {
     assert!(!get_method.is_empty());
     // For now, returns the raw type parameter E
     assert_eq!(get_method[0].type_ref, TypeRef::Id("E".into()));
+}
+
+#[test]
+fn test_infer_generic_method_call_with_substitution() {
+    let source = r#"
+import java.util.List;
+class Demo {
+    void run() {
+        List<String> list = null;
+        list.get(0);
+    }
+}
+"#;
+
+    let parser = JavaParser::new().expect("failed to create parser");
+    let tree = parser.parse(source, None).expect("failed to parse source");
+    let root = tree.root_node();
+    let method_invocation = find_first_named(root, "method_invocation")
+        .expect("expected method_invocation in test snippet");
+
+    let ts = MockTypeSystem::new()
+        .add_class("java.lang.String", None)
+        .add_class("java.lang.Object", None)
+        .add_interface_with_type_params("java.util.List", vec!["E"])
+        .add_method("java.util.List", "get", TypeRef::Id("E".into()));
+
+    let mut scope_manager = ScopeManager::new();
+    let ctx = create_inference_context(
+        &root,
+        source,
+        &ts,
+        &mut scope_manager,
+        None,
+        vec!["java.util.List".to_string()],
+    );
+
+    let inferred = infer_expression(&method_invocation, &ctx);
+    assert_eq!(inferred, Some(TypeRef::Id("java.lang.String".into())));
+}
+
+#[test]
+fn test_infer_map_get_returns_integer() {
+    let source = r#"
+import java.util.Map;
+class Demo {
+    void run() {
+        Map<String, Integer> map = null;
+        map.get("k");
+    }
+}
+"#;
+
+    let parser = JavaParser::new().expect("failed to create parser");
+    let tree = parser.parse(source, None).expect("failed to parse source");
+    let root = tree.root_node();
+    let method_invocation = find_first_named(root, "method_invocation")
+        .expect("expected method_invocation in test snippet");
+
+    let ts = MockTypeSystem::new()
+        .add_class("java.lang.String", None)
+        .add_class("java.lang.Integer", None)
+        .add_interface_with_type_params("java.util.Map", vec!["K", "V"])
+        .add_method("java.util.Map", "get", TypeRef::Id("V".into()));
+
+    let mut scope_manager = ScopeManager::new();
+    let ctx = create_inference_context(
+        &root,
+        source,
+        &ts,
+        &mut scope_manager,
+        None,
+        vec!["java.util.Map".to_string()],
+    );
+
+    let inferred = infer_expression(&method_invocation, &ctx);
+    assert_eq!(inferred, Some(TypeRef::Id("java.lang.Integer".into())));
+}
+
+#[test]
+fn test_infer_optional_get_returns_user() {
+    let source = r#"
+import java.util.Optional;
+class User {}
+class Demo {
+    void run() {
+        Optional<User> user = null;
+        user.get();
+    }
+}
+"#;
+
+    let parser = JavaParser::new().expect("failed to create parser");
+    let tree = parser.parse(source, None).expect("failed to parse source");
+    let root = tree.root_node();
+    let method_invocation = find_first_named(root, "method_invocation")
+        .expect("expected method_invocation in test snippet");
+
+    let ts = MockTypeSystem::new()
+        .add_class("User", None)
+        .add_interface_with_type_params("java.util.Optional", vec!["T"])
+        .add_method("java.util.Optional", "get", TypeRef::Id("T".into()));
+
+    let mut scope_manager = ScopeManager::new();
+    let ctx = create_inference_context(
+        &root,
+        source,
+        &ts,
+        &mut scope_manager,
+        None,
+        vec!["java.util.Optional".to_string()],
+    );
+
+    let inferred = infer_expression(&method_invocation, &ctx);
+    assert_eq!(inferred, Some(TypeRef::Id("User".into())));
+}
+
+#[test]
+fn test_infer_nested_generic_map_get_returns_list_of_integer() {
+    let source = r#"
+import java.util.Map;
+import java.util.List;
+class Demo {
+    void run() {
+        Map<String, List<Integer>> map = null;
+        map.get("k");
+    }
+}
+"#;
+
+    let parser = JavaParser::new().expect("failed to create parser");
+    let tree = parser.parse(source, None).expect("failed to parse source");
+    let root = tree.root_node();
+    let method_invocation = find_first_named(root, "method_invocation")
+        .expect("expected method_invocation in test snippet");
+
+    let ts = MockTypeSystem::new()
+        .add_class("java.lang.String", None)
+        .add_class("java.lang.Integer", None)
+        .add_interface_with_type_params("java.util.List", vec!["E"])
+        .add_interface_with_type_params("java.util.Map", vec!["K", "V"])
+        .add_method("java.util.Map", "get", TypeRef::Id("V".into()));
+
+    let mut scope_manager = ScopeManager::new();
+    let ctx = create_inference_context(
+        &root,
+        source,
+        &ts,
+        &mut scope_manager,
+        None,
+        vec!["java.util.Map".to_string(), "java.util.List".to_string()],
+    );
+
+    let inferred = infer_expression(&method_invocation, &ctx);
+    assert_eq!(
+        inferred,
+        Some(TypeRef::Generic {
+            base: Box::new(TypeRef::Id("java.util.List".into())),
+            args: vec![TypeRef::Id("java.lang.Integer".into())],
+        })
+    );
 }

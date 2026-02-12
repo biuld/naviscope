@@ -65,6 +65,7 @@ fn test_metadata_serialization_roundtrip() {
     ];
     let metadata = JavaIndexMetadata::Class {
         modifiers: modifiers.clone(),
+        type_parameters: vec![],
     };
 
     // Serialize JavaIndexMetadata (simulating cache storage)
@@ -83,7 +84,7 @@ fn test_metadata_serialization_roundtrip() {
         .expect("Should be JavaIndexMetadata");
 
     match back {
-        JavaIndexMetadata::Class { modifiers: m } => {
+        JavaIndexMetadata::Class { modifiers: m, .. } => {
             assert_eq!(m, &modifiers);
         }
         _ => panic!("Wrong variant"),
@@ -96,6 +97,7 @@ fn test_node_metadata_interning() {
     let modifiers = vec!["public".to_string(), "static".to_string()];
     let metadata = JavaIndexMetadata::Class {
         modifiers: modifiers.clone(),
+        type_parameters: vec![],
     };
 
     let interned = metadata.intern(&mut ctx);
@@ -107,7 +109,7 @@ fn test_node_metadata_interning() {
         .expect("Should be JavaNodeMetadata");
 
     match node_meta {
-        JavaNodeMetadata::Class { modifiers_sids } => {
+        JavaNodeMetadata::Class { modifiers_sids, .. } => {
             assert_eq!(modifiers_sids.len(), 2);
             // Verify strings
             let s1 = ctx.resolve(modifiers_sids[0]).unwrap();

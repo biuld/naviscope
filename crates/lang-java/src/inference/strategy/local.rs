@@ -69,8 +69,31 @@ pub fn parse_type_node(node: &Node, ctx: &InferContext) -> Option<TypeRef> {
         }
         // Generic type like List<String>
         "generic_type" => {
-            // For now, just get the raw type (ignore type args)
-            node.child(0).and_then(|c| parse_type_node(&c, ctx))
+            let base_node = node.child_by_field_name("type").or_else(|| node.child(0))?;
+            let base = parse_type_node(&base_node, ctx)?;
+
+            let mut args = Vec::new();
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() != "type_arguments" {
+                    continue;
+                }
+
+                let mut args_cursor = child.walk();
+                for arg in child.children(&mut args_cursor) {
+                    if !arg.is_named() {
+                        continue;
+                    }
+                    if let Some(parsed) = parse_type_node(&arg, ctx) {
+                        args.push(parsed);
+                    }
+                }
+            }
+
+            Some(TypeRef::Generic {
+                base: Box::new(base),
+                args,
+            })
         }
         // Array type
         "array_type" => {
