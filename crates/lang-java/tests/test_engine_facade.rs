@@ -37,19 +37,14 @@ public class App {
 
     let handle = setup_java_engine(&temp_dir, files).await;
     let graph = handle.graph().await;
-
-    // Demonstrate registering a convention (even if default is already Standard)
-    // This verifies the API is accessible and working.
     graph.register_naming_convention(Box::new(
         naviscope_plugin::StandardNamingConvention::default(),
     ));
+    graph.topology();
 
-    graph.topology(); // Ensure graph is usable
-
-    // 1. Resolve 'run' call in App.java (line 6 roughly)
     let app_path = temp_dir.join("com/example/App.java");
     let app_content = std::fs::read_to_string(&app_path).unwrap();
-    let run_pos = app_content.find("b.run()").unwrap() + 2; // Point to 'run'
+    let run_pos = app_content.find("b.run()").unwrap() + 2;
     let (line, col) = offset_to_point(&app_content, run_pos);
 
     let ctx = PositionContext {
@@ -65,7 +60,6 @@ public class App {
         .unwrap()
         .expect("Should resolve b.run()");
 
-    // Should resolve to com.example.Base#run
     match &resolution {
         SymbolResolution::Precise(fqn, _) => assert_eq!(fqn, "com.example.Base#run"),
         SymbolResolution::Global(fqn) => assert_eq!(fqn, "com.example.Base#run"),
@@ -75,7 +69,6 @@ public class App {
         ),
     }
 
-    // 2. Find implementations of 'run'
     let query = SymbolQuery {
         language: naviscope_api::models::Language::JAVA,
         resolution: resolution.clone(),
@@ -84,9 +77,6 @@ public class App {
     assert_eq!(impls.len(), 1);
     assert!(impls[0].path.to_string_lossy().contains("Impl.java"));
 
-    // 3. Find incoming calls to 'Impl#run'
-    // With semantic reference checks, searching for an implementation should find
-    // calls to the base method as well.
     let calls = handle
         .find_incoming_calls("com.example.Impl#run")
         .await
@@ -97,11 +87,8 @@ public class App {
         "Lookup of Impl#run should find the call via Base type"
     );
 
-    // 4. Find incoming calls to 'Base#run'
-    let target_fqn = "com.example.Base#run";
-    let incoming_base = handle.find_incoming_calls(target_fqn).await.unwrap();
+    let incoming_base = handle.find_incoming_calls("com.example.Base#run").await.unwrap();
 
-    // Test find_references as a comparison
     let query_refs = ReferenceQuery {
         language: naviscope_api::models::Language::JAVA,
         resolution: resolution.clone(),
@@ -120,4 +107,217 @@ public class App {
         "find_incoming_calls should have found 1 caller in App.java"
     );
     assert_eq!(incoming_base[0].from.id, "com.example.App#start");
+}
+
+#[tokio::test]
+async fn test_find_references_filters_same_name_across_types() {
+    let temp_dir = std::env::temp_dir().join("naviscope_java_ref_same_name_test");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let files = vec![
+        (
+            "com/example/A.java",
+            "package com.example; public class A { public void target() {} }",
+        ),
+        (
+            "com/example/X.java",
+            "package com.example; public class X { public void target() {} }",
+        ),
+        (
+            "com/example/Use.java",
+            r#"
+package com.example;
+public class Use {
+    void useA(A a) { a.target(); }
+    void useX(X x) { x.target(); }
+}
+"#,
+        ),
+    ];
+
+    let handle = setup_java_engine(&temp_dir, files).await;
+
+    let a_path = temp_dir.join("com/example/A.java");
+    let a_content = std::fs::read_to_string(&a_path).unwrap();
+    let pos = a_content.find("target()").unwrap();
+    let (line, col) = offset_to_point(&a_content, pos);
+
+    let ctx = PositionContext {
+        uri: format!("file://{}", a_path.display()),
+        line: line as u32,
+        char: col as u32,
+        content: Some(a_content.clone()),
+    };
+
+    let resolution = handle
+        .resolve_symbol_at(&ctx)
+        .await
+        .unwrap()
+        .expect("Should resolve A#target");
+
+    let refs = handle
+        .find_references(&ReferenceQuery {
+            language: naviscope_api::models::Language::JAVA,
+            resolution,
+            include_declaration: false,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(refs.len(), 1, "A#target should only match a.target() usage");
+    assert!(refs[0].path.to_string_lossy().contains("Use.java"));
+
+    let use_content = std::fs::read_to_string(temp_dir.join("com/example/Use.java")).unwrap();
+    let prefix = use_content
+        .lines()
+        .take(refs[0].range.start_line + 1)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        prefix.contains("useA"),
+        "Reference should belong to useA(A), not useX(X)"
+    );
+}
+
+#[tokio::test]
+async fn test_find_references_include_declaration_switch() {
+    let temp_dir = std::env::temp_dir().join("naviscope_java_ref_include_decl_test");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let files = vec![
+        (
+            "com/example/A.java",
+            "package com.example; public class A { public void target() {} }",
+        ),
+        (
+            "com/example/Use.java",
+            r#"
+package com.example;
+public class Use {
+    void useA(A a) { a.target(); }
+}
+"#,
+        ),
+    ];
+
+    let handle = setup_java_engine(&temp_dir, files).await;
+
+    let a_path = temp_dir.join("com/example/A.java");
+    let a_content = std::fs::read_to_string(&a_path).unwrap();
+    let pos = a_content.find("target()").unwrap();
+    let (line, col) = offset_to_point(&a_content, pos);
+
+    let ctx = PositionContext {
+        uri: format!("file://{}", a_path.display()),
+        line: line as u32,
+        char: col as u32,
+        content: Some(a_content.clone()),
+    };
+
+    let resolution = handle
+        .resolve_symbol_at(&ctx)
+        .await
+        .unwrap()
+        .expect("Should resolve A#target");
+
+    let refs_without_decl = handle
+        .find_references(&ReferenceQuery {
+            language: naviscope_api::models::Language::JAVA,
+            resolution: resolution.clone(),
+            include_declaration: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(refs_without_decl.len(), 1);
+
+    let refs_with_decl = handle
+        .find_references(&ReferenceQuery {
+            language: naviscope_api::models::Language::JAVA,
+            resolution,
+            include_declaration: true,
+        })
+        .await
+        .unwrap();
+    assert_eq!(refs_with_decl.len(), 2);
+}
+
+#[tokio::test]
+async fn test_find_references_static_member_hiding() {
+    let temp_dir = std::env::temp_dir().join("naviscope_java_ref_static_hiding_test");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let files = vec![
+        (
+            "com/example/Base.java",
+            "package com.example; public class Base { public static void ping() {} }",
+        ),
+        (
+            "com/example/Child.java",
+            "package com.example; public class Child extends Base { public static void ping() {} }",
+        ),
+        (
+            "com/example/Use.java",
+            r#"
+package com.example;
+public class Use {
+    void use() {
+        Base.ping();
+        Child.ping();
+    }
+}
+"#,
+        ),
+    ];
+
+    let handle = setup_java_engine(&temp_dir, files).await;
+
+    let base_path = temp_dir.join("com/example/Base.java");
+    let base_content = std::fs::read_to_string(&base_path).unwrap();
+    let pos = base_content.find("ping()").unwrap();
+    let (line, col) = offset_to_point(&base_content, pos);
+
+    let ctx = PositionContext {
+        uri: format!("file://{}", base_path.display()),
+        line: line as u32,
+        char: col as u32,
+        content: Some(base_content.clone()),
+    };
+
+    let resolution = handle
+        .resolve_symbol_at(&ctx)
+        .await
+        .unwrap()
+        .expect("Should resolve Base#ping");
+
+    let refs = handle
+        .find_references(&ReferenceQuery {
+            language: naviscope_api::models::Language::JAVA,
+            resolution,
+            include_declaration: false,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(refs.len(), 1, "Base#ping should only match Base.ping() usage");
+    assert!(refs[0].path.to_string_lossy().contains("Use.java"));
+
+    let use_content = std::fs::read_to_string(temp_dir.join("com/example/Use.java")).unwrap();
+    let prefix = use_content
+        .lines()
+        .take(refs[0].range.start_line + 1)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        prefix.contains("Base.ping"),
+        "Reference should belong to Base.ping(), not Child.ping()"
+    );
 }

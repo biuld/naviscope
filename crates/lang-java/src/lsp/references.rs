@@ -106,8 +106,10 @@ fn collect_occurrences_with_ctx(
                     }
 
                     if member_target {
-                        return resolve_member_reference_fqn(node, infer_ctx)
-                            .map(|resolved| member_fqn_matches_target(&resolved, fqn, infer_ctx))
+                        return resolve_member_reference(node, infer_ctx)
+                            .map(|(resolved, static_site)| {
+                                member_fqn_matches_target(&resolved, fqn, static_site, infer_ctx)
+                            })
                             .unwrap_or(false);
                     }
 
@@ -198,7 +200,7 @@ fn find_start_scope_id(node: &Node, sm: &ScopeManager) -> Option<usize> {
     None
 }
 
-fn resolve_member_reference_fqn(node: &Node, infer_ctx: &InferContext) -> Option<String> {
+fn resolve_member_reference(node: &Node, infer_ctx: &InferContext) -> Option<(String, bool)> {
     if node.kind() != "identifier" {
         return None;
     }
@@ -209,25 +211,28 @@ fn resolve_member_reference_fqn(node: &Node, infer_ctx: &InferContext) -> Option
             if let Some(resolved) =
                 crate::inference::strategy::MethodCallInfer.infer_member(&parent, infer_ctx)
             {
-                return Some(resolved);
+                let static_site = is_static_member_access_site(&parent, infer_ctx);
+                return Some((resolved, static_site));
             }
 
             // Fallback for implicit `this` calls when enclosing_class is not pre-filled in ctx.
             if parent.child_by_field_name("object").is_none() {
                 let member_name = node.utf8_text(infer_ctx.source.as_bytes()).ok()?;
                 let class_fqn = find_enclosing_class_fqn(node, infer_ctx)?;
-                return Some(crate::naming::build_member_fqn(&class_fqn, member_name));
+                return Some((crate::naming::build_member_fqn(&class_fqn, member_name), false));
             }
 
             return None;
         }
 
         if parent.kind() == "field_access" && parent.child_by_field_name("field") == Some(*node) {
-            return crate::inference::strategy::FieldAccessInfer.infer_member(&parent, infer_ctx);
+            return crate::inference::strategy::FieldAccessInfer
+                .infer_member(&parent, infer_ctx)
+                .map(|fqn| (fqn, is_static_member_access_site(&parent, infer_ctx)));
         }
     }
 
-    resolve_member_declaration_fqn(node, infer_ctx)
+    resolve_member_declaration_fqn(node, infer_ctx).map(|fqn| (fqn, false))
 }
 
 fn resolve_member_declaration_fqn(node: &Node, infer_ctx: &InferContext) -> Option<String> {
@@ -259,7 +264,12 @@ fn find_enclosing_class_fqn(node: &Node, infer_ctx: &InferContext) -> Option<Str
     sm.find_enclosing_class(start_scope)
 }
 
-fn member_fqn_matches_target(resolved: &str, target: &str, infer_ctx: &InferContext) -> bool {
+fn member_fqn_matches_target(
+    resolved: &str,
+    target: &str,
+    static_site: bool,
+    infer_ctx: &InferContext,
+) -> bool {
     if resolved == target {
         return true;
     }
@@ -274,6 +284,11 @@ fn member_fqn_matches_target(resolved: &str, target: &str, infer_ctx: &InferCont
         return false;
     }
 
+    // Static member hiding is name-based and not polymorphic: require exact owner match.
+    if static_site {
+        return resolved_owner == target_owner;
+    }
+
     let resolved_ty = TypeRef::Id(resolved_owner.to_string());
     let target_ty = TypeRef::Id(target_owner.to_string());
 
@@ -284,4 +299,31 @@ fn member_fqn_matches_target(resolved: &str, target: &str, infer_ctx: &InferCont
 fn split_member_fqn(fqn: &str) -> Option<(&str, &str)> {
     let (owner, member) = fqn.split_once('#')?;
     Some((owner, member))
+}
+
+fn is_static_member_access_site(access_parent: &Node, infer_ctx: &InferContext) -> bool {
+    let Some(object) = access_parent.child_by_field_name("object") else {
+        return false;
+    };
+
+    match object.kind() {
+        "type_identifier" | "scoped_type_identifier" | "generic_type" => true,
+        "this" | "super" => false,
+        "identifier" => {
+            let Ok(name) = object.utf8_text(infer_ctx.source.as_bytes()) else {
+                return false;
+            };
+
+            let Some(sm) = infer_ctx.scope_manager else {
+                return false;
+            };
+            let Some(scope_id) = find_start_scope_id(&object, sm) else {
+                return true;
+            };
+
+            // If identifier is a local variable, this is instance access; otherwise treat as type.
+            sm.lookup_symbol(scope_id, name).is_none()
+        }
+        _ => false,
+    }
 }
