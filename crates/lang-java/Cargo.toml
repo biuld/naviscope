@@ -15,9 +15,9 @@ lsp-types = { workspace = true }
 tree-sitter-java = { workspace = true }
 rmp-serde = { workspace = true }
 lasso = { workspace = true }
-cafebabe = { workspace = true }
 zip = { workspace = true }
 ristretto_jimage = { workspace = true }
+ristretto_classfile = { workspace = true }
 dirs = { workspace = true }
 regex = { workspace = true }
 

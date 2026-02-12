@@ -2,10 +2,11 @@ use naviscope_plugin::{
     AssetEntry, AssetIndexer, AssetSource, AssetSourceLocator, GlobalParseResult, IndexNode,
     StubGenerator,
 };
+use ristretto_classfile::{ClassAccessFlags, ClassFile};
 use ristretto_jimage::Image;
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zip::ZipArchive;
@@ -207,24 +208,24 @@ impl JavaExternalResolver {
             }
         };
 
-        let class =
-            cafebabe::parse_class(&bytes).map_err(|e| format!("Failed to parse class: {:?}", e))?;
+        let class = ClassFile::from_bytes(&mut Cursor::new(bytes))
+            .map_err(|e| format!("Failed to parse class: {e:?}"))?;
 
         if member_parts.is_empty() {
             let name = fqn.split('.').last().unwrap_or(fqn).to_string();
             let kind = if class
                 .access_flags
-                .contains(cafebabe::ClassAccessFlags::INTERFACE)
+                .contains(ClassAccessFlags::INTERFACE)
             {
                 naviscope_api::models::graph::NodeKind::Interface
             } else if class
                 .access_flags
-                .contains(cafebabe::ClassAccessFlags::ANNOTATION)
+                .contains(ClassAccessFlags::ANNOTATION)
             {
                 naviscope_api::models::graph::NodeKind::Annotation
             } else if class
                 .access_flags
-                .contains(cafebabe::ClassAccessFlags::ENUM)
+                .contains(ClassAccessFlags::ENUM)
             {
                 naviscope_api::models::graph::NodeKind::Enum
             } else {
@@ -250,8 +251,13 @@ impl JavaExternalResolver {
         let member_name = member_parts.join(".");
 
         for field in &class.fields {
-            if field.name == member_name {
-                let type_ref = JavaTypeConverter::convert_field(&field.descriptor);
+            let field_name = class
+                .constant_pool
+                .try_get_utf8(field.name_index)
+                .map_err(|e| format!("Failed to parse field name: {e:?}"))?;
+
+            if field_name == member_name {
+                let type_ref = JavaTypeConverter::convert_field(&field.field_type);
                 let modifiers = JavaModifierConverter::parse_field(field.access_flags);
                 let metadata = crate::model::JavaIndexMetadata::Field {
                     modifiers,
@@ -271,9 +277,18 @@ impl JavaExternalResolver {
         }
 
         for method in &class.methods {
-            if method.name == member_name {
-                let (return_type, parameters) =
-                    JavaTypeConverter::convert_method(&method.descriptor);
+            let method_name = class
+                .constant_pool
+                .try_get_utf8(method.name_index)
+                .map_err(|e| format!("Failed to parse method name: {e:?}"))?;
+
+            if method_name == member_name {
+                let method_descriptor = class
+                    .constant_pool
+                    .try_get_utf8(method.descriptor_index)
+                    .map_err(|e| format!("Failed to parse method descriptor: {e:?}"))?;
+                let (return_type, parameters) = JavaTypeConverter::convert_method(method_descriptor)
+                    .map_err(|e| format!("Failed to parse method signature: {e:?}"))?;
                 let modifiers = JavaModifierConverter::parse_method(method.access_flags);
                 let metadata = crate::model::JavaIndexMetadata::Method {
                     modifiers,

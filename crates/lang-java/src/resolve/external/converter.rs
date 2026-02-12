@@ -1,50 +1,58 @@
-use cafebabe::descriptors::{FieldDescriptor, FieldType, MethodDescriptor, ReturnDescriptor};
 use naviscope_api::models::TypeRef;
+use ristretto_classfile::{BaseType, ClassAccessFlags, FieldAccessFlags, FieldType, MethodAccessFlags};
 
 pub struct JavaTypeConverter;
 
 impl JavaTypeConverter {
-    pub fn convert_field(desc: &FieldDescriptor) -> TypeRef {
-        let mut tr = Self::convert_type(&desc.field_type);
-        if desc.dimensions > 0 {
-            tr = TypeRef::Array {
-                element: Box::new(tr),
-                dimensions: desc.dimensions as usize,
-            };
-        }
-        tr
+    pub fn convert_field(ty: &FieldType) -> TypeRef {
+        Self::convert_type(ty)
     }
 
-    pub fn convert_method(desc: &MethodDescriptor) -> (TypeRef, Vec<crate::model::JavaParameter>) {
-        let return_type = match &desc.return_type {
-            ReturnDescriptor::Void => TypeRef::Raw("void".to_string()),
-            ReturnDescriptor::Return(field_desc) => Self::convert_field(field_desc),
+    pub fn convert_method(
+        descriptor: &str,
+    ) -> Result<(TypeRef, Vec<crate::model::JavaParameter>), ristretto_classfile::Error> {
+        let (params, ret) = FieldType::parse_method_descriptor(descriptor)?;
+        let return_type = match ret {
+            None => TypeRef::Raw("void".to_string()),
+            Some(field_type) => Self::convert_field(&field_type),
         };
 
-        let parameters = desc
-            .parameters
+        let parameters = params
             .iter()
             .enumerate()
-            .map(|(i, field_desc)| crate::model::JavaParameter {
+            .map(|(i, field_type)| crate::model::JavaParameter {
                 name: format!("arg{}", i),
-                type_ref: Self::convert_field(field_desc),
+                type_ref: Self::convert_field(field_type),
             })
             .collect();
 
-        (return_type, parameters)
+        Ok((return_type, parameters))
     }
 
     pub fn convert_type(ty: &FieldType) -> TypeRef {
         match ty {
-            FieldType::Byte => TypeRef::Raw("byte".to_string()),
-            FieldType::Char => TypeRef::Raw("char".to_string()),
-            FieldType::Double => TypeRef::Raw("double".to_string()),
-            FieldType::Float => TypeRef::Raw("float".to_string()),
-            FieldType::Integer => TypeRef::Raw("int".to_string()),
-            FieldType::Long => TypeRef::Raw("long".to_string()),
-            FieldType::Short => TypeRef::Raw("short".to_string()),
-            FieldType::Boolean => TypeRef::Raw("boolean".to_string()),
+            FieldType::Base(BaseType::Byte) => TypeRef::Raw("byte".to_string()),
+            FieldType::Base(BaseType::Char) => TypeRef::Raw("char".to_string()),
+            FieldType::Base(BaseType::Double) => TypeRef::Raw("double".to_string()),
+            FieldType::Base(BaseType::Float) => TypeRef::Raw("float".to_string()),
+            FieldType::Base(BaseType::Int) => TypeRef::Raw("int".to_string()),
+            FieldType::Base(BaseType::Long) => TypeRef::Raw("long".to_string()),
+            FieldType::Base(BaseType::Short) => TypeRef::Raw("short".to_string()),
+            FieldType::Base(BaseType::Boolean) => TypeRef::Raw("boolean".to_string()),
             FieldType::Object(name) => TypeRef::Id(name.replace('/', ".")),
+            FieldType::Array(component) => {
+                let mut dimensions = 1usize;
+                let mut current = component.as_ref();
+                while let FieldType::Array(inner) = current {
+                    dimensions += 1;
+                    current = inner.as_ref();
+                }
+
+                TypeRef::Array {
+                    element: Box::new(Self::convert_type(current)),
+                    dimensions,
+                }
+            }
         }
     }
 }
@@ -52,75 +60,74 @@ impl JavaTypeConverter {
 pub struct JavaModifierConverter;
 
 impl JavaModifierConverter {
-    pub fn parse_class(flags: cafebabe::ClassAccessFlags) -> Vec<String> {
+    pub fn parse_class(flags: ClassAccessFlags) -> Vec<String> {
         let mut mods = Vec::new();
-        if flags.contains(cafebabe::ClassAccessFlags::PUBLIC) {
+        if flags.contains(ClassAccessFlags::PUBLIC) {
             mods.push("public".into());
         }
-        if flags.contains(cafebabe::ClassAccessFlags::FINAL) {
+        if flags.contains(ClassAccessFlags::FINAL) {
             mods.push("final".into());
         }
-        if flags.contains(cafebabe::ClassAccessFlags::ABSTRACT)
-            && !flags.contains(cafebabe::ClassAccessFlags::INTERFACE)
+        if flags.contains(ClassAccessFlags::ABSTRACT) && !flags.contains(ClassAccessFlags::INTERFACE)
         {
             mods.push("abstract".into());
         }
         mods
     }
 
-    pub fn parse_field(flags: cafebabe::FieldAccessFlags) -> Vec<String> {
+    pub fn parse_field(flags: FieldAccessFlags) -> Vec<String> {
         let mut mods = Vec::new();
-        if flags.contains(cafebabe::FieldAccessFlags::PUBLIC) {
+        if flags.contains(FieldAccessFlags::PUBLIC) {
             mods.push("public".into());
         }
-        if flags.contains(cafebabe::FieldAccessFlags::PRIVATE) {
+        if flags.contains(FieldAccessFlags::PRIVATE) {
             mods.push("private".into());
         }
-        if flags.contains(cafebabe::FieldAccessFlags::PROTECTED) {
+        if flags.contains(FieldAccessFlags::PROTECTED) {
             mods.push("protected".into());
         }
-        if flags.contains(cafebabe::FieldAccessFlags::STATIC) {
+        if flags.contains(FieldAccessFlags::STATIC) {
             mods.push("static".into());
         }
-        if flags.contains(cafebabe::FieldAccessFlags::FINAL) {
+        if flags.contains(FieldAccessFlags::FINAL) {
             mods.push("final".into());
         }
-        if flags.contains(cafebabe::FieldAccessFlags::VOLATILE) {
+        if flags.contains(FieldAccessFlags::VOLATILE) {
             mods.push("volatile".into());
         }
-        if flags.contains(cafebabe::FieldAccessFlags::TRANSIENT) {
+        if flags.contains(FieldAccessFlags::TRANSIENT) {
             mods.push("transient".into());
         }
         mods
     }
 
-    pub fn parse_method(flags: cafebabe::MethodAccessFlags) -> Vec<String> {
+    pub fn parse_method(flags: MethodAccessFlags) -> Vec<String> {
         let mut mods = Vec::new();
-        if flags.contains(cafebabe::MethodAccessFlags::PUBLIC) {
+        if flags.contains(MethodAccessFlags::PUBLIC) {
             mods.push("public".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::PRIVATE) {
+        if flags.contains(MethodAccessFlags::PRIVATE) {
             mods.push("private".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::PROTECTED) {
+        if flags.contains(MethodAccessFlags::PROTECTED) {
             mods.push("protected".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::STATIC) {
+        if flags.contains(MethodAccessFlags::STATIC) {
             mods.push("static".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::FINAL) {
+        if flags.contains(MethodAccessFlags::FINAL) {
             mods.push("final".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::SYNCHRONIZED) {
+        if flags.contains(MethodAccessFlags::SYNCHRONIZED) {
             mods.push("synchronized".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::NATIVE) {
+        if flags.contains(MethodAccessFlags::NATIVE) {
             mods.push("native".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::ABSTRACT) {
+        if flags.contains(MethodAccessFlags::ABSTRACT) {
             mods.push("abstract".into());
         }
-        if flags.contains(cafebabe::MethodAccessFlags::STRICT) {
+        if flags.contains(MethodAccessFlags::STRICT) {
             mods.push("strictfp".into());
         }
         mods
