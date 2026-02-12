@@ -994,3 +994,94 @@ fn test_resolve_method_varargs_uses_explicit_marker() {
 
     assert_eq!(resolved.map(|m| m.fqn), Some("Demo#logVarargs".to_string()));
 }
+
+#[test]
+fn test_resolve_method_prefers_most_specific_fixed_overload() {
+    let ts = MockTypeSystem::new()
+        .add_class("java.lang.Object", None)
+        .add_class("java.lang.Number", Some("java.lang.Object"))
+        .add_class("java.lang.Integer", Some("java.lang.Number"));
+
+    let object_overload = MemberInfo {
+        name: "set".to_string(),
+        fqn: "Demo#setObject".to_string(),
+        kind: MemberKind::Method,
+        declaring_type: "Demo".to_string(),
+        type_ref: TypeRef::Raw("void".into()),
+        parameters: Some(vec![naviscope_java::inference::ParameterInfo {
+            name: "value".to_string(),
+            type_ref: TypeRef::Id("java.lang.Object".into()),
+            is_varargs: false,
+        }]),
+        modifiers: vec![],
+        generic_signature: None,
+    };
+
+    let number_overload = MemberInfo {
+        fqn: "Demo#setNumber".to_string(),
+        parameters: Some(vec![naviscope_java::inference::ParameterInfo {
+            name: "value".to_string(),
+            type_ref: TypeRef::Id("java.lang.Number".into()),
+            is_varargs: false,
+        }]),
+        ..object_overload.clone()
+    };
+
+    let resolved = ts.resolve_method(
+        &[object_overload, number_overload.clone()],
+        &[TypeRef::Id("java.lang.Integer".into())],
+    );
+
+    assert_eq!(resolved.map(|m| m.fqn), Some("Demo#setNumber".to_string()));
+}
+
+#[test]
+fn test_resolve_method_prefers_most_specific_varargs_overload() {
+    let ts = MockTypeSystem::new()
+        .add_class("java.lang.Object", None)
+        .add_class("java.lang.String", Some("java.lang.Object"));
+
+    let object_varargs = MemberInfo {
+        name: "log".to_string(),
+        fqn: "Demo#logObjectVarargs".to_string(),
+        kind: MemberKind::Method,
+        declaring_type: "Demo".to_string(),
+        type_ref: TypeRef::Raw("void".into()),
+        parameters: Some(vec![naviscope_java::inference::ParameterInfo {
+            name: "args".to_string(),
+            type_ref: TypeRef::Array {
+                element: Box::new(TypeRef::Id("java.lang.Object".into())),
+                dimensions: 1,
+            },
+            is_varargs: true,
+        }]),
+        modifiers: vec![],
+        generic_signature: None,
+    };
+
+    let string_varargs = MemberInfo {
+        fqn: "Demo#logStringVarargs".to_string(),
+        parameters: Some(vec![naviscope_java::inference::ParameterInfo {
+            name: "args".to_string(),
+            type_ref: TypeRef::Array {
+                element: Box::new(TypeRef::Id("java.lang.String".into())),
+                dimensions: 1,
+            },
+            is_varargs: true,
+        }]),
+        ..object_varargs.clone()
+    };
+
+    let resolved = ts.resolve_method(
+        &[object_varargs, string_varargs.clone()],
+        &[
+            TypeRef::Id("java.lang.String".into()),
+            TypeRef::Id("java.lang.String".into()),
+        ],
+    );
+
+    assert_eq!(
+        resolved.map(|m| m.fqn),
+        Some("Demo#logStringVarargs".to_string())
+    );
+}
