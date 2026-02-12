@@ -5,6 +5,7 @@ pub mod type_system;
 use crate::parser::JavaParser;
 use naviscope_api::models::SymbolResolution;
 use naviscope_api::models::graph::DisplayGraphNode;
+use naviscope_plugin::CodeGraph;
 use naviscope_plugin::LspSyntaxService;
 use std::sync::Arc;
 use tree_sitter::Tree;
@@ -33,10 +34,8 @@ impl LspSyntaxService for JavaLspService {
         source: &str,
         tree: &Tree,
         target: &SymbolResolution,
+        index: Option<&dyn CodeGraph>,
     ) -> Vec<naviscope_api::models::symbol::Range> {
-        // In the fast syntactic path, we don't strictly need the full type system,
-        // but we could use it for early filtering if needed.
-        // For now, we perform the syntactic scan.
-        references::find_occurrences(&self.parser, source, tree, target)
+        references::find_occurrences(&self.parser, source, tree, target, index)
     }
 }

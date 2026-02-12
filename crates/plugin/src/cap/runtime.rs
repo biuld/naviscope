@@ -28,7 +28,13 @@ pub trait SymbolQueryService: Send + Sync {
 pub trait LspSyntaxService: Send + Sync {
     fn parse(&self, source: &str, old_tree: Option<&Tree>) -> Option<Tree>;
     fn extract_symbols(&self, tree: &Tree, source: &str) -> Vec<DisplayGraphNode>;
-    fn find_occurrences(&self, source: &str, tree: &Tree, target: &SymbolResolution) -> Vec<Range>;
+    fn find_occurrences(
+        &self,
+        source: &str,
+        tree: &Tree,
+        target: &SymbolResolution,
+        index: Option<&dyn CodeGraph>,
+    ) -> Vec<Range>;
 }
 
 pub trait ReferenceCheckService: Send + Sync {

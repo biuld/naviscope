@@ -23,8 +23,10 @@ impl LspSyntaxService for JavaPlugin {
         source: &str,
         tree: &tree_sitter::Tree,
         target: &naviscope_api::models::SymbolResolution,
+        index: Option<&dyn naviscope_plugin::CodeGraph>,
     ) -> Vec<naviscope_api::models::symbol::Range> {
-        crate::lsp::JavaLspService::new(self.parser.clone()).find_occurrences(source, tree, target)
+        crate::lsp::JavaLspService::new(self.parser.clone())
+            .find_occurrences(source, tree, target, index)
     }
 }
 

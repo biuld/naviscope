@@ -91,7 +91,8 @@ impl SymbolNavigator for EngineHandle {
             None => return Ok(vec![]),
         };
 
-        Ok(semantic.find_occurrences(&content, &tree, &res))
+        let graph = self.graph().await;
+        Ok(semantic.find_occurrences(&content, &tree, &res, Some(&graph)))
     }
 
     async fn find_definitions(&self, query: &SymbolQuery) -> ApiResult<Vec<SymbolLocation>> {

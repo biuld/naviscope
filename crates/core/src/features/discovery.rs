@@ -155,7 +155,12 @@ impl<'a> DiscoveryEngine<'a> {
     ) -> Vec<Location> {
         if let Some(tree) = semantic.parse(source, None) {
             // 1. Syntactic Scan (Fast)
-            let candidates = semantic.find_occurrences(source, &tree, target_resolution);
+            let candidates = semantic.find_occurrences(
+                source,
+                &tree,
+                target_resolution,
+                Some(self.index.as_plugin_graph()),
+            );
 
             // 2. Semantic Verification (Precise)
             let mut valid_locations = Vec::new();

@@ -180,6 +180,7 @@ fn test_cache_with_java_metadata() {
     // 1. Create a stub with Java-specific metadata
     let java_meta = JavaIndexMetadata::Class {
         modifiers: vec!["public".to_string(), "final".to_string()],
+        type_parameters: vec![],
     };
 
     let stub = IndexNode {
@@ -213,7 +214,7 @@ fn test_cache_with_java_metadata() {
             .downcast_ref::<JavaIndexMetadata>()
             .expect("Metadata should be downcastable to JavaIndexMetadata");
 
-        if let JavaIndexMetadata::Class { modifiers } = meta {
+        if let JavaIndexMetadata::Class { modifiers, .. } = meta {
             assert!(modifiers.contains(&"public".to_string()));
             assert!(modifiers.contains(&"final".to_string()));
         } else {

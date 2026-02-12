@@ -146,6 +146,7 @@ impl LspSyntaxService for MockCap {
         _source: &str,
         _tree: &Tree,
         _target: &SymbolResolution,
+        _index: Option<&dyn naviscope_plugin::CodeGraph>,
     ) -> Vec<Range> {
         vec![]
     }
