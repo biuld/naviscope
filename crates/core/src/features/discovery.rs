@@ -1,5 +1,5 @@
 use super::CodeGraphLike;
-use lsp_types::{Location, Url};
+use lsp_types::{Location, Uri};
 pub use naviscope_api::models::SymbolResolution;
 use naviscope_plugin::SemanticCap;
 use std::collections::HashSet;
@@ -151,7 +151,7 @@ impl<'a> DiscoveryEngine<'a> {
         semantic: &dyn SemanticCap,
         source: &str,
         target_resolution: &SymbolResolution,
-        uri: &Url,
+        uri: &Uri,
     ) -> Vec<Location> {
         if let Some(tree) = semantic.parse(source, None) {
             // 1. Syntactic Scan (Fast)

@@ -39,7 +39,7 @@ fn test_call_hierarchy_incoming() {
 
     let mut callers = Vec::new();
     let abs_path = std::env::current_dir().unwrap().join("Test.java");
-    let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
+    let uri: lsp_types::Uri = format!("file://{}", abs_path.display()).parse().unwrap();
 
     let semantic = JavaPlugin::new().expect("failed to create java plugin");
     for path in candidate_files {
@@ -171,7 +171,7 @@ fn test_call_hierarchy_recursion() {
     let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
     let mut callers = Vec::new();
     let abs_path = std::env::current_dir().unwrap().join("Test.java");
-    let uri = lsp_types::Url::from_file_path(&abs_path).unwrap();
+    let uri: lsp_types::Uri = format!("file://{}", abs_path.display()).parse().unwrap();
 
     let semantic = JavaPlugin::new().expect("failed to create java plugin");
     let locations = discovery.scan_file(&semantic, content, &res, &uri);

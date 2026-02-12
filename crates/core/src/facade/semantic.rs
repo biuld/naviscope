@@ -248,7 +248,7 @@ impl ReferenceAnalyzer for EngineHandle {
                 let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
 
                 let uri_str = format!("file://{}", path.display());
-                let uri = match url::Url::parse(&uri_str) {
+                let uri: lsp_types::Uri = match uri_str.parse() {
                     Ok(u) => u,
                     Err(_) => return Vec::new(),
                 };
@@ -257,9 +257,11 @@ impl ReferenceAnalyzer for EngineHandle {
 
                 locations
                     .into_iter()
-                    .map(|loc| {
-                        let path_buf = loc.uri.to_file_path().unwrap();
-                        SymbolLocation {
+                    .filter_map(|loc| {
+                        let path_buf = url::Url::parse(&loc.uri.to_string())
+                            .ok()
+                            .and_then(|u| u.to_file_path().ok())?;
+                        Some(SymbolLocation {
                             path: Arc::from(path_buf),
                             range: Range {
                                 start_line: loc.range.start.line as usize,
@@ -268,7 +270,7 @@ impl ReferenceAnalyzer for EngineHandle {
                                 end_col: loc.range.end.character as usize,
                             },
                             selection_range: None,
-                        }
+                        })
                     })
                     .collect::<Vec<_>>()
             });
@@ -379,7 +381,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
                 let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
                 let uri_str = format!("file://{}", path.display());
-                let uri = match url::Url::parse(&uri_str) {
+                let uri: lsp_types::Uri = match uri_str.parse() {
                     Ok(u) => u,
                     Err(_) => return vec![],
                 };
@@ -400,7 +402,10 @@ impl CallHierarchyAnalyzer for EngineHandle {
         let mut caller_map: HashMap<petgraph::stable_graph::NodeIndex, Vec<Range>> = HashMap::new();
 
         for loc in all_call_sites {
-            if let Ok(path) = loc.uri.to_file_path() {
+            if let Some(path) = url::Url::parse(&loc.uri.to_string())
+                .ok()
+                .and_then(|u| u.to_file_path().ok())
+            {
                 if let Some(caller_idx) = graph.find_container_node_at(
                     &path,
                     loc.range.start.line as usize,
