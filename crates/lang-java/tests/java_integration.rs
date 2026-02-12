@@ -266,7 +266,6 @@ fn test_lambda_explicit_type_resolution() {
 }
 
 #[test]
-#[ignore = "Requires generics inference to propagate type parameters from List<A> to lambda"]
 fn test_lambda_heuristic_type_inference() {
     let files = vec![
         (

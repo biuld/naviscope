@@ -7,6 +7,7 @@ use naviscope_api::models::graph::{EdgeType, NodeKind, NodeMetadata};
 use naviscope_api::models::symbol::{FqnId, Symbol};
 use naviscope_plugin::{CodeGraph, Direction};
 use lasso::Key;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::inference::{InheritanceProvider, MemberProvider, TypeProvider};
@@ -38,8 +39,28 @@ impl<'a> CodeGraphTypeSystem<'a> {
         }
     }
 
+    fn resolve_sid(&self, sid: u32) -> Option<String> {
+        lasso::Spur::try_from_usize(sid as usize)
+            .map(|spur| self.graph.fqns().resolve_atom(Symbol(spur)).to_string())
+    }
+
     /// Extract modifiers from node metadata.
     fn extract_modifiers(&self, metadata: &Arc<dyn NodeMetadata>) -> Vec<String> {
+        if let Some(java_meta) = metadata.as_any().downcast_ref::<JavaNodeMetadata>() {
+            return match java_meta {
+                JavaNodeMetadata::Class { modifiers_sids, .. }
+                | JavaNodeMetadata::Interface { modifiers_sids, .. }
+                | JavaNodeMetadata::Enum { modifiers_sids, .. }
+                | JavaNodeMetadata::Annotation { modifiers_sids }
+                | JavaNodeMetadata::Method { modifiers_sids, .. }
+                | JavaNodeMetadata::Field { modifiers_sids, .. } => modifiers_sids
+                    .iter()
+                    .filter_map(|sid| self.resolve_sid(*sid))
+                    .collect(),
+                _ => vec![],
+            };
+        }
+
         if let Some(java_meta) = metadata.as_any().downcast_ref::<JavaIndexMetadata>() {
             return match java_meta {
                 JavaIndexMetadata::Class { modifiers, .. } => modifiers.clone(),
@@ -65,8 +86,7 @@ impl<'a> CodeGraphTypeSystem<'a> {
                     ..
                 } => type_parameters_sids
                     .iter()
-                    .filter_map(|sid| lasso::Spur::try_from_usize(*sid as usize))
-                    .map(|spur| self.graph.fqns().resolve_atom(Symbol(spur)).to_string())
+                    .filter_map(|sid| self.resolve_sid(*sid))
                     .collect(),
                 _ => vec![],
             };
@@ -145,7 +165,9 @@ impl<'a> CodeGraphTypeSystem<'a> {
                             .iter()
                             .enumerate()
                             .map(|(i, p)| ParameterInfo {
-                                name: format!("arg{}", i), // Cannot resolve SID without interner
+                                name: self
+                                    .resolve_sid(p.name_sid)
+                                    .unwrap_or_else(|| format!("arg{}", i)),
                                 type_ref: p.type_ref.clone(),
                                 is_varargs: p.is_varargs,
                             })
@@ -199,7 +221,15 @@ impl<'a> TypeProvider for CodeGraphTypeSystem<'a> {
             }
         }
 
-        // 2. Check wildcard imports
+        // 2. Check same package
+        if let Some(pkg) = &ctx.package {
+            let candidate = format!("{}.{}", pkg, simple_name);
+            if !self.graph.resolve_fqn(&candidate).is_empty() {
+                return Some(candidate);
+            }
+        }
+
+        // 3. Check wildcard imports
         for imp in &ctx.imports {
             if imp.ends_with(".*") {
                 let prefix = &imp[..imp.len() - 2];
@@ -207,14 +237,6 @@ impl<'a> TypeProvider for CodeGraphTypeSystem<'a> {
                 if !self.graph.resolve_fqn(&candidate).is_empty() {
                     return Some(candidate);
                 }
-            }
-        }
-
-        // 3. Check same package
-        if let Some(pkg) = &ctx.package {
-            let candidate = format!("{}.{}", pkg, simple_name);
-            if !self.graph.resolve_fqn(&candidate).is_empty() {
-                return Some(candidate);
             }
         }
 
@@ -255,6 +277,7 @@ impl<'a> InheritanceProvider for CodeGraphTypeSystem<'a> {
 
     fn get_interfaces(&self, fqn: &str) -> Vec<String> {
         let node_ids = self.graph.resolve_fqn(fqn);
+        let mut seen = HashSet::new();
         let mut result = vec![];
 
         for node_id in node_ids {
@@ -263,7 +286,10 @@ impl<'a> InheritanceProvider for CodeGraphTypeSystem<'a> {
                     .get_neighbors(node_id, Direction::Outgoing, Some(EdgeType::Implements));
 
             for iface_id in neighbors {
-                result.push(self.render_fqn_id(iface_id));
+                let iface_fqn = self.render_fqn_id(iface_id);
+                if seen.insert(iface_fqn.clone()) {
+                    result.push(iface_fqn);
+                }
             }
         }
 
@@ -276,6 +302,7 @@ impl<'a> InheritanceProvider for CodeGraphTypeSystem<'a> {
 
     fn get_direct_subtypes(&self, fqn: &str) -> Vec<String> {
         let node_ids = self.graph.resolve_fqn(fqn);
+        let mut seen = HashSet::new();
         let mut result = vec![];
 
         for node_id in node_ids {
@@ -286,14 +313,20 @@ impl<'a> InheritanceProvider for CodeGraphTypeSystem<'a> {
                 Some(EdgeType::InheritsFrom),
             );
             for sub_id in subs {
-                result.push(self.render_fqn_id(sub_id));
+                let sub_fqn = self.render_fqn_id(sub_id);
+                if seen.insert(sub_fqn.clone()) {
+                    result.push(sub_fqn);
+                }
             }
 
             let impls =
                 self.graph
                     .get_neighbors(node_id, Direction::Incoming, Some(EdgeType::Implements));
             for sub_id in impls {
-                result.push(self.render_fqn_id(sub_id));
+                let sub_fqn = self.render_fqn_id(sub_id);
+                if seen.insert(sub_fqn.clone()) {
+                    result.push(sub_fqn);
+                }
             }
         }
 
@@ -318,7 +351,7 @@ impl<'a> MemberProvider for CodeGraphTypeSystem<'a> {
                     NodeKind::Method => MemberKind::Method,
                     NodeKind::Field => MemberKind::Field,
                     NodeKind::Constructor => MemberKind::Constructor,
-                    _ => MemberKind::Method,
+                    _ => continue,
                 };
 
                 let type_ref = self.extract_type_from_metadata(&node.metadata);
@@ -330,7 +363,7 @@ impl<'a> MemberProvider for CodeGraphTypeSystem<'a> {
                     declaring_type: type_fqn.to_string(),
                     type_ref,
                     parameters: self.extract_parameters(&node.metadata),
-                    modifiers: vec![],
+                    modifiers: self.extract_modifiers(&node.metadata),
                     generic_signature: None,
                 });
             }
@@ -373,7 +406,7 @@ impl<'a> MemberProvider for CodeGraphTypeSystem<'a> {
                         declaring_type: type_fqn.to_string(),
                         type_ref,
                         parameters: self.extract_parameters(&node.metadata),
-                        modifiers: vec![],
+                        modifiers: self.extract_modifiers(&node.metadata),
                         generic_signature: None,
                     });
                 }

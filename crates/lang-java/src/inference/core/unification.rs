@@ -43,6 +43,13 @@ impl Substitution {
                 base: Box::new(self.apply(base)),
                 args: args.iter().map(|arg| self.apply(arg)).collect(),
             },
+            TypeRef::Wildcard {
+                bound,
+                is_upper_bound,
+            } => TypeRef::Wildcard {
+                bound: bound.as_ref().map(|b| Box::new(self.apply(b))),
+                is_upper_bound: *is_upper_bound,
+            },
             // Primitives and others remain unchanged
             _ => ty.clone(),
         }
