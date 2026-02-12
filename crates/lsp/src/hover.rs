@@ -1,5 +1,5 @@
 use crate::LspServer;
-use naviscope_api::models::PositionContext;
+use naviscope_api::models::{DisplayGraphNode, PositionContext, SymbolResolution};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
@@ -57,11 +57,28 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         }
     };
 
-    // 2. Map resolution to hover text
-    let mut hover_text = String::new();
+    let info = match &resolution {
+        SymbolResolution::Precise(fqn, _) | SymbolResolution::Global(fqn) => {
+            engine.get_symbol_info(fqn).await.ok().flatten()
+        }
+        SymbolResolution::Local(_, _) => None,
+    };
+    let hover_text = build_hover_text(&resolution, info.as_ref());
 
+    if !hover_text.is_empty() {
+        return Ok(Some(Hover {
+            contents: HoverContents::Scalar(MarkedString::String(hover_text)),
+            range: None,
+        }));
+    }
+
+    Ok(None)
+}
+
+fn build_hover_text(resolution: &SymbolResolution, info: Option<&DisplayGraphNode>) -> String {
     match resolution {
-        naviscope_api::models::SymbolResolution::Local(range, type_name) => {
+        SymbolResolution::Local(range, type_name) => {
+            let mut hover_text = String::new();
             hover_text.push_str("**Local variable**");
             if let Some(t) = type_name {
                 hover_text.push_str(&format!(": `{}`", t));
@@ -74,94 +91,136 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
             ));
             hover_text.push_str("\n\n");
             hover_text.push_str("*Scope: local*");
+            hover_text
         }
-        naviscope_api::models::SymbolResolution::Precise(fqn, intent) => {
-            // Fetch detailed info for FQN
-            if let Ok(Some(info)) = engine.get_symbol_info(&fqn).await {
-                let detail = info.detail;
-                let container_line = detail.or_else(|| {
-                    fqn.split_once('#')
-                        .map(|(owner, _member)| format!("Declared in `{}`", owner))
-                });
+        SymbolResolution::Precise(fqn, intent) => build_symbol_hover(fqn, Some(*intent), info),
+        SymbolResolution::Global(fqn) => build_symbol_hover(fqn, None, info),
+    }
+}
 
-                if let Some(sig) = info.signature {
-                    let lang_tag = info.lang;
-                    hover_text.push_str(&format!("```{}\n{}\n```\n", lang_tag, sig));
-                } else {
-                    hover_text.push_str(&format!(
-                        "**{}** *{}*\n\n",
-                        info.name,
-                        info.kind.to_string()
-                    ));
-                }
+fn build_symbol_hover(
+    fqn: &str,
+    intent: Option<naviscope_api::models::SymbolIntent>,
+    info: Option<&DisplayGraphNode>,
+) -> String {
+    let Some(info) = info else {
+        return format_fallback_hover(fqn, intent);
+    };
 
-                if let Some(container_line) = container_line {
-                    hover_text.push_str(&container_line);
-                    hover_text.push_str("\n\n");
-                }
+    let mut hover_text = String::new();
+    let container_line = info.detail.clone().or_else(|| {
+        fqn.split_once('#')
+            .map(|(owner, _member)| format!("Declared in `{}`", owner))
+    });
 
-                match info.source {
-                    naviscope_api::models::NodeSource::External => {
-                        hover_text.push_str("*Source: external*\n\n");
-                    }
-                    naviscope_api::models::NodeSource::Builtin => {
-                        hover_text.push_str("*Source: builtin*\n\n");
-                    }
-                    naviscope_api::models::NodeSource::Project => {}
-                }
-
-                hover_text.push_str(&format!("*`{}`*", fqn));
-            } else {
-                hover_text.push_str(&format_fallback_hover(&fqn, Some(intent)));
-            }
-        }
-        naviscope_api::models::SymbolResolution::Global(fqn) => {
-            if let Ok(Some(info)) = engine.get_symbol_info(&fqn).await {
-                let detail = info.detail;
-                let container_line = detail.or_else(|| {
-                    fqn.split_once('#')
-                        .map(|(owner, _member)| format!("Declared in `{}`", owner))
-                });
-
-                if let Some(sig) = info.signature {
-                    let lang_tag = info.lang;
-                    hover_text.push_str(&format!("```{}\n{}\n```\n", lang_tag, sig));
-                } else {
-                    hover_text.push_str(&format!(
-                        "**{}** *{}*\n\n",
-                        info.name,
-                        info.kind.to_string()
-                    ));
-                }
-
-                if let Some(container_line) = container_line {
-                    hover_text.push_str(&container_line);
-                    hover_text.push_str("\n\n");
-                }
-
-                match info.source {
-                    naviscope_api::models::NodeSource::External => {
-                        hover_text.push_str("*Source: external*\n\n");
-                    }
-                    naviscope_api::models::NodeSource::Builtin => {
-                        hover_text.push_str("*Source: builtin*\n\n");
-                    }
-                    naviscope_api::models::NodeSource::Project => {}
-                }
-
-                hover_text.push_str(&format!("*`{}`*", fqn));
-            } else {
-                hover_text.push_str(&format_fallback_hover(&fqn, None));
-            }
-        }
+    if let Some(sig) = &info.signature {
+        let lang_tag = &info.lang;
+        hover_text.push_str(&format!("```{}\n{}\n```\n", lang_tag, sig));
+    } else {
+        hover_text.push_str(&format!("**{}** *{}*\n\n", info.name, info.kind.to_string()));
     }
 
-    if !hover_text.is_empty() {
-        return Ok(Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-            range: None,
-        }));
+    if let Some(container_line) = container_line {
+        hover_text.push_str(&container_line);
+        hover_text.push_str("\n\n");
     }
 
-    Ok(None)
+    match info.source {
+        naviscope_api::models::NodeSource::External => {
+            hover_text.push_str("*Source: external*\n\n");
+        }
+        naviscope_api::models::NodeSource::Builtin => {
+            hover_text.push_str("*Source: builtin*\n\n");
+        }
+        naviscope_api::models::NodeSource::Project => {}
+    }
+
+    hover_text.push_str(&format!("*`{}`*", fqn));
+    hover_text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use naviscope_api::models::graph::{NodeKind, NodeSource, ResolutionStatus};
+    use naviscope_api::models::symbol::Range;
+
+    #[test]
+    fn hover_local_contains_type_and_decl() {
+        let text = build_hover_text(
+            &SymbolResolution::Local(
+                Range {
+                    start_line: 3,
+                    start_col: 8,
+                    end_line: 3,
+                    end_col: 12,
+                },
+                Some("List<String>".into()),
+            ),
+            None,
+        );
+        assert!(text.contains("Local variable"));
+        assert!(text.contains("List<String>"));
+        assert!(text.contains("Declared at `4:9`"));
+    }
+
+    #[test]
+    fn hover_member_uses_signature_and_owner() {
+        let info = DisplayGraphNode {
+            id: "com.example.Service#getContext".into(),
+            name: "getContext".into(),
+            kind: NodeKind::Method,
+            lang: "java".into(),
+            source: NodeSource::Project,
+            status: ResolutionStatus::Resolved,
+            location: None,
+            detail: None,
+            signature: Some("SessionContext getContext()".into()),
+            modifiers: vec![],
+            children: None,
+        };
+
+        let text = build_hover_text(
+            &SymbolResolution::Precise(
+                "com.example.Service#getContext".into(),
+                naviscope_api::models::SymbolIntent::Method,
+            ),
+            Some(&info),
+        );
+        assert!(text.contains("SessionContext getContext()"));
+        assert!(text.contains("Declared in `com.example.Service`"));
+    }
+
+    #[test]
+    fn hover_fallback_mentions_metadata_unavailable() {
+        let text = build_hover_text(
+            &SymbolResolution::Global("com.example.Missing#call".into()),
+            None,
+        );
+        assert!(text.contains("Metadata unavailable"));
+        assert!(text.contains("com.example.Missing"));
+    }
+
+    #[test]
+    fn hover_external_marks_source() {
+        let info = DisplayGraphNode {
+            id: "java.util.List#size".into(),
+            name: "size".into(),
+            kind: NodeKind::Method,
+            lang: "java".into(),
+            source: NodeSource::External,
+            status: ResolutionStatus::Resolved,
+            location: None,
+            detail: Some("Declared in `java.util.List`".into()),
+            signature: Some("int size()".into()),
+            modifiers: vec![],
+            children: None,
+        };
+
+        let text = build_hover_text(
+            &SymbolResolution::Global("java.util.List#size".into()),
+            Some(&info),
+        );
+        assert!(text.contains("Source: external"));
+    }
 }

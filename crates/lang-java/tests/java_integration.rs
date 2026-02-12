@@ -197,6 +197,56 @@ fn test_chained_calls_resolution() {
 }
 
 #[test]
+fn test_hover_chain_middle_node_resolution() {
+    let files = vec![
+        (
+            "src/web/HttpResponse.java",
+            "package com.web; public class HttpResponse { public SessionContext getContext() { return new SessionContext(); } }",
+        ),
+        (
+            "src/web/SessionContext.java",
+            "package com.web; public class SessionContext { public Object get(String key) { return null; } }",
+        ),
+        (
+            "src/web/Main.java",
+            r#"package com.web;
+public class Main {
+    void run() {
+        HttpResponse response = new HttpResponse();
+        response.getContext().get("key");
+    }
+}"#,
+        ),
+    ];
+
+    let (index, trees) = setup_java_test_graph(files);
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
+
+    let main_content = &trees[2].1;
+    let main_tree = &trees[2].2;
+
+    let get_context_pos = main_content
+        .find("getContext()")
+        .expect("Could not find 'getContext()'");
+    let (line, col) = offset_to_point(main_content, get_context_pos);
+
+    let res = resolver.resolve_at(main_tree, main_content, line, col, &index);
+    assert!(
+        res.is_some(),
+        "Failed to resolve chain middle node 'getContext'"
+    );
+
+    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+        assert_eq!(fqn, "com.web.HttpResponse#getContext");
+    } else {
+        panic!(
+            "Expected precise resolution to com.web.HttpResponse#getContext, got {:?}",
+            res
+        );
+    }
+}
+
+#[test]
 fn test_lambda_parameter_resolution() {
     let files = vec![(
         "src/LambdaTest.java",
