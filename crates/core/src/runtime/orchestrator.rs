@@ -216,6 +216,26 @@ impl NaviscopeEngine {
         self.asset_service.as_ref()
     }
 
+    /// Request on-demand stub generation for a single FQN.
+    /// Returns true if a request was successfully enqueued.
+    pub fn request_stub_for_fqn(&self, fqn: &str) -> bool {
+        let Some(service) = &self.asset_service else {
+            return false;
+        };
+        let Some(candidate_paths) = service.lookup_paths(fqn) else {
+            return false;
+        };
+        if candidate_paths.is_empty() {
+            return false;
+        }
+        self.stub_tx
+            .send(StubRequest {
+                fqn: fqn.to_string(),
+                candidate_paths,
+            })
+            .is_ok()
+    }
+
     /// Run the global asset scan and populate routes
     /// Returns the scan result with statistics
     pub async fn scan_global_assets(&self) -> Option<crate::asset::scanner::ScanResult> {

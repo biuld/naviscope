@@ -17,6 +17,46 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::time::{Duration, sleep};
+
+impl EngineHandle {
+    async fn hydrate_symbol_if_missing(&self, fqn: &str) -> ApiResult<()> {
+        if self
+            .get_node_display(fqn)
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?
+            .is_some()
+        {
+            return Ok(());
+        }
+
+        if !self.engine.request_stub_for_fqn(fqn) {
+            let _ = self.engine.scan_global_assets().await;
+            let _ = self.engine.request_stub_for_fqn(fqn);
+        }
+
+        for _ in 0..3 {
+            sleep(Duration::from_millis(25)).await;
+            if self
+                .get_node_display(fqn)
+                .await
+                .map_err(|e| ApiError::Internal(e.to_string()))?
+                .is_some()
+            {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn hydrate_resolution_if_needed(&self, resolution: &SymbolResolution) -> ApiResult<()> {
+        if let Some(fqn) = resolution.fqn() {
+            self.hydrate_symbol_if_missing(fqn).await?;
+        }
+        Ok(())
+    }
+}
 
 #[async_trait]
 impl SymbolNavigator for EngineHandle {
@@ -96,6 +136,8 @@ impl SymbolNavigator for EngineHandle {
     }
 
     async fn find_definitions(&self, query: &SymbolQuery) -> ApiResult<Vec<SymbolLocation>> {
+        self.hydrate_resolution_if_needed(&query.resolution).await?;
+
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
             None => {
@@ -129,6 +171,8 @@ impl SymbolNavigator for EngineHandle {
     }
 
     async fn find_type_definitions(&self, query: &SymbolQuery) -> ApiResult<Vec<SymbolLocation>> {
+        self.hydrate_resolution_if_needed(&query.resolution).await?;
+
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
             None => {
@@ -164,6 +208,8 @@ impl SymbolNavigator for EngineHandle {
     }
 
     async fn find_implementations(&self, query: &SymbolQuery) -> ApiResult<Vec<SymbolLocation>> {
+        self.hydrate_resolution_if_needed(&query.resolution).await?;
+
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
             None => {
@@ -199,6 +245,8 @@ impl SymbolNavigator for EngineHandle {
 #[async_trait]
 impl ReferenceAnalyzer for EngineHandle {
     async fn find_references(&self, query: &ReferenceQuery) -> ApiResult<Vec<SymbolLocation>> {
+        self.hydrate_resolution_if_needed(&query.resolution).await?;
+
         let resolver = match self.get_semantic_resolver(query.language.clone()) {
             Some(r) => r,
             None => {
@@ -321,6 +369,8 @@ impl ReferenceAnalyzer for EngineHandle {
 #[async_trait]
 impl CallHierarchyAnalyzer for EngineHandle {
     async fn find_incoming_calls(&self, fqn: &str) -> ApiResult<Vec<CallHierarchyIncomingCall>> {
+        self.hydrate_symbol_if_missing(fqn).await?;
+
         let graph = self.graph().await;
         let mut target_indices = graph.find_matches_by_fqn(fqn);
 
@@ -454,6 +504,8 @@ impl CallHierarchyAnalyzer for EngineHandle {
     }
 
     async fn find_outgoing_calls(&self, fqn: &str) -> ApiResult<Vec<CallHierarchyOutgoingCall>> {
+        self.hydrate_symbol_if_missing(fqn).await?;
+
         let graph = self.graph().await;
         let conventions = (*self.naming_conventions()).clone();
         let node_idx = match graph.find_node(fqn) {
@@ -565,6 +617,7 @@ impl CallHierarchyAnalyzer for EngineHandle {
 #[async_trait]
 impl SymbolInfoProvider for EngineHandle {
     async fn get_symbol_info(&self, fqn: &str) -> ApiResult<Option<DisplayGraphNode>> {
+        self.hydrate_symbol_if_missing(fqn).await?;
         self.get_node_display(fqn)
             .await
             .map_err(|e| ApiError::Internal(e.to_string()))

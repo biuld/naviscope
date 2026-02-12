@@ -28,9 +28,12 @@ impl NodePresenter for JavaPlugin {
         };
 
         let fqn = display.id.as_str();
-        let parts: Vec<&str> = fqn.split('.').collect();
-        if parts.len() > 1 {
-            let container = parts[..parts.len() - 1].join(".");
+        let container = if let Some((owner, _member)) = fqn.split_once('#') {
+            Some(owner.to_string())
+        } else {
+            fqn.rsplit_once('.').map(|(owner, _)| owner.to_string())
+        };
+        if let Some(container) = container {
             display.detail = Some(format!("*Defined in `{}`*", container));
         }
 
@@ -353,5 +356,30 @@ mod tests {
         let display = plugin.render_display_node(&node, &fqns);
         assert_eq!(display.signature.as_deref(), Some("setNames(arg0: String) -> void"));
         assert!(display.modifiers.is_empty());
+    }
+
+    #[test]
+    fn render_display_node_member_detail_uses_member_owner() {
+        let plugin = JavaPlugin::new().expect("plugin");
+        let fqns = fake_fqns();
+        let metadata = JavaNodeMetadata::Method {
+            modifiers_sids: vec![],
+            return_type: TypeRef::Raw("void".to_string()),
+            parameters: vec![],
+            is_constructor: false,
+        };
+
+        let node = GraphNode {
+            id: FqnId(3),
+            name: sym(3),
+            kind: NodeKind::Method,
+            lang: sym(4),
+            metadata: Arc::new(metadata),
+            ..GraphNode::default()
+        };
+
+        let display = plugin.render_display_node(&node, &fqns);
+        assert_eq!(display.id, "com.User#setNames");
+        assert_eq!(display.detail.as_deref(), Some("*Defined in `com.User`*"));
     }
 }

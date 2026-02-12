@@ -3,6 +3,31 @@ use naviscope_api::models::PositionContext;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
+fn format_fallback_hover(
+    fqn: &str,
+    intent: Option<naviscope_api::models::SymbolIntent>,
+) -> String {
+    let mut text = String::new();
+    let label = match intent {
+        Some(naviscope_api::models::SymbolIntent::Type) => "Type",
+        Some(naviscope_api::models::SymbolIntent::Method) => "Method",
+        Some(naviscope_api::models::SymbolIntent::Field) => "Field",
+        Some(naviscope_api::models::SymbolIntent::Variable) => "Variable",
+        _ => "Symbol",
+    };
+    text.push_str(&format!("**{}**\n\n", label));
+
+    if let Some((owner, _member)) = fqn.split_once('#') {
+        text.push_str(&format!("Declared in `{}`\n\n", owner));
+    } else if let Some((owner, _name)) = fqn.rsplit_once('.') {
+        text.push_str(&format!("Defined in `{}`\n\n", owner));
+    }
+
+    text.push_str("*Metadata unavailable (symbol may not be indexed yet)*\n\n");
+    text.push_str(&format!("*`{}`*", fqn));
+    text
+}
+
 pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hover>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
@@ -50,10 +75,15 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
             hover_text.push_str("\n\n");
             hover_text.push_str("*Scope: local*");
         }
-        naviscope_api::models::SymbolResolution::Precise(fqn, _)
-        | naviscope_api::models::SymbolResolution::Global(fqn) => {
+        naviscope_api::models::SymbolResolution::Precise(fqn, intent) => {
             // Fetch detailed info for FQN
             if let Ok(Some(info)) = engine.get_symbol_info(&fqn).await {
+                let detail = info.detail;
+                let container_line = detail.or_else(|| {
+                    fqn.split_once('#')
+                        .map(|(owner, _member)| format!("Declared in `{}`", owner))
+                });
+
                 if let Some(sig) = info.signature {
                     let lang_tag = info.lang;
                     hover_text.push_str(&format!("```{}\n{}\n```\n", lang_tag, sig));
@@ -65,19 +95,63 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
                     ));
                 }
 
-                if let Some((owner, _member)) = fqn.split_once('#') {
-                    hover_text.push_str(&format!("Declared in `{}`\n\n", owner));
+                if let Some(container_line) = container_line {
+                    hover_text.push_str(&container_line);
+                    hover_text.push_str("\n\n");
                 }
 
-                if let Some(detail) = info.detail {
-                    hover_text.push_str(&detail);
-                    hover_text.push_str("\n\n");
+                match info.source {
+                    naviscope_api::models::NodeSource::External => {
+                        hover_text.push_str("*Source: external*\n\n");
+                    }
+                    naviscope_api::models::NodeSource::Builtin => {
+                        hover_text.push_str("*Source: builtin*\n\n");
+                    }
+                    naviscope_api::models::NodeSource::Project => {}
                 }
 
                 hover_text.push_str(&format!("*`{}`*", fqn));
             } else {
-                // Fallback to FQN only
-                hover_text.push_str(&format!("**Symbol**\n\n*`{}`*", fqn));
+                hover_text.push_str(&format_fallback_hover(&fqn, Some(intent)));
+            }
+        }
+        naviscope_api::models::SymbolResolution::Global(fqn) => {
+            if let Ok(Some(info)) = engine.get_symbol_info(&fqn).await {
+                let detail = info.detail;
+                let container_line = detail.or_else(|| {
+                    fqn.split_once('#')
+                        .map(|(owner, _member)| format!("Declared in `{}`", owner))
+                });
+
+                if let Some(sig) = info.signature {
+                    let lang_tag = info.lang;
+                    hover_text.push_str(&format!("```{}\n{}\n```\n", lang_tag, sig));
+                } else {
+                    hover_text.push_str(&format!(
+                        "**{}** *{}*\n\n",
+                        info.name,
+                        info.kind.to_string()
+                    ));
+                }
+
+                if let Some(container_line) = container_line {
+                    hover_text.push_str(&container_line);
+                    hover_text.push_str("\n\n");
+                }
+
+                match info.source {
+                    naviscope_api::models::NodeSource::External => {
+                        hover_text.push_str("*Source: external*\n\n");
+                    }
+                    naviscope_api::models::NodeSource::Builtin => {
+                        hover_text.push_str("*Source: builtin*\n\n");
+                    }
+                    naviscope_api::models::NodeSource::Project => {}
+                }
+
+                hover_text.push_str(&format!("*`{}`*", fqn));
+            } else {
+                hover_text.push_str(&format_fallback_hover(&fqn, None));
             }
         }
     }
