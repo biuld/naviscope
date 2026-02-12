@@ -72,12 +72,22 @@ impl NodePresenter for JavaPlugin {
                     let params_str = parameters
                         .iter()
                         .map(|p| {
+                            let param_type = if p.is_varargs {
+                                match &p.type_ref {
+                                    naviscope_api::models::TypeRef::Array { element, .. } => {
+                                        format!("{}...", crate::model::fmt_type(element))
+                                    }
+                                    _ => format!("{}...", crate::model::fmt_type(&p.type_ref)),
+                                }
+                            } else {
+                                crate::model::fmt_type(&p.type_ref)
+                            };
                             format!(
                                 "{}: {}",
                                 fqns.resolve_atom(Symbol(
                                     lasso::Spur::try_from_usize(p.name_sid as usize).unwrap(),
                                 )),
-                                crate::model::fmt_type(&p.type_ref)
+                                param_type
                             )
                         })
                         .collect::<Vec<_>>()
@@ -141,10 +151,20 @@ impl NodePresenter for JavaPlugin {
                     let params_str = parameters
                         .iter()
                         .map(|p| {
+                            let param_type = if p.is_varargs {
+                                match &p.type_ref {
+                                    naviscope_api::models::TypeRef::Array { element, .. } => {
+                                        format!("{}...", crate::model::fmt_type_uninterned(element))
+                                    }
+                                    _ => format!("{}...", crate::model::fmt_type_uninterned(&p.type_ref)),
+                                }
+                            } else {
+                                crate::model::fmt_type_uninterned(&p.type_ref)
+                            };
                             format!(
                                 "{}: {}",
                                 p.name,
-                                crate::model::fmt_type_uninterned(&p.type_ref)
+                                param_type
                             )
                         })
                         .collect::<Vec<_>>()

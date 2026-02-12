@@ -2,7 +2,7 @@ use naviscope_plugin::{
     AssetEntry, AssetIndexer, AssetSource, AssetSourceLocator, GlobalParseResult, IndexNode,
     StubGenerator,
 };
-use ristretto_classfile::{ClassAccessFlags, ClassFile};
+use ristretto_classfile::{ClassAccessFlags, ClassFile, MethodAccessFlags};
 use ristretto_jimage::Image;
 use std::collections::HashSet;
 use std::fs::File;
@@ -290,8 +290,10 @@ impl JavaExternalResolver {
                     .constant_pool
                     .try_get_utf8(method.descriptor_index)
                     .map_err(|e| format!("Failed to parse method descriptor: {e:?}"))?;
-                let (return_type, parameters) = JavaTypeConverter::convert_method(method_descriptor)
-                    .map_err(|e| format!("Failed to parse method signature: {e:?}"))?;
+                let is_varargs = method.access_flags.contains(MethodAccessFlags::VARARGS);
+                let (return_type, parameters) =
+                    JavaTypeConverter::convert_method(method_descriptor, is_varargs)
+                        .map_err(|e| format!("Failed to parse method signature: {e:?}"))?;
                 let modifiers = JavaModifierConverter::parse_method(method.access_flags);
                 let metadata = crate::model::JavaIndexMetadata::Method {
                     modifiers,

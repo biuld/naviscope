@@ -207,13 +207,19 @@ impl JavaParser {
                         .utf8_text(source.as_bytes())
                         .unwrap_or_default()
                         .to_string();
+                    let is_varargs = captures
+                        .iter()
+                        .find(|c| c.index == self.indices.param_match)
+                        .map(|c| c.node.kind() == "spread_parameter")
+                        .unwrap_or(false);
                     if !parameters
                         .iter()
-                        .any(|p| p.name == n && p.type_ref == t_ref)
+                        .any(|p| p.name == n && p.type_ref == t_ref && p.is_varargs == is_varargs)
                     {
                         parameters.push(JavaParameter {
                             type_ref: t_ref,
                             name: n,
+                            is_varargs,
                         });
                     }
                     self.generate_typed_as_edges(t_node, source, &fqn_id, relations);

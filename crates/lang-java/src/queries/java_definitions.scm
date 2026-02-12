@@ -65,6 +65,11 @@
   type: (_) @param_type
   name: (identifier) @param_name) @param_match
 
+(spread_parameter
+  (_unannotated_type) @param_type
+  (variable_declarator
+    name: (identifier) @param_name)) @param_match
+
 ;; Call and Instantiation
 (method_invocation
   name: (identifier) @call_name) @method_call

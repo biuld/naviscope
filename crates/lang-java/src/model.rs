@@ -142,6 +142,7 @@ impl JavaIndexMetadata {
                     .map(|p| JavaParameterStorage {
                         name_sid: ctx.intern_str(&p.name),
                         type_ref: p.type_ref.clone(),
+                        is_varargs: p.is_varargs,
                     })
                     .collect(),
                 is_constructor: *is_constructor,
@@ -168,12 +169,16 @@ impl NodeMetadata for JavaNodeMetadata {
 pub struct JavaParameter {
     pub name: String,
     pub type_ref: TypeRef,
+    #[serde(default)]
+    pub is_varargs: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JavaParameterStorage {
     pub name_sid: u32,
     pub type_ref: TypeRef,
+    #[serde(default)]
+    pub is_varargs: bool,
 }
 
 pub fn fmt_type(t: &TypeRef) -> String {

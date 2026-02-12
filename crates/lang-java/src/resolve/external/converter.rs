@@ -10,6 +10,7 @@ impl JavaTypeConverter {
 
     pub fn convert_method(
         descriptor: &str,
+        is_varargs: bool,
     ) -> Result<(TypeRef, Vec<crate::model::JavaParameter>), ristretto_classfile::Error> {
         let (params, ret) = FieldType::parse_method_descriptor(descriptor)?;
         let return_type = match ret {
@@ -23,6 +24,7 @@ impl JavaTypeConverter {
             .map(|(i, field_type)| crate::model::JavaParameter {
                 name: format!("arg{}", i),
                 type_ref: Self::convert_field(field_type),
+                is_varargs: is_varargs && i == params.len().saturating_sub(1),
             })
             .collect();
 

@@ -816,6 +816,7 @@ fn test_resolve_method_autoboxing_primitive_to_wrapper() {
         parameters: Some(vec![naviscope_java::inference::ParameterInfo {
             name: "value".to_string(),
             type_ref: TypeRef::Id("java.lang.Integer".into()),
+            is_varargs: false,
         }]),
         modifiers: vec![],
         generic_signature: None,
@@ -838,6 +839,7 @@ fn test_resolve_method_unboxing_with_widening() {
         parameters: Some(vec![naviscope_java::inference::ParameterInfo {
             name: "value".to_string(),
             type_ref: TypeRef::Raw("long".into()),
+            is_varargs: false,
         }]),
         modifiers: vec![],
         generic_signature: None,
@@ -861,6 +863,7 @@ fn test_resolve_method_varargs_expanded_arguments() {
             naviscope_java::inference::ParameterInfo {
                 name: "tag".to_string(),
                 type_ref: TypeRef::Id("java.lang.String".into()),
+                is_varargs: false,
             },
             naviscope_java::inference::ParameterInfo {
                 name: "args".to_string(),
@@ -868,6 +871,7 @@ fn test_resolve_method_varargs_expanded_arguments() {
                     element: Box::new(TypeRef::Id("java.lang.String".into())),
                     dimensions: 1,
                 },
+                is_varargs: true,
             },
         ]),
         modifiers: vec![],
@@ -899,6 +903,7 @@ fn test_resolve_method_varargs_array_passthrough() {
             naviscope_java::inference::ParameterInfo {
                 name: "tag".to_string(),
                 type_ref: TypeRef::Id("java.lang.String".into()),
+                is_varargs: false,
             },
             naviscope_java::inference::ParameterInfo {
                 name: "args".to_string(),
@@ -906,6 +911,7 @@ fn test_resolve_method_varargs_array_passthrough() {
                     element: Box::new(TypeRef::Id("java.lang.String".into())),
                     dimensions: 1,
                 },
+                is_varargs: true,
             },
         ]),
         modifiers: vec![],
@@ -923,4 +929,68 @@ fn test_resolve_method_varargs_array_passthrough() {
         ],
     );
     assert!(resolved.is_some());
+}
+
+#[test]
+fn test_resolve_method_varargs_uses_explicit_marker() {
+    let ts = MockTypeSystem::new().add_class("java.lang.String", Some("java.lang.Object"));
+
+    let non_varargs = MemberInfo {
+        name: "log".to_string(),
+        fqn: "Demo#logArray".to_string(),
+        kind: MemberKind::Method,
+        declaring_type: "Demo".to_string(),
+        type_ref: TypeRef::Raw("void".into()),
+        parameters: Some(vec![
+            naviscope_java::inference::ParameterInfo {
+                name: "tag".to_string(),
+                type_ref: TypeRef::Id("java.lang.String".into()),
+                is_varargs: false,
+            },
+            naviscope_java::inference::ParameterInfo {
+                name: "args".to_string(),
+                type_ref: TypeRef::Array {
+                    element: Box::new(TypeRef::Id("java.lang.String".into())),
+                    dimensions: 1,
+                },
+                is_varargs: false,
+            },
+        ]),
+        modifiers: vec![],
+        generic_signature: None,
+    };
+
+    let varargs = MemberInfo {
+        fqn: "Demo#logVarargs".to_string(),
+        ..non_varargs.clone()
+    };
+    let varargs = MemberInfo {
+        parameters: Some(vec![
+            naviscope_java::inference::ParameterInfo {
+                name: "tag".to_string(),
+                type_ref: TypeRef::Id("java.lang.String".into()),
+                is_varargs: false,
+            },
+            naviscope_java::inference::ParameterInfo {
+                name: "args".to_string(),
+                type_ref: TypeRef::Array {
+                    element: Box::new(TypeRef::Id("java.lang.String".into())),
+                    dimensions: 1,
+                },
+                is_varargs: true,
+            },
+        ]),
+        ..varargs
+    };
+
+    let resolved = ts.resolve_method(
+        &[non_varargs, varargs.clone()],
+        &[
+            TypeRef::Id("java.lang.String".into()),
+            TypeRef::Id("java.lang.String".into()),
+            TypeRef::Id("java.lang.String".into()),
+        ],
+    );
+
+    assert_eq!(resolved.map(|m| m.fqn), Some("Demo#logVarargs".to_string()));
 }

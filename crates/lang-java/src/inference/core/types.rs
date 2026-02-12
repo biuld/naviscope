@@ -87,6 +87,8 @@ pub struct ParameterInfo {
     pub name: String,
     /// Parameter type
     pub type_ref: TypeRef,
+    /// True when this parameter is declared with `...` varargs syntax.
+    pub is_varargs: bool,
 }
 
 /// Context for type name resolution

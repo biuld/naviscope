@@ -191,6 +191,10 @@ where
         return false;
     };
 
+    if !is_varargs_parameter(last_param) {
+        return false;
+    }
+
     let TypeRef::Array { element, .. } = &last_param.type_ref else {
         return false;
     };
@@ -223,4 +227,8 @@ where
     arg_types[fixed_count..]
         .iter()
         .all(|a| matches(a, element.as_ref()))
+}
+
+fn is_varargs_parameter(param: &ParameterInfo) -> bool {
+    param.is_varargs
 }

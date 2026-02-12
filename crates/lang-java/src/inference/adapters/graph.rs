@@ -147,6 +147,7 @@ impl<'a> CodeGraphTypeSystem<'a> {
                             .map(|(i, p)| ParameterInfo {
                                 name: format!("arg{}", i), // Cannot resolve SID without interner
                                 type_ref: p.type_ref.clone(),
+                                is_varargs: p.is_varargs,
                             })
                             .collect(),
                     );
@@ -164,6 +165,7 @@ impl<'a> CodeGraphTypeSystem<'a> {
                             .map(|p| ParameterInfo {
                                 name: p.name.clone(),
                                 type_ref: p.type_ref.clone(),
+                                is_varargs: p.is_varargs,
                             })
                             .collect(),
                     );
