@@ -1542,6 +1542,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "naviscope-ingest"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dashmap 6.1.0",
+ "naviscope-api",
+ "rayon",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "naviscope-java"
 version = "0.5.5"
 dependencies = [

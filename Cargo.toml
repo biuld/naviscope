@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/core",
+    "crates/ingest",
     "crates/lang-java",
     "crates/lang-gradle",
     "crates/cli",
@@ -14,6 +15,7 @@ members = [
 
 [workspace.dependencies]
 naviscope-core = { path = "crates/core" }
+naviscope-ingest = { path = "crates/ingest" }
 naviscope-java = { path = "crates/lang-java" }
 naviscope-gradle = { path = "crates/lang-gradle" }
 naviscope-lsp = { path = "crates/lsp" }
