@@ -7,6 +7,7 @@ mod combinator;
 mod field;
 mod lambda;
 
+mod literal;
 mod method;
 mod new_expr;
 mod this;
@@ -16,6 +17,7 @@ mod type_id;
 pub use combinator::{Cached, Map, OrElse};
 pub use field::FieldAccessInfer;
 pub use lambda::LambdaInfer;
+pub use literal::LiteralInfer;
 pub use type_id::TypeIdentifierInfer;
 pub mod local;
 pub use local::LocalVarInfer;
@@ -82,6 +84,7 @@ pub trait InferStrategy: Sync + Send {
 /// This combines all strategies in priority order.
 pub fn build_expression_inferrer() -> impl InferStrategy {
     ThisInfer
+        .or_else(LiteralInfer)
         .or_else(LocalVarInfer)
         .or_else(FieldAccessInfer)
         .or_else(MethodCallInfer)

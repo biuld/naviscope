@@ -48,7 +48,16 @@ impl JavaTypeSystem {
             parse_member_fqn(candidate_fqn),
             parse_member_fqn(target_fqn),
         ) {
-            if c_member == t_member {
+            // Compare: if both are signed, require exact match; otherwise simple-name match
+            let c_has_sig = naviscope_plugin::naming::has_method_signature(c_member);
+            let t_has_sig = naviscope_plugin::naming::has_method_signature(t_member);
+            let names_match = if c_has_sig && t_has_sig {
+                c_member == t_member
+            } else {
+                naviscope_plugin::naming::extract_simple_name(c_member)
+                    == naviscope_plugin::naming::extract_simple_name(t_member)
+            };
+            if names_match {
                 // Member names match, check if classes are related
                 return self.is_subtype(graph, c_type, t_type)
                     || self.is_subtype(graph, t_type, c_type);

@@ -33,6 +33,10 @@ pub fn is_subtype<T: JavaTypeSystem + ?Sized>(sub: &TypeRef, super_type: &TypeRe
 
         // Primitive boxing + reference widening, e.g. int -> Integer / Number / Object
         (TypeRef::Raw(prim), TypeRef::Id(super_id)) => {
+            // Allow relaxed matching for bad parser output (Id("int"))
+            if prim == super_id {
+                return true;
+            }
             if let Some(wrapper) = primitive_to_wrapper(prim) {
                 if wrapper == super_id {
                     return true;
@@ -44,6 +48,9 @@ pub fn is_subtype<T: JavaTypeSystem + ?Sized>(sub: &TypeRef, super_type: &TypeRe
 
         // Wrapper unboxing (+ primitive widening), e.g. Integer -> int / long
         (TypeRef::Id(sub_id), TypeRef::Raw(super_prim)) => {
+            if sub_id == super_prim {
+                return true;
+            }
             if let Some(unboxed) = wrapper_to_primitive(sub_id) {
                 return unboxed == super_prim || is_primitive_subtype(unboxed, super_prim);
             }
@@ -51,7 +58,15 @@ pub fn is_subtype<T: JavaTypeSystem + ?Sized>(sub: &TypeRef, super_type: &TypeRe
         }
 
         // Class/Interface hierarchy
-        (TypeRef::Id(sub_id), TypeRef::Id(super_id)) => is_class_subtype(sub_id, super_id, ts),
+        (TypeRef::Id(sub_id), TypeRef::Id(super_id)) => {
+            if sub_id == super_id {
+                return true;
+            }
+            if sub_id == &format!("java.lang.{}", super_id) {
+                return true;
+            }
+            is_class_subtype(sub_id, super_id, ts)
+        }
 
         // Arrays (Covariant for references)
         (TypeRef::Array { element: e1, .. }, TypeRef::Array { element: e2, .. }) => {

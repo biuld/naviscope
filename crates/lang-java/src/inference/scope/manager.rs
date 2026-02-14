@@ -127,4 +127,18 @@ impl ScopeManager {
     pub fn get_scope_id(&self, node_id: usize) -> Option<ScopeId> {
         self.node_to_scope.get(&node_id).copied()
     }
+
+    /// Get all class FQNs found in this file
+    pub fn get_all_class_fqns(&self) -> Vec<String> {
+        self.scopes
+            .values()
+            .filter_map(|s| {
+                if let ScopeKind::Class(fqn) = &s.kind {
+                    Some(fqn.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }

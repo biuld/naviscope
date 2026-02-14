@@ -110,7 +110,7 @@ fn test_edge_contains() {
     assert_edge(
         &index,
         "com.test.Container",
-        "com.test.Container#method",
+        "com.test.Container#method()",
         EdgeType::Contains,
     );
 }
@@ -155,7 +155,7 @@ fn test_edge_calls() {
     let (index, _) = setup_java_test_graph(files);
 
     // Using FQN in call to ensure resolution works in batch mode
-    assert_reference_scouted(&index, "com.test.Service#helper", "src/Service.java");
+    assert_reference_scouted(&index, "com.test.Service#helper()", "src/Service.java");
 }
 
 #[test]

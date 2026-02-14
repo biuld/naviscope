@@ -75,7 +75,11 @@ pub fn create_inference_context<'a>(
         builder.build(root);
     } // builder dropped, releasing mutable borrow
 
-    // 2. Attach populated scope manager to context
+    // 2. Extract known FQNs
+    let known_fqns = scope_manager.get_all_class_fqns();
+    ctx.known_fqns = known_fqns;
+
+    // 3. Attach populated scope manager to context
     ctx.scope_manager = Some(scope_manager); // Downgrade to shared reference
 
     ctx

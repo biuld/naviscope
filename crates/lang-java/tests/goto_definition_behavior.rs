@@ -1,8 +1,8 @@
 mod common;
 
 use common::{offset_to_point, setup_java_test_graph};
-use naviscope_core::features::CodeGraphLike;
 use naviscope_api::models::SymbolResolution;
+use naviscope_core::features::CodeGraphLike;
 use naviscope_java::JavaPlugin;
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
 
@@ -66,7 +66,7 @@ fn given_cross_file_call_when_goto_definition_then_resolves_precise_method_owner
             &index.topology()[idx],
             Some(&naviscope_java::naming::JavaNamingConvention::default())
         ),
-        "com.A#hello"
+        "com.A#hello()"
     );
 }
 
@@ -163,7 +163,10 @@ fn given_static_field_access_when_goto_definition_then_resolves_declaring_field(
 #[test]
 fn given_overloaded_method_call_chain_when_goto_definition_then_uses_most_specific_overload() {
     let files = vec![
-        ("BaseResult.java", "public class BaseResult { void base() {} }"),
+        (
+            "BaseResult.java",
+            "public class BaseResult { void base() {} }",
+        ),
         (
             "SpecialResult.java",
             "public class SpecialResult extends BaseResult { void special() {} }",
@@ -201,7 +204,7 @@ fn given_overloaded_method_call_chain_when_goto_definition_then_uses_most_specif
             &index.topology()[idx],
             Some(&naviscope_java::naming::JavaNamingConvention::default())
         ),
-        "SpecialResult#special"
+        "SpecialResult#special()"
     );
 }
 
@@ -209,10 +212,7 @@ fn given_overloaded_method_call_chain_when_goto_definition_then_uses_most_specif
 fn given_overloaded_constructor_call_when_goto_definition_then_resolves_constructor_type_symbol() {
     let files = vec![
         ("SpecialArg.java", "public class SpecialArg {}"),
-        (
-            "A.java",
-            "public class A { A() {} A(SpecialArg arg) {} }",
-        ),
+        ("A.java", "public class A { A() {} A(SpecialArg arg) {} }"),
         (
             "Use.java",
             "public class Use { A build() { return new A(new SpecialArg()); } }",
@@ -275,6 +275,6 @@ fn given_same_class_different_arity_overloads_when_goto_definition_then_resolves
             &index.topology()[idx],
             Some(&naviscope_java::naming::JavaNamingConvention::default())
         ),
-        "A#target"
+        "A#target(int,int)"
     );
 }

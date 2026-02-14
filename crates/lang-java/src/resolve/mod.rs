@@ -71,10 +71,18 @@ impl JavaPlugin {
             if parent.child_by_field_name("name") == Some(context.node) {
                 match parent.kind() {
                     "method_declaration" | "constructor_declaration" => {
-                        // Build method FQN using canonical member separator
+                        // Build signature-based method FQN
                         if let Some(ref enclosing) = infer_ctx.enclosing_class {
+                            let param_types: Vec<TypeRef> = self
+                                .parser
+                                .extract_method_parameters(parent, context.source)
+                                .into_iter()
+                                .map(|p| p.type_ref)
+                                .collect();
+                            let signed_name =
+                                crate::naming::build_java_method_name(&context.name, &param_types);
                             let method_fqn =
-                                crate::naming::build_member_fqn(enclosing, &context.name);
+                                crate::naming::build_member_fqn(enclosing, &signed_name);
                             return Some(SymbolResolution::Precise(
                                 method_fqn,
                                 naviscope_api::models::SymbolIntent::Method,

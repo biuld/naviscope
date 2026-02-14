@@ -111,7 +111,9 @@ pub trait JavaTypeSystem: TypeProvider + InheritanceProvider + MemberProvider {
 
         // 2. Subtype match (widening)
         let subtype_fixed = collect_matching_candidates(candidates, |params| {
-            matches_fixed_arity(params, arg_types, |arg, expected| self.is_subtype(arg, expected))
+            matches_fixed_arity(params, arg_types, |arg, expected| {
+                self.is_subtype(arg, expected)
+            })
         });
         if !subtype_fixed.is_empty() {
             return select_most_specific(self, subtype_fixed, arg_types);
@@ -135,9 +137,9 @@ pub trait JavaTypeSystem: TypeProvider + InheritanceProvider + MemberProvider {
             return select_most_specific(self, subtype_varargs, arg_types);
         }
 
-        // Fallback to first if no parameters expected or provided
-        // (Helpful for field access or methods we couldn't match precisely)
-        candidates.first().cloned()
+        // Strict mode: if no overload matches exactly or via subtype,
+        // we return None. No fallback to arbitrary candidate.
+        None
     }
 
     /// Check if sub is a subtype of super_type.

@@ -1,9 +1,9 @@
 mod common;
 
 use common::{offset_to_point, setup_java_test_graph};
+use naviscope_api::models::SymbolResolution;
 use naviscope_core::features::CodeGraphLike;
 use naviscope_core::features::discovery::DiscoveryEngine;
-use naviscope_api::models::SymbolResolution;
 use naviscope_java::JavaPlugin;
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
 
@@ -65,7 +65,7 @@ fn given_leaf_method_when_find_incoming_callers_then_returns_direct_callers_only
     }
 
     callers.sort();
-    assert_eq!(callers, vec!["Test#c1", "Test#c2"]);
+    assert_eq!(callers, vec!["Test#c1()", "Test#c2()"]);
 }
 
 #[test]
@@ -87,8 +87,13 @@ fn given_root_method_when_find_outgoing_calls_then_returns_direct_callees() {
         .expect("resolve root");
 
     let target_fqn = resolver.find_matches(&index, &resolution)[0];
-    let target_idx = *index.fqn_map().get(&target_fqn).expect("target node exists");
-    let container_range = index.topology()[target_idx].range().expect("container range");
+    let target_idx = *index
+        .fqn_map()
+        .get(&target_fqn)
+        .expect("target node exists");
+    let container_range = index.topology()[target_idx]
+        .range()
+        .expect("container range");
 
     let mut callees = Vec::new();
     let mut stack = vec![tree.root_node()];
@@ -117,7 +122,7 @@ fn given_root_method_when_find_outgoing_calls_then_returns_direct_callees() {
 
             if let Some(fqn) = maybe_fqn
                 && fqn.contains('#')
-                && fqn != "Test#root"
+                && fqn != "Test#root()"
                 && !callees.contains(&fqn)
             {
                 callees.push(fqn);
@@ -131,7 +136,7 @@ fn given_root_method_when_find_outgoing_calls_then_returns_direct_callees() {
     }
 
     callees.sort();
-    assert_eq!(callees, vec!["Test#step1", "Test#step2"]);
+    assert_eq!(callees, vec!["Test#step1()", "Test#step2()"]);
 }
 
 #[test]
@@ -150,7 +155,10 @@ fn given_recursive_method_when_find_incoming_callers_then_includes_self_call() {
         .expect("resolve rec");
 
     let target_fqn = resolver.find_matches(&index, &resolution)[0];
-    let target_idx = *index.fqn_map().get(&target_fqn).expect("target node exists");
+    let target_idx = *index
+        .fqn_map()
+        .get(&target_fqn)
+        .expect("target node exists");
 
     let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());
     let abs_path = std::env::current_dir().expect("cwd").join("Test.java");
@@ -188,5 +196,5 @@ fn given_recursive_method_when_find_incoming_callers_then_includes_self_call() {
         }
     }
 
-    assert!(callers.contains(&"Test#rec".to_string()));
+    assert!(callers.contains(&"Test#rec()".to_string()));
 }

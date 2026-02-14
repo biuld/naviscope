@@ -60,7 +60,10 @@ fn given_same_method_name_different_owner_when_find_references_then_only_target_
     let use_call_start = offset_to_point(use_content, use_call_pos);
 
     assert_eq!(starts_set(&a_ranges), BTreeSet::from([a_decl_start]));
-    assert!(b_ranges.is_empty(), "B.java should not be polluted by same-name method");
+    assert!(
+        b_ranges.is_empty(),
+        "B.java should not be polluted by same-name method"
+    );
     assert_eq!(starts_set(&use_ranges), BTreeSet::from([use_call_start]));
 }
 
@@ -91,7 +94,10 @@ fn given_local_shadowing_when_find_references_then_only_same_binding_hits() {
         offset_to_point(content, decl_pos),
         offset_to_point(content, assign_pos),
     ]);
-    assert_eq!(starts, expected, "local x should only match declaration + assignment");
+    assert_eq!(
+        starts, expected,
+        "local x should only match declaration + assignment"
+    );
 
     let matches = resolver.find_matches(&index, &resolution);
     assert!(
@@ -138,7 +144,7 @@ fn given_method_symbol_when_scouting_references_then_candidate_files_cover_call_
 }
 
 #[test]
-fn given_overloaded_methods_same_owner_when_find_references_then_matches_all_name_level_overloads() {
+fn given_overloaded_methods_same_owner_when_find_references_then_matches_only_exact_overload() {
     let files = vec![
         (
             "A.java",
@@ -155,7 +161,10 @@ fn given_overloaded_methods_same_owner_when_find_references_then_matches_all_nam
 
     let a_content = &trees[0].1;
     let a_tree = &trees[0].2;
-    let target_pos = a_content.find("target(int").expect("find overloaded declaration");
+    // Find target(int) declaration
+    let target_pos = a_content
+        .find("target(int")
+        .expect("find overloaded declaration");
     let (line, col) = offset_to_point(a_content, target_pos);
 
     let resolution = resolver
@@ -166,31 +175,74 @@ fn given_overloaded_methods_same_owner_when_find_references_then_matches_all_nam
     let use_ranges = find_ranges_for_path(&resolver, &index, &trees, &resolution, "Use.java");
 
     let a_decl_int = a_content.find("target(int n)").expect("find target(int)");
-    let a_decl_str = a_content
-        .find("target(String s)")
-        .expect("find target(String)");
+    // We expect strict matching, so target(String) should NOT be included.
+
     let use_content = &trees[1].1;
     let use_call_int = use_content.find("a.target(1)").expect("find call int") + 2;
-    let use_call_str = use_content.find("a.target(\"x\")").expect("find call str") + 2;
+    // target("x") refers to target(String), so it should NOT be included.
 
     assert_eq!(
         starts_set(&a_ranges),
-        BTreeSet::from([
-            offset_to_point(a_content, a_decl_int),
-            offset_to_point(a_content, a_decl_str),
-        ])
+        BTreeSet::from([offset_to_point(a_content, a_decl_int),]),
+        "Should only match the exact overload declaration in A.java"
     );
     assert_eq!(
         starts_set(&use_ranges),
-        BTreeSet::from([
-            offset_to_point(use_content, use_call_int),
-            offset_to_point(use_content, use_call_str),
-        ])
+        BTreeSet::from([offset_to_point(use_content, use_call_int),]),
+        "Should only match the exact overload usage in Use.java"
     );
 }
 
 #[test]
-fn given_same_class_different_arity_overloads_when_find_references_then_collects_decls_and_calls() {
+fn given_signed_method_with_fqn_param_when_find_references_then_matches_exact_overload() {
+    let files = vec![
+        (
+            "A.java",
+            "public class A { void target(java.lang.String s) {} void target(int n) {} }",
+        ),
+        (
+            "Use.java",
+            "public class Use { void run(A a) { a.target(\"x\"); a.target(1); } }",
+        ),
+    ];
+
+    let (index, trees) = setup_java_test_graph(files);
+    let resolver = JavaPlugin::new().expect("Failed to create JavaPlugin");
+
+    let a_content = &trees[0].1;
+    let a_tree = &trees[0].2;
+    let target_pos = a_content
+        .find("target(java.lang.String")
+        .expect("find target(String) declaration");
+    let (line, col) = offset_to_point(a_content, target_pos);
+
+    let resolution = resolver
+        .resolve_at(a_tree, a_content, line, col, &index)
+        .expect("resolve target(java.lang.String)");
+
+    let a_ranges = find_ranges_for_path(&resolver, &index, &trees, &resolution, "A.java");
+    let use_ranges = find_ranges_for_path(&resolver, &index, &trees, &resolution, "Use.java");
+
+    let a_decl_string = a_content
+        .find("target(java.lang.String s)")
+        .expect("find target(java.lang.String)");
+    let use_content = &trees[1].1;
+    let use_call_string = use_content.find("a.target(\"x\")").expect("find call string") + 2;
+
+    assert_eq!(
+        starts_set(&a_ranges),
+        BTreeSet::from([offset_to_point(a_content, a_decl_string)]),
+        "Should match only target(java.lang.String) declaration"
+    );
+    assert_eq!(
+        starts_set(&use_ranges),
+        BTreeSet::from([offset_to_point(use_content, use_call_string)]),
+        "Should match only target(\"x\") call site"
+    );
+}
+
+#[test]
+fn given_same_class_different_arity_overloads_when_find_references_then_matches_exact_arity() {
     let files = vec![(
         "A.java",
         "public class A { void target() { target(1); target(1, 2); } void target(int a) {} void target(int a, int b) {} }",
@@ -201,7 +253,10 @@ fn given_same_class_different_arity_overloads_when_find_references_then_collects
 
     let content = &trees[0].1;
     let tree = &trees[0].2;
-    let pos = content.find("target()").expect("find zero-arity declaration");
+    // Find target() declaration
+    let pos = content
+        .find("target()")
+        .expect("find zero-arity declaration");
     let (line, col) = offset_to_point(content, pos);
 
     let resolution = resolver
@@ -212,19 +267,14 @@ fn given_same_class_different_arity_overloads_when_find_references_then_collects
     let starts = starts_set(&ranges);
 
     let decl_zero = content.find("target() {").expect("find target()");
-    let call_one = content.find("target(1);").expect("find target(1)");
-    let call_two = content.find("target(1, 2);").expect("find target(1,2)");
-    let decl_one = content.find("target(int a)").expect("find target(int)");
-    let decl_two = content
-        .find("target(int a, int b)")
-        .expect("find target(int,int)");
 
-    let expected = BTreeSet::from([
-        offset_to_point(content, decl_zero),
-        offset_to_point(content, call_one),
-        offset_to_point(content, call_two),
-        offset_to_point(content, decl_one),
-        offset_to_point(content, decl_two),
-    ]);
-    assert_eq!(starts, expected);
+    // target(1) calls target(int), target(1,2) calls target(int,int).
+    // querying target() should NOT include them.
+    // And target(int) / target(int,int) declarations are distinct.
+
+    let expected = BTreeSet::from([offset_to_point(content, decl_zero)]);
+    assert_eq!(
+        starts, expected,
+        "Should strictly match only zero-arity target()"
+    );
 }

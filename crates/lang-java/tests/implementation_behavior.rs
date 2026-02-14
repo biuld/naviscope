@@ -80,6 +80,6 @@ fn given_interface_method_when_goto_implementation_then_returns_method_override(
             &index.topology()[idx],
             Some(&naviscope_java::naming::JavaNamingConvention)
         ),
-        "Impl#act"
+        "Impl#act()"
     );
 }

@@ -17,6 +17,6 @@ pub use core::*;
 pub use graph::*;
 pub use indexing::*;
 pub use model::*;
-pub use naming::{NamingConvention, StandardNamingConvention};
+pub use naming::{MethodSignature, NamingConvention, StandardNamingConvention};
 pub use registration::*;
 pub use typing::*;

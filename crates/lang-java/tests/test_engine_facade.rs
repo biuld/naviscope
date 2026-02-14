@@ -64,8 +64,8 @@ public class App {
         .expect("Should resolve b.run()");
 
     match &resolution {
-        SymbolResolution::Precise(fqn, _) => assert_eq!(fqn, "com.example.Base#run"),
-        SymbolResolution::Global(fqn) => assert_eq!(fqn, "com.example.Base#run"),
+        SymbolResolution::Precise(fqn, _) => assert_eq!(fqn, "com.example.Base#run()"),
+        SymbolResolution::Global(fqn) => assert_eq!(fqn, "com.example.Base#run()"),
         _ => panic!(
             "Expected precise or global resolution, got {:?}",
             resolution
@@ -81,7 +81,7 @@ public class App {
     assert!(impls[0].path.to_string_lossy().contains("Impl.java"));
 
     let calls = handle
-        .find_incoming_calls("com.example.Impl#run")
+        .find_incoming_calls("com.example.Impl#run()")
         .await
         .unwrap();
     assert_eq!(
@@ -90,7 +90,10 @@ public class App {
         "Lookup of Impl#run should find the call via Base type"
     );
 
-    let incoming_base = handle.find_incoming_calls("com.example.Base#run").await.unwrap();
+    let incoming_base = handle
+        .find_incoming_calls("com.example.Base#run()")
+        .await
+        .unwrap();
 
     let query_refs = ReferenceQuery {
         language: naviscope_api::models::Language::JAVA,
@@ -109,7 +112,7 @@ public class App {
         1,
         "find_incoming_calls should have found 1 caller in App.java"
     );
-    assert_eq!(incoming_base[0].from.id, "com.example.App#start");
+    assert_eq!(incoming_base[0].from.id, "com.example.App#start()");
 }
 
 #[tokio::test]
@@ -310,7 +313,11 @@ public class Use {
         .await
         .unwrap();
 
-    assert_eq!(refs.len(), 1, "Base#ping should only match Base.ping() usage");
+    assert_eq!(
+        refs.len(),
+        1,
+        "Base#ping should only match Base.ping() usage"
+    );
     assert!(refs[0].path.to_string_lossy().contains("Use.java"));
 
     let use_content = std::fs::read_to_string(temp_dir.join("com/example/Use.java")).unwrap();
@@ -367,9 +374,14 @@ async fn test_find_references_same_class_overloads_different_arity_via_engine_fa
         .await
         .unwrap();
 
-    assert_eq!(refs.len(), 5, "expected declarations + call sites for same-name overloads");
+    assert_eq!(
+        refs.len(),
+        1,
+        "expected strict resolution to match ONLY exact overload decl (target() is never called)"
+    );
     assert!(
-        refs.iter().all(|r| r.path.to_string_lossy().contains("com/example/A.java")),
+        refs.iter()
+            .all(|r| r.path.to_string_lossy().contains("com/example/A.java")),
         "all references should stay in A.java for this scenario"
     );
 
@@ -377,16 +389,10 @@ async fn test_find_references_same_class_overloads_different_arity_via_engine_fa
         .iter()
         .map(|r| (r.range.start_line, r.range.start_col))
         .collect();
-    let expected: BTreeSet<(usize, usize)> = [
-        content.find("target() {").unwrap(),
-        content.find("target(1);").unwrap(),
-        content.find("target(1, 2);").unwrap(),
-        content.find("target(int a) {}").unwrap(),
-        content.find("target(int a, int b) {}").unwrap(),
-    ]
-    .into_iter()
-    .map(|offset| offset_to_point(&content, offset))
-    .collect();
+    let expected: BTreeSet<(usize, usize)> = [content.find("target() {").unwrap()]
+        .into_iter()
+        .map(|offset| offset_to_point(&content, offset))
+        .collect();
     assert_eq!(starts, expected);
 }
 
@@ -427,7 +433,7 @@ async fn test_resolve_method_declaration_name_and_symbol_info_for_overload_hover
         SymbolResolution::Precise(fqn, _) | SymbolResolution::Global(fqn) => fqn,
         SymbolResolution::Local(_, _) => panic!("method declaration should not resolve as local"),
     };
-    assert_eq!(fqn, "com.example.A#target");
+    assert_eq!(fqn, "com.example.A#target(int)");
 
     let info = handle
         .get_symbol_info(&fqn)

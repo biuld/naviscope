@@ -4,14 +4,14 @@
 use naviscope_api::models::TypeRef;
 use std::collections::HashMap;
 
-use naviscope_java::inference::{create_inference_context, infer_expression};
 use naviscope_java::inference::JavaTypeSystem;
+use naviscope_java::inference::core::types::TypeParameter;
+use naviscope_java::inference::scope::ScopeManager;
 use naviscope_java::inference::{InheritanceProvider, MemberProvider, TypeProvider};
 use naviscope_java::inference::{
     MemberInfo, MemberKind, TypeInfo, TypeKind, TypeResolutionContext,
 };
-use naviscope_java::inference::core::types::TypeParameter;
-use naviscope_java::inference::scope::ScopeManager;
+use naviscope_java::inference::{create_inference_context, infer_expression};
 use naviscope_java::parser::JavaParser;
 
 /// A mock type system for testing.
@@ -99,11 +99,7 @@ impl MockTypeSystem {
     }
 
     /// Add an interface with generic type parameters.
-    pub fn add_interface_with_type_params(
-        mut self,
-        fqn: &str,
-        type_parameters: Vec<&str>,
-    ) -> Self {
+    pub fn add_interface_with_type_params(mut self, fqn: &str, type_parameters: Vec<&str>) -> Self {
         self.types.insert(
             fqn.to_string(),
             TypeInfo {
@@ -151,6 +147,43 @@ impl MockTypeSystem {
             declaring_type: class_fqn.to_string(),
             type_ref: return_type,
             parameters: Some(vec![]),
+            modifiers: vec![],
+            generic_signature: None,
+        };
+
+        self.members
+            .entry(class_fqn.to_string())
+            .or_default()
+            .push(member);
+
+        self
+    }
+
+    /// Add a method with parameters to a class.
+    pub fn add_method_with_params(
+        mut self,
+        class_fqn: &str,
+        name: &str,
+        return_type: TypeRef,
+        param_types: Vec<TypeRef>,
+    ) -> Self {
+        let parameters: Vec<_> = param_types
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| naviscope_java::inference::ParameterInfo {
+                name: format!("arg{}", i),
+                type_ref: t,
+                is_varargs: false,
+            })
+            .collect();
+
+        let member = MemberInfo {
+            name: name.to_string(),
+            fqn: format!("{}#{}", class_fqn, name),
+            kind: MemberKind::Method,
+            declaring_type: class_fqn.to_string(),
+            type_ref: return_type,
+            parameters: Some(parameters),
             modifiers: vec![],
             generic_signature: None,
         };
@@ -665,7 +698,12 @@ class Demo {
         .add_class("java.lang.String", None)
         .add_class("java.lang.Object", None)
         .add_interface_with_type_params("java.util.List", vec!["E"])
-        .add_method("java.util.List", "get", TypeRef::Id("E".into()));
+        .add_method_with_params(
+            "java.util.List",
+            "get",
+            TypeRef::Id("E".into()),
+            vec![TypeRef::Raw("int".into())],
+        );
 
     let mut scope_manager = ScopeManager::new();
     let ctx = create_inference_context(
@@ -703,7 +741,12 @@ class Demo {
         .add_class("java.lang.String", None)
         .add_class("java.lang.Integer", None)
         .add_interface_with_type_params("java.util.Map", vec!["K", "V"])
-        .add_method("java.util.Map", "get", TypeRef::Id("V".into()));
+        .add_method_with_params(
+            "java.util.Map",
+            "get",
+            TypeRef::Id("V".into()),
+            vec![TypeRef::Id("java.lang.Object".into())],
+        );
 
     let mut scope_manager = ScopeManager::new();
     let ctx = create_inference_context(
@@ -781,7 +824,12 @@ class Demo {
         .add_class("java.lang.Integer", None)
         .add_interface_with_type_params("java.util.List", vec!["E"])
         .add_interface_with_type_params("java.util.Map", vec!["K", "V"])
-        .add_method("java.util.Map", "get", TypeRef::Id("V".into()));
+        .add_method_with_params(
+            "java.util.Map",
+            "get",
+            TypeRef::Id("V".into()),
+            vec![TypeRef::Id("java.lang.Object".into())],
+        );
 
     let mut scope_manager = ScopeManager::new();
     let ctx = create_inference_context(

@@ -159,6 +159,17 @@ impl JavaParser {
             },
             KIND_LABEL_ANNOTATION => JavaIndexMetadata::Annotation { modifiers: vec![] },
             KIND_LABEL_METHOD | KIND_LABEL_CONSTRUCTOR => {
+                let def_idx = if kind == KIND_LABEL_METHOD {
+                    self.indices.method_def
+                } else {
+                    self.indices.constr_def
+                };
+                let anchor_node = captures
+                    .iter()
+                    .find(|c| c.index == def_idx)
+                    .map(|c| c.node)
+                    .expect("Method definition node must exist");
+
                 let mut return_type = TypeRef::raw("void");
                 if let Some(ret_node) = captures
                     .iter()
@@ -170,7 +181,7 @@ impl JavaParser {
                 }
                 JavaIndexMetadata::Method {
                     return_type,
-                    parameters: vec![],
+                    parameters: self.extract_method_parameters(anchor_node, source),
                     modifiers: vec![],
                     is_constructor: kind == KIND_LABEL_CONSTRUCTOR,
                 }

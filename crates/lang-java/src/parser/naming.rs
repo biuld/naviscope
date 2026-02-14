@@ -101,7 +101,29 @@ impl JavaParser {
             }
             _ => kind,
         };
-        parts.push((id_kind, self_name));
+
+        // For methods and constructors, produce a signature-based name like
+        // `target(int,java.lang.String)` so that overloaded methods get
+        // distinct FQN IDs in the graph.
+        let id_name = match id_kind {
+            naviscope_api::models::graph::NodeKind::Method
+            | naviscope_api::models::graph::NodeKind::Constructor => {
+                if let Some(decl_node) = name_node.parent() {
+                    let param_types = self
+                        .extract_method_parameters(decl_node, source)
+                        .into_iter()
+                        .map(|p| p.type_ref)
+                        .collect::<Vec<_>>();
+                    crate::naming::build_java_method_name(&self_name, &param_types)
+                } else {
+                    // Fallback: no parent available, use bare name with empty params
+                    crate::naming::format_method_name(&self_name, &[])
+                }
+            }
+            _ => self_name,
+        };
+
+        parts.push((id_kind, id_name));
 
         naviscope_api::models::symbol::NodeId::Structured(parts)
     }

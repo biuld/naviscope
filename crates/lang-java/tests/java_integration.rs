@@ -50,7 +50,7 @@ fn test_cross_file_resolution() {
     let res = resolver.resolve_at(b_tree, b_content, 0, hello_pos, &index);
     assert!(res.is_some(), "Failed to resolve 'hello' at {}", hello_pos);
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.example.A#hello");
+        assert_eq!(fqn, "com.example.A#hello()");
     } else {
         panic!(
             "Expected precise resolution to com.example.A.hello, got {:?}",
@@ -168,7 +168,7 @@ fn test_chained_calls_resolution() {
     let res = resolver.resolve_at(main_tree, main_content, 0, get_c_pos, &index);
     assert!(res.is_some(), "Failed to resolve 'getC' at {}", get_c_pos);
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.chain.B#getC");
+        assert_eq!(fqn, "com.chain.B#getC()");
     } else {
         panic!(
             "Expected precise resolution to com.chain.B.getC, got {:?}",
@@ -187,7 +187,7 @@ fn test_chained_calls_resolution() {
         execute_pos
     );
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.chain.C#execute");
+        assert_eq!(fqn, "com.chain.C#execute()");
     } else {
         panic!(
             "Expected precise resolution to com.chain.C.execute, got {:?}",
@@ -237,7 +237,7 @@ public class Main {
     );
 
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.web.HttpResponse#getContext");
+        assert_eq!(fqn, "com.web.HttpResponse#getContext()");
     } else {
         panic!(
             "Expected precise resolution to com.web.HttpResponse#getContext, got {:?}",
@@ -309,7 +309,7 @@ fn test_lambda_explicit_type_resolution() {
         hello_pos
     );
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.A#hello");
+        assert_eq!(fqn, "com.A#hello()");
     } else {
         panic!("Expected precise resolution for it.hello(), got {:?}", res);
     }
@@ -344,7 +344,7 @@ fn test_lambda_heuristic_type_inference() {
         hello_pos
     );
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "com.A#hello");
+        assert_eq!(fqn, "com.A#hello()");
     } else {
         panic!(
             "Expected precise resolution for it.hello() via heuristic, got {:?}",
@@ -468,7 +468,7 @@ public class DefaultApplicationArguments {
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(
             fqn,
-            "org.springframework.boot.DefaultApplicationArguments.Source#getNonOptionArgs"
+            "org.springframework.boot.DefaultApplicationArguments.Source#getNonOptionArgs()"
         );
     } else {
         println!("Graph nodes:");
@@ -515,7 +515,7 @@ fn test_field_method_call_resolution() {
         col
     );
     if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
-        assert_eq!(fqn, "B#doB");
+        assert_eq!(fqn, "B#doB()");
     } else {
         panic!("Expected precise resolution to B.doB, got {:?}", res);
     }

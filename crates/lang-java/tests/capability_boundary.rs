@@ -29,7 +29,7 @@ fn cap_structural_nesting() {
     assert!(index.find_node("com.example").is_some());
     assert!(index.find_node("com.example.MyClass").is_some());
     assert!(index.find_node("com.example.MyClass#field").is_some());
-    assert!(index.find_node("com.example.MyClass#method").is_some());
+    assert!(index.find_node("com.example.MyClass#method()").is_some());
 
     // Assert nesting via 'Contains' edges
     let class_idx = index.find_node("com.example.MyClass").unwrap();
@@ -38,7 +38,7 @@ fn cap_structural_nesting() {
     assert!(index.topology().contains_edge(pkg_idx, class_idx));
 
     let field_idx = index.find_node("com.example.MyClass#field").unwrap();
-    let method_idx = index.find_node("com.example.MyClass#method").unwrap();
+    let method_idx = index.find_node("com.example.MyClass#method()").unwrap();
     assert!(index.topology().contains_edge(class_idx, field_idx));
     assert!(index.topology().contains_edge(class_idx, method_idx));
 }
@@ -148,7 +148,7 @@ fn cap_method_call_tracking() {
     ];
     let (index, _) = setup_java_test_graph(files);
 
-    let a_target_idx = index.find_node("A#target").unwrap();
+    let a_target_idx = index.find_node("A#target()").unwrap();
 
     // Check DiscoveryEngine "Scouting" (uses Reference Index)
     let discovery = DiscoveryEngine::new(&index, std::collections::HashMap::new());

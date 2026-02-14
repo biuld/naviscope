@@ -1,9 +1,9 @@
 //! Method invocation inference.
 
 use super::{InferStrategy, infer_expression};
-use crate::inference::core::unification::Substitution;
 use crate::inference::InferContext;
 use crate::inference::TypeRefExt;
+use crate::inference::core::unification::Substitution;
 use naviscope_api::models::TypeRef;
 use tree_sitter::Node;
 
@@ -61,7 +61,12 @@ impl MethodCallInfer {
         };
 
         // Get the FQN from the receiver type
-        let type_fqn = receiver_type.as_fqn()?;
+        let raw_fqn = receiver_type.as_fqn()?;
+        let resolution_ctx = ctx.to_resolution_context();
+        let type_fqn = ctx
+            .ts
+            .resolve_type_name(&raw_fqn, &resolution_ctx)
+            .unwrap_or(raw_fqn);
 
         // Get argument types
         let mut arg_types = Vec::new();

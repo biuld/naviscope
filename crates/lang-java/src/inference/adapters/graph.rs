@@ -2,19 +2,17 @@
 //!
 //! Adapts the CodeGraph to the JavaTypeSystem trait.
 
+use lasso::Key;
 use naviscope_api::models::TypeRef;
 use naviscope_api::models::graph::{EdgeType, NodeKind, NodeMetadata};
 use naviscope_api::models::symbol::{FqnId, Symbol};
 use naviscope_plugin::{CodeGraph, Direction};
-use lasso::Key;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::inference::{InheritanceProvider, MemberProvider, TypeProvider};
-use crate::inference::{
-    MemberInfo, MemberKind, TypeInfo, TypeKind, TypeResolutionContext,
-};
 use crate::inference::core::types::TypeParameter;
+use crate::inference::{InheritanceProvider, MemberProvider, TypeProvider};
+use crate::inference::{MemberInfo, MemberKind, TypeInfo, TypeKind, TypeResolutionContext};
 use crate::model::{JavaIndexMetadata, JavaNodeMetadata};
 
 /// Adapter that implements JavaTypeSystem using CodeGraph.
@@ -214,6 +212,15 @@ impl<'a> TypeProvider for CodeGraphTypeSystem<'a> {
     }
 
     fn resolve_type_name(&self, simple_name: &str, ctx: &TypeResolutionContext) -> Option<String> {
+        // 0. Check known FQNs (Current file types)
+        for fqn in &ctx.known_fqns {
+            if fqn.ends_with(&format!(".{}", simple_name))
+                || fqn.ends_with(&format!("#{}", simple_name))
+            {
+                return Some(fqn.clone());
+            }
+        }
+
         // 1. Check explicit imports
         for imp in &ctx.imports {
             if imp.ends_with(&format!(".{}", simple_name)) {
@@ -340,13 +347,26 @@ impl<'a> InheritanceProvider for CodeGraphTypeSystem<'a> {
 
 impl<'a> MemberProvider for CodeGraphTypeSystem<'a> {
     fn get_members(&self, type_fqn: &str, member_name: &str) -> Vec<MemberInfo> {
-        // Use unified member FQN format
-        let member_fqn = crate::naming::build_member_fqn(type_fqn, member_name);
-        let node_ids = self.graph.resolve_fqn(&member_fqn);
+        // With signature-based FQNs, methods are stored as e.g. `A#target(int)`.
+        // We can't construct the full member FQN from just the simple name, so
+        // we traverse the type's children and match by simple name.
+        // Normalize: callers may pass either `leaf` or `leaf()` as the member name.
+        let needle = crate::naming::extract_simple_name(member_name);
+        let node_ids = self.graph.resolve_fqn(type_fqn);
         let mut members = Vec::new();
 
-        for &node_id in &node_ids {
-            if let Some(node) = self.graph.get_node(node_id) {
+        for &type_node_id in &node_ids {
+            let children = self.graph.get_neighbors(
+                type_node_id,
+                Direction::Outgoing,
+                Some(EdgeType::Contains),
+            );
+
+            for child_id in children {
+                let Some(node) = self.graph.get_node(child_id) else {
+                    continue;
+                };
+
                 let kind = match &node.kind {
                     NodeKind::Method => MemberKind::Method,
                     NodeKind::Field => MemberKind::Field,
@@ -354,11 +374,21 @@ impl<'a> MemberProvider for CodeGraphTypeSystem<'a> {
                     _ => continue,
                 };
 
+                let child_fqn = self.render_fqn_id(child_id);
+                // Extract the member part (after `#`) and strip signature to compare
+                let raw_member = crate::naming::extract_member_name(&child_fqn)
+                    .unwrap_or_else(|| self.graph.fqns().resolve_atom(node.name));
+                let simple = crate::naming::extract_simple_name(raw_member);
+
+                if simple != needle {
+                    continue;
+                }
+
                 let type_ref = self.extract_type_from_metadata(&node.metadata);
 
                 members.push(MemberInfo {
-                    name: member_name.to_string(),
-                    fqn: member_fqn.clone(),
+                    name: raw_member.to_string(),
+                    fqn: child_fqn,
                     kind,
                     declaring_type: type_fqn.to_string(),
                     type_ref,
