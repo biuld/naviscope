@@ -9,8 +9,8 @@ use naviscope_plugin::{
     AssetCap, CodecContext, FileMatcherCap, GlobalParseResult, LanguageCaps, LanguageParseCap,
     LspSyntaxService, MetadataCodecCap, NamingConvention, NodeMetadataCodec, NodePresenter,
     ParsedContent, ParsedFile, PresentationCap, ProjectContext, ReferenceCheckService,
-    ResolvedUnit, SemanticCap, SourceIndexCap, StandardNamingConvention, SymbolQueryService,
-    SymbolResolveService,
+    ResolvedUnit, SemanticCap, SourceAnalyzeArtifact, SourceCollectArtifact, SourceIndexCap,
+    StandardNamingConvention, SymbolQueryService, SymbolResolveService,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -19,6 +19,19 @@ use tree_sitter::Tree;
 
 #[derive(Clone)]
 struct MockCap;
+
+struct MockCollected {
+    file: ParsedFile,
+    type_symbols: Vec<String>,
+    method_symbols: Vec<String>,
+    provided_symbols: Vec<String>,
+    required_symbols: Vec<String>,
+}
+
+struct MockAnalyzed {
+    file: ParsedFile,
+    identifiers: Vec<String>,
+}
 
 impl FileMatcherCap for MockCap {
     fn supports_path(&self, path: &Path) -> bool {
@@ -47,20 +60,53 @@ impl LanguageParseCap for MockCap {
 }
 
 impl SourceIndexCap for MockCap {
-    fn compile_source(
+    fn collect_source(
         &self,
         file: &ParsedFile,
         _context: &ProjectContext,
-    ) -> Result<ResolvedUnit, naviscope_plugin::BoxError> {
-        let mut unit = ResolvedUnit::new();
-        let identifiers = match &file.content {
+    ) -> Result<Box<dyn SourceCollectArtifact>, naviscope_plugin::BoxError> {
+        Ok(Box::new(MockCollected {
+            file: file.clone(),
+            type_symbols: vec!["test::Symbol".to_string()],
+            method_symbols: vec!["test::Symbol#method()".to_string()],
+            provided_symbols: vec!["test::Symbol".to_string()],
+            required_symbols: vec![],
+        }))
+    }
+
+    fn analyze_source(
+        &self,
+        collected: Box<dyn SourceCollectArtifact>,
+        _context: &ProjectContext,
+    ) -> Result<Box<dyn SourceAnalyzeArtifact>, naviscope_plugin::BoxError> {
+        let collected = collected
+            .into_any()
+            .downcast::<MockCollected>()
+            .map_err(|_| "invalid mock collected artifact")?;
+        let identifiers = match &collected.file.content {
             ParsedContent::Language(res) => res.output.identifiers.clone(),
             _ => vec!["Symbol".to_string()],
         };
-        unit.identifiers = identifiers.clone();
-        unit.ops.push(naviscope_plugin::GraphOp::UpdateIdentifiers {
-            path: Arc::from(file.file.path.as_path()),
+        Ok(Box::new(MockAnalyzed {
+            file: collected.file,
             identifiers,
+        }))
+    }
+
+    fn lower_source(
+        &self,
+        analyzed: Box<dyn SourceAnalyzeArtifact>,
+        _context: &ProjectContext,
+    ) -> Result<ResolvedUnit, naviscope_plugin::BoxError> {
+        let analyzed = analyzed
+            .into_any()
+            .downcast::<MockAnalyzed>()
+            .map_err(|_| "invalid mock analyzed artifact")?;
+        let mut unit = ResolvedUnit::new();
+        unit.identifiers = analyzed.identifiers.clone();
+        unit.ops.push(naviscope_plugin::GraphOp::UpdateIdentifiers {
+            path: Arc::from(analyzed.file.file.path.as_path()),
+            identifiers: analyzed.identifiers,
         });
         unit.add_node(naviscope_plugin::IndexNode {
             id: naviscope_api::models::symbol::NodeId::Flat("test::Symbol".to_string()),
@@ -70,7 +116,7 @@ impl SourceIndexCap for MockCap {
             source: NodeSource::Project,
             status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: Some(DisplaySymbolLocation {
-                path: file.path().to_string_lossy().to_string(),
+                path: analyzed.file.path().to_string_lossy().to_string(),
                 range: Range {
                     start_line: 0,
                     start_col: 0,
@@ -82,6 +128,42 @@ impl SourceIndexCap for MockCap {
             metadata: Arc::new(naviscope_api::models::graph::EmptyMetadata),
         });
         Ok(unit)
+    }
+}
+
+impl SourceCollectArtifact for MockCollected {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any + Send + Sync> {
+        self
+    }
+
+    fn collected_type_symbols(&self) -> &[String] {
+        &self.type_symbols
+    }
+
+    fn collected_method_symbols(&self) -> &[String] {
+        &self.method_symbols
+    }
+
+    fn provided_dependency_symbols(&self) -> &[String] {
+        &self.provided_symbols
+    }
+
+    fn required_dependency_symbols(&self) -> &[String] {
+        &self.required_symbols
+    }
+}
+
+impl SourceAnalyzeArtifact for MockAnalyzed {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any + Send + Sync> {
+        self
     }
 }
 

@@ -1,6 +1,5 @@
 pub mod compiler;
 pub mod scanner;
-pub mod stub_planner;
 
 pub use naviscope_plugin::IndexNode;
 

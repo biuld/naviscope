@@ -159,10 +159,8 @@ impl NaviscopeEngine {
                 return Ok((base_graph, Vec::new(), naviscope_plugin::ProjectContext::new()));
             }
 
-            let compiler = crate::indexing::compiler::BatchCompiler::with_caps(
-                (*build_caps).clone(),
-                (*lang_caps).clone(),
-            );
+            let compiler =
+                crate::indexing::compiler::BatchCompiler::with_caps((*build_caps).clone());
 
             let mut project_context = naviscope_plugin::ProjectContext::new();
             let mut initial_ops = manual_ops;

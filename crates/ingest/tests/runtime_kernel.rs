@@ -4,8 +4,7 @@ use std::sync::{Arc, Mutex};
 use naviscope_ingest::runtime::kernel;
 use naviscope_ingest::{
     CommitSink, DeferredStore, Executor, FlowControlConfig, IngestError, IngestRuntime,
-    PipelineBus, PipelineEvent, RuntimeComponents, RuntimeConfig, RuntimeMetrics, Scheduler,
-    TokioPipelineBus,
+    PipelineBus, PipelineEvent, RuntimeComponents, RuntimeConfig, RuntimeMetrics, TokioPipelineBus,
 };
 use naviscope_ingest::{
     DependencyReadyEvent, DependencyRef, ExecutionResult, ExecutionStatus, Message,
@@ -21,25 +20,6 @@ fn message(id: &str, epoch: u64, payload: u8) -> Message<u8> {
         epoch,
         payload,
         metadata: BTreeMap::new(),
-    }
-}
-
-struct TestScheduler;
-impl Scheduler<u8, String> for TestScheduler {
-    fn schedule(
-        &self,
-        messages: Vec<Message<u8>>,
-    ) -> Result<Vec<PipelineEvent<u8, String>>, IngestError> {
-        Ok(messages
-            .into_iter()
-            .map(|m| {
-                if m.payload == 0 {
-                    PipelineEvent::Deferred(m)
-                } else {
-                    PipelineEvent::Runnable(m)
-                }
-            })
-            .collect())
     }
 }
 
@@ -124,32 +104,15 @@ impl RuntimeMetrics for TestMetrics {
     fn observe_replay_result(&self, _ok: bool) {}
 }
 
-struct InvalidEventScheduler;
-impl Scheduler<u8, String> for InvalidEventScheduler {
-    fn schedule(
-        &self,
-        messages: Vec<Message<u8>>,
-    ) -> Result<Vec<PipelineEvent<u8, String>>, IngestError> {
-        let m = messages
-            .into_iter()
-            .next()
-            .expect("test should provide one message");
-        Ok(vec![PipelineEvent::Executed {
-            epoch: m.epoch,
-            result: ExecutionResult {
-                msg_id: m.msg_id,
-                status: ExecutionStatus::Done,
-                operations: vec!["op".to_string()],
-                next_dependencies: vec![],
-                error: None,
-            },
-        }])
+struct InvalidEventExecutor;
+impl Executor<u8, String> for InvalidEventExecutor {
+    fn execute(&self, message: Message<u8>) -> Result<Vec<PipelineEvent<u8, String>>, IngestError> {
+        Ok(vec![PipelineEvent::Runnable(message)])
     }
 }
 
 #[tokio::test]
 async fn kernel_commits_runnable_messages() {
-    let scheduler = Arc::new(TestScheduler);
     let executor = Arc::new(TestExecutor);
     let store = Arc::new(TestDeferredStore::default());
     let sink = Arc::new(TestCommitSink::default());
@@ -165,7 +128,6 @@ async fn kernel_commits_runnable_messages() {
 
     let stats = kernel::run_pipeline(
         channels,
-        scheduler,
         executor,
         store,
         sink.clone(),
@@ -190,7 +152,6 @@ async fn kernel_commits_runnable_messages() {
 
 #[tokio::test]
 async fn kernel_persists_deferred_from_both_paths() {
-    let scheduler = Arc::new(TestScheduler);
     let executor = Arc::new(TestExecutor);
     let store = Arc::new(TestDeferredStore::default());
     let sink = Arc::new(TestCommitSink::default());
@@ -199,7 +160,11 @@ async fn kernel_persists_deferred_from_both_paths() {
     let channels = <TokioPipelineBus as PipelineBus<u8, String>>::open_channels(&bus, 8);
     let tx = channels.intake_tx.clone();
 
-    tx.send(message("m_sched_deferred", 1, 0))
+    let mut sched_deferred = message("m_sched_deferred", 1, 1);
+    sched_deferred
+        .depends_on
+        .push(DependencyRef::message("dep_not_ready"));
+    tx.send(sched_deferred)
         .await
         .expect("send should work");
     tx.send(message("m_exec_deferred", 1, 2))
@@ -209,7 +174,6 @@ async fn kernel_persists_deferred_from_both_paths() {
 
     let stats = kernel::run_pipeline(
         channels,
-        scheduler,
         executor,
         store.clone(),
         sink,
@@ -238,7 +202,6 @@ async fn runtime_notify_dependency_ready_delegates_to_store() {
     let runtime = IngestRuntime::new(
         RuntimeConfig::default(),
         RuntimeComponents::with_tokio_bus(
-            Arc::new(TestScheduler),
             Arc::new(TestExecutor),
             store.clone(),
             Arc::new(TestCommitSink::default()),
@@ -261,7 +224,6 @@ async fn runtime_notify_dependency_ready_delegates_to_store() {
 
 #[tokio::test]
 async fn kernel_flushes_partial_batches_on_channel_close() {
-    let scheduler = Arc::new(TestScheduler);
     let executor = Arc::new(TestExecutor);
     let store = Arc::new(TestDeferredStore::default());
     let sink = Arc::new(TestCommitSink::default());
@@ -277,7 +239,6 @@ async fn kernel_flushes_partial_batches_on_channel_close() {
 
     let stats = kernel::run_pipeline(
         channels,
-        scheduler,
         executor,
         store,
         sink.clone(),
@@ -302,7 +263,6 @@ async fn kernel_flushes_partial_batches_on_channel_close() {
 
 #[tokio::test]
 async fn kernel_errors_on_executor_fatal_event() {
-    let scheduler = Arc::new(TestScheduler);
     let executor = Arc::new(TestExecutor);
     let store = Arc::new(TestDeferredStore::default());
     let sink = Arc::new(TestCommitSink::default());
@@ -318,7 +278,6 @@ async fn kernel_errors_on_executor_fatal_event() {
 
     let err = kernel::run_pipeline(
         channels,
-        scheduler,
         executor,
         store,
         sink,
@@ -339,9 +298,8 @@ async fn kernel_errors_on_executor_fatal_event() {
 }
 
 #[tokio::test]
-async fn kernel_errors_on_invalid_scheduler_event() {
-    let scheduler = Arc::new(InvalidEventScheduler);
-    let executor = Arc::new(TestExecutor);
+async fn kernel_errors_on_invalid_executor_event() {
+    let executor = Arc::new(InvalidEventExecutor);
     let store = Arc::new(TestDeferredStore::default());
     let sink = Arc::new(TestCommitSink::default());
     let metrics = Arc::new(TestMetrics);
@@ -349,14 +307,13 @@ async fn kernel_errors_on_invalid_scheduler_event() {
     let channels = <TokioPipelineBus as PipelineBus<u8, String>>::open_channels(&bus, 8);
     let tx = channels.intake_tx.clone();
 
-    tx.send(message("m_bad_sched", 1, 1))
+    tx.send(message("m_bad_exec", 1, 1))
         .await
         .expect("send should work");
     drop(tx);
 
     let err = kernel::run_pipeline(
         channels,
-        scheduler,
         executor,
         store,
         sink,
@@ -369,7 +326,7 @@ async fn kernel_errors_on_invalid_scheduler_event() {
         },
     )
     .await
-    .expect_err("invalid scheduler event should fail pipeline");
+    .expect_err("invalid executor event should fail pipeline");
 
-    assert!(err.to_string().contains("scheduler emitted invalid event"));
+    assert!(err.to_string().contains("executor emitted invalid event"));
 }

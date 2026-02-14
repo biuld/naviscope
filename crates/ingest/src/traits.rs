@@ -1,11 +1,6 @@
 use crate::error::IngestError;
 use crate::types::{DependencyReadyEvent, ExecutionResult, Message, PipelineEvent};
 
-pub trait Scheduler<P, Op>: Send + Sync {
-    fn schedule(&self, messages: Vec<Message<P>>)
-    -> Result<Vec<PipelineEvent<P, Op>>, IngestError>;
-}
-
 pub trait Executor<P, Op>: Send + Sync {
     fn execute(&self, message: Message<P>) -> Result<Vec<PipelineEvent<P, Op>>, IngestError>;
 }

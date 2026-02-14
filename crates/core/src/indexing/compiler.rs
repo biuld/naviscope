@@ -1,20 +1,16 @@
 use crate::error::Result;
 use crate::indexing::scanner::ParsedFile;
-use crate::model::{GraphOp, ResolvedUnit};
-use naviscope_plugin::{BuildCaps, BuildContent, LanguageCaps, ParsedContent, ProjectContext};
+use crate::model::GraphOp;
+use naviscope_plugin::{BuildCaps, BuildContent, ParsedContent, ProjectContext};
 use std::fs;
 
 pub struct BatchCompiler {
     build_caps: Vec<BuildCaps>,
-    lang_caps: Vec<LanguageCaps>,
 }
 
 impl BatchCompiler {
-    pub fn with_caps(build_caps: Vec<BuildCaps>, lang_caps: Vec<LanguageCaps>) -> Self {
-        Self {
-            build_caps,
-            lang_caps,
-        }
+    pub fn with_caps(build_caps: Vec<BuildCaps>) -> Self {
+        Self { build_caps }
     }
 
     pub fn compile_build_batch(
@@ -42,37 +38,6 @@ impl BatchCompiler {
                 all_ops.extend(unit.ops);
                 context.path_to_module.extend(ctx.path_to_module);
             }
-        }
-        Ok(all_ops)
-    }
-
-    pub fn compile_source_batch(
-        &self,
-        source_files: &[ParsedFile],
-        context: &ProjectContext,
-    ) -> Result<Vec<GraphOp>> {
-        let source_results: Vec<Result<ResolvedUnit>> = source_files
-            .iter()
-            .map(|file| {
-                let caps = self
-                    .lang_caps
-                    .iter()
-                    .find(|c| c.matcher.supports_path(file.path()));
-
-                if let Some(c) = caps {
-                    c.indexing
-                        .compile_source(file, context)
-                        .map_err(crate::error::NaviscopeError::from)
-                } else {
-                    Ok(ResolvedUnit::new())
-                }
-            })
-            .collect();
-
-        let mut all_ops = Vec::new();
-        for result in source_results {
-            let unit = result?;
-            all_ops.extend(unit.ops);
         }
         Ok(all_ops)
     }

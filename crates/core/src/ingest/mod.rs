@@ -1,5 +1,8 @@
-mod batch_tracker;
-mod workers;
+mod commit_sink;
+mod deferred_queue;
+mod executor;
+mod metrics;
+mod stub_ops;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -14,23 +17,30 @@ use crate::error::{NaviscopeError, Result};
 use crate::indexing::StubRequest;
 use crate::model::{CodeGraph, GraphOp};
 
-use batch_tracker::BatchTracker;
-use workers::{
-    CommitGraphSink, InMemoryDeferredQueue, IngestExecutor, NoopRuntimeMetrics,
-    PassThroughScheduler,
-};
+use commit_sink::CommitGraphSink;
+use deferred_queue::InMemoryDeferredQueue;
+use executor::IngestExecutor;
+use metrics::NoopRuntimeMetrics;
+pub use stub_ops::plan_stub_requests;
 
 #[derive(Clone)]
 pub enum IngestWorkItem {
-    SourceFile(ParsedFile),
+    SourceCollect(ParsedFile),
+    SourceAnalyze(ParsedFile),
+    SourceLower(ParsedFile),
     StubRequest(StubRequest),
+}
+
+#[derive(Clone)]
+struct StagedSourceItem {
+    file: ParsedFile,
+    collect_id: String,
 }
 
 pub struct IngestAdapter {
     intake: IntakeHandle<IngestWorkItem>,
     project_context: Arc<RwLock<ProjectContext>>,
     routes: Arc<RwLock<HashMap<String, Vec<PathBuf>>>>,
-    batch_tracker: Arc<BatchTracker>,
     runtime_task: tokio::task::JoinHandle<()>,
 }
 
@@ -38,31 +48,27 @@ impl IngestAdapter {
     pub async fn start(
         current: Arc<tokio::sync::RwLock<Arc<CodeGraph>>>,
         naming_conventions: Arc<HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>>,
-        build_caps: Arc<Vec<BuildCaps>>,
+        _build_caps: Arc<Vec<BuildCaps>>,
         lang_caps: Arc<Vec<LanguageCaps>>,
         stub_cache: Arc<crate::cache::GlobalStubCache>,
     ) -> Result<Self> {
         let project_context = Arc::new(RwLock::new(ProjectContext::new()));
         let routes = Arc::new(RwLock::new(HashMap::new()));
-        let batch_tracker = Arc::new(BatchTracker::default());
-
-        let scheduler: naviscope_ingest::DynScheduler<IngestWorkItem, GraphOp> =
-            Arc::new(PassThroughScheduler);
         let executor: naviscope_ingest::DynExecutor<IngestWorkItem, GraphOp> =
             Arc::new(IngestExecutor {
-                build_caps,
                 lang_caps,
                 project_context: Arc::clone(&project_context),
                 routes: Arc::clone(&routes),
                 current: Arc::clone(&current),
                 stub_cache,
+                collect_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
+                analyze_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
             });
         let deferred_store: naviscope_ingest::DynDeferredStore<IngestWorkItem> =
             Arc::new(InMemoryDeferredQueue::default());
         let commit_sink: naviscope_ingest::DynCommitSink<GraphOp> = Arc::new(CommitGraphSink {
             current,
             naming_conventions,
-            batch_tracker: Arc::clone(&batch_tracker),
         });
         let metrics: naviscope_ingest::DynRuntimeMetrics = Arc::new(NoopRuntimeMetrics);
 
@@ -74,7 +80,6 @@ impl IngestAdapter {
                 idle_sleep_ms: 10,
             },
             RuntimeComponents::with_tokio_bus(
-                scheduler,
                 executor,
                 deferred_store,
                 commit_sink,
@@ -94,7 +99,6 @@ impl IngestAdapter {
             intake,
             project_context,
             routes,
-            batch_tracker,
             runtime_task,
         })
     }
@@ -124,34 +128,43 @@ impl IngestAdapter {
             return Ok(());
         }
 
-        let msg_ids: Vec<String> = source_files
-            .iter()
-            .enumerate()
-            .map(|(index, file)| format!("src:{}:{}", index, file.path().display()))
-            .collect();
-
-        let (batch_id, done_rx) = self.batch_tracker.register_batch(&msg_ids);
-
+        let mut staged = Vec::new();
+        let epoch = self.intake.new_epoch();
         for (index, file) in source_files.into_iter().enumerate() {
-            let msg = naviscope_ingest::Message {
-                msg_id: msg_ids[index].clone(),
-                topic: "source-index".to_string(),
+            let base = format!("src:{}:{}", index, file.path().display());
+            let collect_id = format!("{base}:collect");
+            staged.push(StagedSourceItem {
+                file,
+                collect_id,
+            });
+        }
+
+        for item in staged {
+            let file = item.file;
+            let collect_id = item.collect_id;
+            let collect_msg = naviscope_ingest::Message {
+                msg_id: collect_id.clone(),
+                topic: "source-collect".to_string(),
                 message_group: file.path().to_string_lossy().to_string(),
                 version: 1,
                 depends_on: Vec::new(),
-                epoch: batch_id,
-                payload: IngestWorkItem::SourceFile(file),
+                epoch,
+                payload: IngestWorkItem::SourceCollect(file.clone()),
                 metadata: BTreeMap::new(),
             };
             self.intake
-                .submit(msg)
+                .submit(collect_msg)
                 .await
                 .map_err(ingest_to_naviscope_error)?;
         }
 
-        done_rx
+        self.intake
+            .seal_epoch(epoch)
+            .map_err(ingest_to_naviscope_error)?;
+        self.intake
+            .wait_epoch(epoch)
             .await
-            .map_err(|_| NaviscopeError::Internal("ingest batch completion dropped".to_string()))
+            .map_err(ingest_to_naviscope_error)
     }
 
     pub async fn submit_stub_request(&self, req: StubRequest) -> Result<()> {

@@ -1,7 +1,7 @@
 //! Tests for async stubbing workflow
 
 use naviscope_api::models::graph::ResolutionStatus;
-use naviscope_core::indexing::stub_planner::StubPlanner;
+use naviscope_core::ingest::plan_stub_requests;
 use naviscope_core::model::GraphOp;
 use naviscope_core::runtime::NaviscopeEngine;
 use std::path::Path;
@@ -70,7 +70,7 @@ async fn test_async_stubbing_with_jar() {
             }),
         }];
 
-        let reqs = StubPlanner::plan(&ops, &routes);
+        let reqs = plan_stub_requests(&ops, &routes);
         for req in reqs {
             assert!(engine.request_stub_for_fqn(&req.fqn));
         }

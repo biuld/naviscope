@@ -27,6 +27,11 @@ pub enum GraphOp {
     UpdateFile { metadata: SourceFile },
 }
 
+#[derive(Debug, Clone)]
+pub struct DeferredSymbol {
+    pub target: String,
+}
+
 /// Result of resolving a single file or unit
 #[derive(Debug)]
 pub struct ResolvedUnit {
@@ -38,6 +43,8 @@ pub struct ResolvedUnit {
     pub identifiers: Vec<String>,
     /// Naming convention for upgrading FQNs
     pub naming_convention: Option<Arc<dyn NamingConvention>>,
+    /// Deferred unresolved targets produced during analyze pass.
+    pub deferred_symbols: Vec<DeferredSymbol>,
 }
 
 impl ResolvedUnit {
@@ -47,6 +54,7 @@ impl ResolvedUnit {
             nodes: HashMap::new(),
             identifiers: Vec::new(),
             naming_convention: None,
+            deferred_symbols: Vec::new(),
         }
     }
 

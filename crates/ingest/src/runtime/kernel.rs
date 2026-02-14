@@ -7,10 +7,8 @@ use tracing::warn;
 
 use crate::error::IngestError;
 use crate::runtime::flow_control::{FlowControlConfig, FlowController};
-use crate::runtime::{
-    DynCommitSink, DynDeferredStore, DynExecutor, DynRuntimeMetrics, DynScheduler,
-};
-use crate::types::{ExecutionResult, Message, PipelineEvent};
+use crate::runtime::{DynCommitSink, DynDeferredStore, DynExecutor, DynRuntimeMetrics};
+use crate::types::{DependencyRef, ExecutionResult, Message, PipelineEvent};
 
 pub struct BusChannels<P>
 where
@@ -80,11 +78,35 @@ impl KernelRunStats {
 
 pub async fn run_pipeline<P, Op>(
     channels: BusChannels<P>,
-    scheduler: DynScheduler<P, Op>,
     executor: DynExecutor<P, Op>,
     deferred_store: DynDeferredStore<P>,
     commit_sink: DynCommitSink<Op>,
     metrics: DynRuntimeMetrics,
+    config: &FlowControlConfig,
+) -> Result<KernelRunStats, IngestError>
+where
+    P: Clone + Send + Sync + 'static,
+    Op: Send + Sync + 'static,
+{
+    run_pipeline_with_epoch_tracker(
+        channels,
+        executor,
+        deferred_store,
+        commit_sink,
+        metrics,
+        None,
+        config,
+    )
+    .await
+}
+
+pub(crate) async fn run_pipeline_with_epoch_tracker<P, Op>(
+    channels: BusChannels<P>,
+    executor: DynExecutor<P, Op>,
+    deferred_store: DynDeferredStore<P>,
+    commit_sink: DynCommitSink<Op>,
+    metrics: DynRuntimeMetrics,
+    epoch_tracker: Option<Arc<super::EpochTracker>>,
     config: &FlowControlConfig,
 ) -> Result<KernelRunStats, IngestError>
 where
@@ -150,20 +172,22 @@ where
 
                 for msg in ready {
                     let permit = flow.acquire_in_flight().await?;
-                    let scheduler_cloned = Arc::clone(&scheduler);
                     let executor_cloned = Arc::clone(&executor);
                     let commit_sink_cloned = Arc::clone(&commit_sink);
+                    let deferred_store_cloned = Arc::clone(&deferred_store);
                     let deferred_tx_cloned = deferred_tx.clone();
                     let metrics_cloned = Arc::clone(&metrics);
+                    let epoch_tracker_cloned = epoch_tracker.clone();
                     workers.spawn(async move {
                         let _permit = permit;
                         process_message(
                             msg,
-                            scheduler_cloned,
                             executor_cloned,
                             commit_sink_cloned,
+                            deferred_store_cloned,
                             deferred_tx_cloned,
                             metrics_cloned,
+                            epoch_tracker_cloned,
                         )
                         .await
                     });
@@ -174,20 +198,22 @@ where
                 match maybe_msg {
                     Some(msg) => {
                         let permit = flow.acquire_in_flight().await?;
-                        let scheduler_cloned = Arc::clone(&scheduler);
                         let executor_cloned = Arc::clone(&executor);
                         let commit_sink_cloned = Arc::clone(&commit_sink);
+                        let deferred_store_cloned = Arc::clone(&deferred_store);
                         let deferred_tx_cloned = deferred_tx.clone();
                         let metrics_cloned = Arc::clone(&metrics);
+                        let epoch_tracker_cloned = epoch_tracker.clone();
                         workers.spawn(async move {
                             let _permit = permit;
                             process_message(
                                 msg,
-                                scheduler_cloned,
                                 executor_cloned,
                                 commit_sink_cloned,
+                                deferred_store_cloned,
                                 deferred_tx_cloned,
                                 metrics_cloned,
+                                epoch_tracker_cloned,
                             )
                             .await
                         });
@@ -217,50 +243,36 @@ where
 
 async fn process_message<P, Op>(
     message: Message<P>,
-    scheduler: DynScheduler<P, Op>,
     executor: DynExecutor<P, Op>,
     commit_sink: DynCommitSink<Op>,
+    deferred_store: DynDeferredStore<P>,
     deferred_tx: mpsc::Sender<Message<P>>,
     metrics: DynRuntimeMetrics,
+    epoch_tracker: Option<Arc<super::EpochTracker>>,
 ) -> Result<MessageRunStats, IngestError>
 where
     P: Clone + Send + Sync + 'static,
     Op: Send + Sync + 'static,
 {
     let mut stats = MessageRunStats::default();
-
-    let scheduler_cloned = Arc::clone(&scheduler);
-    let schedule_events =
-        tokio::task::spawn_blocking(move || scheduler_cloned.schedule(vec![message]))
-            .await
-            .map_err(|e| IngestError::Execution(format!("schedule join failure: {e}")))??;
-
-    for event in schedule_events {
-        match event {
-            PipelineEvent::Runnable(msg) => {
-                stats.runnable_messages += 1;
-                let msg_stats = execute_runnable(
-                    msg,
-                    Arc::clone(&executor),
-                    Arc::clone(&commit_sink),
-                    deferred_tx.clone(),
-                )
-                .await?;
-                stats.deferred_from_execute += msg_stats.deferred_from_execute;
-                stats.committed_batches += msg_stats.committed_batches;
-            }
-            PipelineEvent::Deferred(msg) => {
-                stats.deferred_from_schedule += 1;
-                deferred_tx.send(msg).await.map_err(|_| {
-                    IngestError::Execution("kernel deferred channel closed".to_string())
-                })?;
-            }
-            _ => {
-                return Err(IngestError::Execution(
-                    "scheduler emitted invalid event".to_string(),
-                ));
-            }
-        }
+    if !message.depends_on.is_empty() {
+        stats.deferred_from_schedule += 1;
+        deferred_tx.send(message).await.map_err(|_| {
+            IngestError::Execution("kernel deferred channel closed".to_string())
+        })?;
+    } else {
+        stats.runnable_messages += 1;
+        let msg_stats = execute_runnable(
+            message,
+            Arc::clone(&executor),
+            Arc::clone(&commit_sink),
+            Arc::clone(&deferred_store),
+            deferred_tx.clone(),
+            epoch_tracker.clone(),
+        )
+        .await?;
+        stats.deferred_from_execute += msg_stats.deferred_from_execute;
+        stats.committed_batches += msg_stats.committed_batches;
     }
 
     metrics.observe_throughput("kernel_message", 1);
@@ -277,7 +289,9 @@ async fn execute_runnable<P, Op>(
     message: Message<P>,
     executor: DynExecutor<P, Op>,
     commit_sink: DynCommitSink<Op>,
+    deferred_store: DynDeferredStore<P>,
     deferred_tx: mpsc::Sender<Message<P>>,
+    epoch_tracker: Option<Arc<super::EpochTracker>>,
 ) -> Result<RunnableRunStats, IngestError>
 where
     P: Clone + Send + Sync + 'static,
@@ -297,6 +311,9 @@ where
                 by_epoch.entry(epoch).or_default().push(result);
             }
             PipelineEvent::Deferred(msg) => {
+                if let Some(tracker) = epoch_tracker.as_ref() {
+                    tracker.record_internal_submit(msg.epoch)?;
+                }
                 stats.deferred_from_execute += 1;
                 deferred_tx.send(msg).await.map_err(|_| {
                     IngestError::Execution("kernel deferred channel closed".to_string())
@@ -318,11 +335,29 @@ where
     }
 
     for (epoch, results) in by_epoch {
+        let completed_results: Vec<(String, Vec<DependencyRef>)> = results
+            .iter()
+            .map(|r| (r.msg_id.clone(), r.next_dependencies.clone()))
+            .collect();
         let sink = Arc::clone(&commit_sink);
         let committed = tokio::task::spawn_blocking(move || sink.commit_epoch(epoch, results))
             .await
             .map_err(|e| IngestError::Execution(format!("commit join failure: {e}")))??;
         stats.committed_batches += committed;
+
+        for (msg_id, next_dependencies) in completed_results {
+            notify_dependency_ready(
+                Arc::clone(&deferred_store),
+                DependencyRef::message(msg_id),
+            )
+            .await?;
+            for dep in next_dependencies {
+                notify_dependency_ready(Arc::clone(&deferred_store), dep).await?;
+            }
+            if let Some(tracker) = epoch_tracker.as_ref() {
+                tracker.mark_committed(epoch)?;
+            }
+        }
     }
 
     Ok(stats)
@@ -350,4 +385,18 @@ where
     tokio::task::spawn_blocking(move || deferred_store.pop_ready(limit.max(1)))
         .await
         .map_err(|e| IngestError::Execution(format!("deferred replay join failure: {e}")))?
+}
+
+async fn notify_dependency_ready<P>(
+    deferred_store: DynDeferredStore<P>,
+    dependency: DependencyRef,
+) -> Result<(), IngestError>
+where
+    P: Clone + Send + Sync + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        deferred_store.notify_ready(crate::types::DependencyReadyEvent { dependency })
+    })
+    .await
+    .map_err(|e| IngestError::Execution(format!("deferred notify join failure: {e}")))?
 }

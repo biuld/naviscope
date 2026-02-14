@@ -1,136 +1,163 @@
 # naviscope-ingest
 
-`naviscope-ingest` is a resident, event-driven runtime for dependency-aware message processing.
+## 1. Definition
 
-## Design Goals
+`naviscope-ingest` is a DAG execution runtime built on a message queue.
 
-- Keep domain semantics in `core`; keep orchestration in `ingest`.
-- Support multi-producer push ingestion with bounded backpressure.
-- Model dependency handling as data (`depends_on`) and deferred replay.
-- Provide deterministic commit boundaries (`epoch`) with external commit policy.
+It drives task transitions between `runnable` and `deferred` via dependencies (`depends_on`), and uses `epoch` for batch completion semantics.
 
-## Scope
+- Component type: runtime middleware
+- Input: `Message<P>`
+- Output: committed operation results through `CommitSink<Op>`
+- Goal: stable dependency-aware execution and batch completion under high concurrency
 
-In scope:
+## 2. Responsibility Boundaries
 
-- Message intake and bounded queueing.
-- Event-driven schedule/execute/commit orchestration.
-- Deferred persistence and replay trigger path.
-- Runtime metrics hooks.
+### 2.1 In Scope
 
-Out of scope:
+- Message intake and backpressure control
+- Deferred persistence and replay for unresolved dependencies
+- Dependency-ready event dispatch (`message` / `resource`)
+- Batch (`epoch`) completion lifecycle
+- Unified runtime observability hooks
 
-- Domain/business rule evaluation.
-- Source scanning / incremental detection / build-source partitioning.
-- Storage engine internals.
+### 2.2 Out of Scope
 
-## Core Architecture
+- Business semantics
+- Source scanning and incremental discovery
+- Concrete storage engine strategy
 
-The runtime is centered around:
-
-- `IngestRuntime<P, Op>`
-- `RuntimeComponents<P, Op>`
-- `PipelineEvent<P, Op>`
-- `PipelineBus<P, Op>` with **two channels**:
-- `intake` channel for ingress + replayed messages
-- `deferred` channel for unresolved messages
+## 3. Architecture Model
 
 ```mermaid
 flowchart LR
-    EP[External Producers] --> IH[IntakeHandle::submit]
-    IH --> IQ[Intake Channel]
+    P[Producer] --> IH[IntakeHandle]
+    IH --> IN[Intake Stream]
 
-    IQ --> SCH[Scheduler]
-    SCH -->|Runnable| EXE[Executor]
-    SCH -->|Deferred| DQ[Deferred Channel]
+    IN --> G{depends_on empty?}
+    G -->|yes| EX[Executor]
+    G -->|no| DQ[Deferred Queue]
 
-    EXE -->|Executed| COM[CommitSink]
-    EXE -->|Deferred| DQ
-    EXE -->|Fatal| ERR[Runtime Error]
+    EX -->|Executed| CM[CommitSink]
+    EX -->|Deferred| DQ
+    EX -->|Fatal| ER[Runtime Error]
 
-    DQ --> DS[DeferredStore::push]
-    DS --> RP[Replay Loop pop_ready]
-    RP --> IQ
+    CM --> DR[Dependency Ready]
+    DR --> DS[DeferredStore]
+    DQ --> DS
+    DS --> RP[Replay pop_ready]
+    RP --> IN
+
+    IH --> EP[EpochTracker]
+    EX --> EP
+    CM --> EP
 ```
 
-## Event Model
+## 4. Runtime Layers
 
-`PipelineEvent<P, Op>` is the runtime contract between components:
+```mermaid
+flowchart TB
+    subgraph API["API Layer"]
+      A1[IntakeHandle]
+      A2[notify_dependency_ready]
+      A3[new/seal/wait epoch]
+    end
 
-- `Runnable(Message<P>)`
-- `Deferred(Message<P>)`
-- `Executed { epoch, result }`
-- `Fatal { msg_id, error }`
+    subgraph CORE["Runtime Core"]
+      C1[Kernel Event Loop]
+      C2[Flow Control]
+      C3[Worker Pool]
+    end
 
-This keeps routing explicit and avoids stage-specific output structs.
+    subgraph SPI["Extension SPI"]
+      S1[Executor]
+      S2[DeferredStore]
+      S3[CommitSink]
+      S4[RuntimeMetrics]
+      S5[PipelineBus]
+    end
 
-## Component Model
+    API --> CORE
+    CORE --> SPI
+```
 
-Runtime uses object-safe component interfaces:
+## 5. Lifecycle Model
 
-- `Scheduler<P, Op>`
-- `Executor<P, Op>`
-- `DeferredStore<P>`
-- `CommitSink<Op>`
-- `RuntimeMetrics`
-- `PipelineBus<P, Op>`
+### 5.1 Message Lifecycle
 
-They are assembled through `RuntimeComponents<P, Op>`.
+```mermaid
+stateDiagram-v2
+    [*] --> Ingested
+    Ingested --> Runnable: no dependency
+    Ingested --> Deferred: dependency unresolved
+    Deferred --> Runnable: dependency ready
+    Runnable --> Executed
+    Runnable --> Deferred: executor defers
+    Runnable --> Fatal
+    Executed --> Committed
+    Committed --> [*]
+    Fatal --> [*]
+```
 
-## Public API
+### 5.2 Epoch Lifecycle
 
-- `IngestRuntime::new(config, components)`
-- `IngestRuntime::intake_handle() -> IntakeHandle<P>`
-- `IngestRuntime::notify_dependency_ready(event)`
-- `IngestRuntime::run_forever()`
+```mermaid
+stateDiagram-v2
+    [*] --> Open
+    Open --> Open: submit / internal derived
+    Open --> Sealed: seal_epoch
+    Sealed --> Completed: committed >= submitted
+    Completed --> [*]
+```
 
-### Ingestion
+## 6. Processing Sequence
 
-External code pushes messages through:
+```mermaid
+sequenceDiagram
+    participant U as Upstream
+    participant H as IntakeHandle
+    participant K as Kernel
+    participant X as Executor
+    participant C as CommitSink
+    participant S as DeferredStore
+    participant E as EpochTracker
 
-- `IntakeHandle::submit(message).await`
+    U->>H: new_epoch
+    U->>H: submit(messages)
+    H->>E: submitted += n
+    H->>K: enqueue
+    U->>H: seal_epoch
 
-### Dependency Ready Notification
+    K->>X: execute runnable
+    X-->>K: Executed / Deferred / Fatal
+    K->>S: persist deferred
+    K->>C: commit executed
+    C-->>K: commit ok
+    K->>S: notify_ready(message/resource)
+    K->>E: committed += m
+    S-->>K: replay ready messages
 
-External dependency resolution notifies runtime through:
+    U->>H: wait_epoch
+    H-->>U: return when completed
+```
 
-- `notify_dependency_ready(DependencyReadyEvent)`
+## 7. Extension Contracts (SPI)
 
-This unblocks replay via `DeferredStore`.
+- `Executor<P, Op>`: business execution and event emission
+- `DeferredStore<P>`: deferred storage, readiness evaluation, and replay source
+- `CommitSink<Op>`: commit boundary and visibility control
+- `RuntimeMetrics`: metrics collection
+- `PipelineBus<P, Op>`: channel model abstraction
 
-## Runtime Flow
+## 8. Semantic Guarantees
 
-1. Producers push `Message<P>` into intake channel.
-2. Kernel applies flow control (`max_in_flight`) and schedules each message.
-3. `Scheduler` emits `PipelineEvent` values.
-4. `Runnable` messages are executed immediately by `Executor`.
-5. `Executed` events are grouped by epoch (within one message execution) and sent to `CommitSink`.
-6. `Deferred` events go to deferred channel and are persisted by deferred sink.
-7. Kernel replay loop polls `DeferredStore::pop_ready(limit)` and reinjects ready messages.
+- Processing semantics: at-least-once
+- Idempotency: `Executor` and `CommitSink` should provide idempotency as needed
+- Epoch completion: after `seal_epoch`, completion is `committed >= submitted`
+- Internally derived deferred messages are counted into the same epoch's `submitted`
 
-## Backpressure and Memory
+## 9. Integration Checklist
 
-- Both channels are bounded by `kernel_channel_capacity`.
-- No extra ingress queue beyond bus channels.
-- Deferred replay is pulled with `deferred_poll_limit`, limiting replay burst.
-
-## RuntimeConfig
-
-- `deferred_poll_limit`: max replay load per poll cycle.
-- `kernel_channel_capacity`: channel capacity for intake/deferred.
-- `max_in_flight`: max concurrent message workers inside kernel.
-- `idle_sleep_ms`: replay loop sleep when no ready deferred message exists.
-
-## Correctness Assumptions
-
-- At-least-once processing; consumers should be idempotent.
-- `DeferredStore` handles dedup/retry/readiness semantics.
-- `CommitSink` defines commit visibility and idempotency policy.
-
-## Source Layout
-
-- `src/runtime/mod.rs`: runtime assembly, handles, lifecycle.
-- `src/runtime/kernel.rs`: event routing kernel + bus + worker loops.
-- `src/traits.rs`: component contracts.
-- `src/types.rs`: message/event/domain-neutral runtime types.
-- `src/error.rs`: runtime error types.
+1. Assemble `RuntimeComponents` (`Executor` / `DeferredStore` / `CommitSink` / `RuntimeMetrics` / `PipelineBus`).
+2. Start `IngestRuntime::run_forever()`.
+3. Submit batches through `IntakeHandle` and wait with epoch APIs.

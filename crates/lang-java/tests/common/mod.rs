@@ -51,8 +51,10 @@ pub fn setup_java_test_graph(
     for (pf, content) in all_parsed_files {
         let tree = ts_parser.parse(&content, None).unwrap();
 
-        // Use JavaResolver to get resolved unit
-        let unit = resolver.compile_source(&pf, &context).unwrap();
+        // Run staged source indexing: collect -> analyze -> lower
+        let collected = resolver.collect_source(&pf, &context).unwrap();
+        let analyzed = resolver.analyze_source(collected, &context).unwrap();
+        let unit = resolver.lower_source(analyzed, &context).unwrap();
 
         all_ops.extend(unit.ops);
 

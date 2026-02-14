@@ -1,17 +1,26 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Default)]
+pub struct ProjectSymbolTable {
+    pub type_symbols: std::collections::HashSet<String>,
+    pub method_symbols: std::collections::HashSet<String>,
+}
+
 /// Project context generated during build indexing.
 #[derive(Debug, Clone, Default)]
 pub struct ProjectContext {
     /// Mapping from path prefixes to module IDs (e.g., "/project/app" -> "module::app")
     pub path_to_module: HashMap<PathBuf, String>,
+    /// Project-level collected symbol snapshot used by analyze/bind stage.
+    pub symbol_table: ProjectSymbolTable,
 }
 
 impl ProjectContext {
     pub fn new() -> Self {
         Self {
             path_to_module: HashMap::new(),
+            symbol_table: ProjectSymbolTable::default(),
         }
     }
 
