@@ -127,8 +127,7 @@ impl NaviscopeEngine {
                 return Ok((base_graph, Vec::new(), naviscope_plugin::ProjectContext::new()));
             }
 
-            let compiler =
-                crate::indexing::compiler::BatchCompiler::with_caps((*build_caps).clone());
+            let compiler = crate::indexing::build::BuildCompiler::with_caps((*build_caps).clone());
 
             let mut project_context = naviscope_plugin::ProjectContext::new();
             let mut initial_ops = manual_ops;
@@ -175,11 +174,10 @@ impl NaviscopeEngine {
         }
 
         let source_runtime = self
-            .batch_compiler
-            .ensure_source_compiler_runtime(
+            .source_compiler
+            .ensure_runtime(
                 self.current_graph_arc(),
                 self.naming_conventions(),
-                self.build_caps_arc(),
                 self.lang_caps_arc(),
                 self.stub_cache_arc(),
             )
@@ -199,7 +197,7 @@ impl NaviscopeEngine {
                 continue;
             }
 
-            crate::indexing::compiler::BatchCompiler::compile_source_batch(
+            crate::indexing::source::SourceCompiler::compile_source_batch(
                 source_runtime.as_ref(),
                 source_files,
                 project_context.clone(),

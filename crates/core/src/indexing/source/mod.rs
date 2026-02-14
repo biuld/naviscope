@@ -6,12 +6,12 @@ mod stub_ops;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use naviscope_ingest::{
     IngestError, IngestRuntime, IntakeHandle, RuntimeComponents, RuntimeConfig,
 };
-use naviscope_plugin::{BuildCaps, LanguageCaps, ParsedFile, ProjectContext};
+use naviscope_plugin::{LanguageCaps, ParsedFile, ProjectContext};
 
 use crate::error::{NaviscopeError, Result};
 use crate::indexing::StubRequest;
@@ -44,11 +44,15 @@ pub struct SourceCompilerRuntime {
     runtime_task: tokio::task::JoinHandle<()>,
 }
 
+pub struct SourceCompiler {
+    runtime: tokio::sync::OnceCell<Arc<SourceCompilerRuntime>>,
+    pending_stub_requests: Mutex<Vec<StubRequest>>,
+}
+
 impl SourceCompilerRuntime {
     pub async fn start(
         current: Arc<tokio::sync::RwLock<Arc<CodeGraph>>>,
         naming_conventions: Arc<HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>>,
-        _build_caps: Arc<Vec<BuildCaps>>,
         lang_caps: Arc<Vec<LanguageCaps>>,
         stub_cache: Arc<crate::cache::GlobalStubCache>,
     ) -> Result<Self> {
@@ -206,6 +210,69 @@ impl SourceCompilerRuntime {
 impl Drop for SourceCompilerRuntime {
     fn drop(&mut self) {
         self.runtime_task.abort();
+    }
+}
+
+impl SourceCompiler {
+    pub fn new() -> Self {
+        Self {
+            runtime: tokio::sync::OnceCell::const_new(),
+            pending_stub_requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub async fn ensure_runtime(
+        &self,
+        current: Arc<tokio::sync::RwLock<Arc<CodeGraph>>>,
+        naming_conventions: Arc<HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>>,
+        lang_caps: Arc<Vec<LanguageCaps>>,
+        stub_cache: Arc<crate::cache::GlobalStubCache>,
+    ) -> Result<Arc<SourceCompilerRuntime>> {
+        let runtime = self
+            .runtime
+            .get_or_try_init(|| async {
+                SourceCompilerRuntime::start(current, naming_conventions, lang_caps, stub_cache)
+                    .await
+                    .map(Arc::new)
+            })
+            .await
+            .map(Arc::clone)?;
+
+        let drained = match self.pending_stub_requests.lock() {
+            Ok(mut pending) => pending.drain(..).collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
+        for req in drained {
+            if let Err(err) = runtime.submit_stub_request(req).await {
+                tracing::warn!("Failed to submit deferred stub request: {}", err);
+            }
+        }
+
+        Ok(runtime)
+    }
+
+    pub async fn compile_source_batch(
+        runtime: &SourceCompilerRuntime,
+        source_files: Vec<ParsedFile>,
+        project_context: ProjectContext,
+        routes: HashMap<String, Vec<PathBuf>>,
+    ) -> Result<()> {
+        runtime
+            .submit_source_batch(source_files, project_context, routes)
+            .await
+    }
+
+    pub fn try_submit_or_enqueue_stub_request(&self, req: StubRequest) -> bool {
+        if let Some(runtime) = self.runtime.get() {
+            return runtime.try_submit_stub_request(req).is_ok();
+        }
+
+        if let Ok(mut pending) = self.pending_stub_requests.lock() {
+            pending.push(req);
+            return true;
+        }
+
+        false
     }
 }
 

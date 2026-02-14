@@ -2,7 +2,7 @@
 
 use crate::asset::service::AssetStubService;
 use crate::error::{NaviscopeError, Result};
-use crate::indexing::compiler::BatchCompiler;
+use crate::indexing::source::SourceCompiler;
 use crate::indexing::scanner::Scanner;
 use crate::indexing::StubRequest;
 use crate::model::{CodeGraph, GraphOp};
@@ -54,7 +54,7 @@ pub struct NaviscopeEngine {
     asset_service: Option<Arc<AssetStubService>>,
 
     /// Source compiler facade that owns source runtime lifecycle.
-    batch_compiler: Arc<BatchCompiler>,
+    source_compiler: Arc<SourceCompiler>,
 }
 
 pub struct NaviscopeEngineBuilder {
@@ -164,7 +164,7 @@ impl NaviscopeEngineBuilder {
 
         let build_caps = Arc::new(self.build_caps);
         let lang_caps = Arc::new(self.lang_caps);
-        let batch_compiler = Arc::new(BatchCompiler::with_caps((*build_caps).clone()));
+        let source_compiler = Arc::new(SourceCompiler::new());
 
         NaviscopeEngine {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
@@ -176,7 +176,7 @@ impl NaviscopeEngineBuilder {
             cancel_token,
             stub_cache,
             asset_service,
-            batch_compiler,
+            source_compiler,
         }
     }
 }
@@ -261,10 +261,6 @@ impl NaviscopeEngine {
         self.naming_conventions.clone()
     }
 
-    pub(crate) fn build_caps_arc(&self) -> Arc<Vec<BuildCaps>> {
-        Arc::clone(&self.build_caps)
-    }
-
     pub(crate) fn lang_caps_arc(&self) -> Arc<Vec<LanguageCaps>> {
         Arc::clone(&self.lang_caps)
     }
@@ -300,7 +296,7 @@ impl NaviscopeEngine {
             candidate_paths,
         };
 
-        self.batch_compiler.try_submit_or_enqueue_stub_request(req)
+        self.source_compiler.try_submit_or_enqueue_stub_request(req)
     }
 
     /// Run the global asset scan and populate routes
