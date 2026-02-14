@@ -1,7 +1,7 @@
+use naviscope_plugin::NodePresenter;
 use crate::error::{NaviscopeError, Result};
 use crate::model::source::Language;
 use crate::model::{DisplayGraphNode, EdgeType, NodeKind};
-use crate::bridge::NodePresenter;
 pub use naviscope_api::models::{GraphQuery, QueryResult, QueryResultEdge};
 use petgraph::Direction as PetDirection;
 use regex::RegexBuilder;

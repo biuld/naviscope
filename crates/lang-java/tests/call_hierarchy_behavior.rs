@@ -3,7 +3,7 @@ mod common;
 use common::{offset_to_point, setup_java_test_graph};
 use naviscope_core::features::CodeGraphLike;
 use naviscope_core::features::discovery::DiscoveryEngine;
-use naviscope_core::ingest::parser::SymbolResolution;
+use naviscope_api::models::SymbolResolution;
 use naviscope_java::JavaPlugin;
 use naviscope_plugin::{SymbolQueryService, SymbolResolveService};
 

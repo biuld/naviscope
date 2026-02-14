@@ -11,4 +11,4 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 tree-sitter = { workspace = true }
 lsp-types = { workspace = true }
-serde_bytes = "0.11.19"
+serde_bytes = { workspace = true }

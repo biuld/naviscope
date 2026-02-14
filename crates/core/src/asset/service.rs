@@ -9,15 +9,13 @@ use crate::asset::registry::InMemoryRouteRegistry;
 use crate::asset::scanner::{AssetScanner, ScanResult};
 use naviscope_plugin::{
     AssetDiscoverer, AssetEntry, AssetIndexer, AssetRouteRegistry, AssetSourceLocator,
-    RegistryStats, StubGenerator, StubRequest,
+    RegistryStats, StubGenerator,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::debug;
 
 /// Unified Asset/Stub service
 pub struct AssetStubService {
@@ -29,9 +27,6 @@ pub struct AssetStubService {
 
     /// Stub generators (from language plugins)
     generators: Vec<Arc<dyn StubGenerator>>,
-
-    /// Channel for stub requests
-    stub_tx: Option<mpsc::UnboundedSender<StubRequest>>,
 
     /// Mapping from binary asset path to source asset path (if available)
     source_map: Arc<RwLock<HashMap<PathBuf, PathBuf>>>,
@@ -56,7 +51,6 @@ impl AssetStubService {
             registry: Arc::new(InMemoryRouteRegistry::new()),
             scanner,
             generators,
-            stub_tx: None,
             source_map: Arc::new(RwLock::new(HashMap::new())),
             source_locators,
         }
@@ -78,16 +72,9 @@ impl AssetStubService {
             registry,
             scanner,
             generators,
-            stub_tx: None,
             source_map: Arc::new(RwLock::new(HashMap::new())),
             source_locators,
         }
-    }
-
-    /// Set the stub request channel
-    pub fn with_stub_channel(mut self, tx: mpsc::UnboundedSender<StubRequest>) -> Self {
-        self.stub_tx = Some(tx);
-        self
     }
 
     /// Get a reference to the registry
@@ -142,18 +129,6 @@ impl AssetStubService {
             .try_read()
             .ok()
             .and_then(|map| map.get(binary_path).cloned())
-    }
-
-    /// Request stub generation (async, non-blocking)
-    pub fn request_stub(&self, fqn: String, candidate_entries: Vec<AssetEntry>) {
-        if let Some(tx) = &self.stub_tx {
-            let request = StubRequest::new(fqn.clone(), candidate_entries);
-            if let Err(e) = tx.send(request) {
-                tracing::warn!("Failed to send stub request for {}: {}", fqn, e);
-            } else {
-                debug!("Sent stub request for {}", fqn);
-            }
-        }
     }
 
     /// Get a snapshot of all routes (for serialization or passing to resolver)
@@ -229,7 +204,6 @@ pub struct AssetStubServiceBuilder {
     generators: Vec<Arc<dyn StubGenerator>>,
     source_locators: Vec<Arc<dyn AssetSourceLocator>>,
     registry: Option<Arc<InMemoryRouteRegistry>>,
-    stub_tx: Option<mpsc::UnboundedSender<StubRequest>>,
 }
 
 impl AssetStubServiceBuilder {
@@ -240,7 +214,6 @@ impl AssetStubServiceBuilder {
             generators: Vec::new(),
             source_locators: Vec::new(),
             registry: None,
-            stub_tx: None,
         }
     }
 
@@ -269,13 +242,8 @@ impl AssetStubServiceBuilder {
         self
     }
 
-    pub fn with_stub_channel(mut self, tx: mpsc::UnboundedSender<StubRequest>) -> Self {
-        self.stub_tx = Some(tx);
-        self
-    }
-
     pub fn build(self) -> AssetStubService {
-        let mut service = if let Some(registry) = self.registry {
+        let service = if let Some(registry) = self.registry {
             AssetStubService::with_registry(
                 registry,
                 self.discoverers,
@@ -291,10 +259,6 @@ impl AssetStubServiceBuilder {
                 self.source_locators,
             )
         };
-
-        if let Some(tx) = self.stub_tx {
-            service = service.with_stub_channel(tx);
-        }
 
         service
     }

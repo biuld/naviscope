@@ -1,13 +1,11 @@
 [package]
 name = "naviscope-ingest"
-version = "0.1.0"
+version = "0.5.5"
 edition = "2024"
 
 [dependencies]
 thiserror = { workspace = true }
 tokio = { workspace = true }
-rayon = { workspace = true }
 tracing = { workspace = true }
-dashmap = { workspace = true }
 naviscope-api = { workspace = true }
 async-trait = { workspace = true }

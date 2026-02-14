@@ -1,6 +1,6 @@
 use naviscope_api::GraphService;
 use naviscope_core::facade::EngineHandle;
-use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
+use naviscope_core::runtime::NaviscopeEngine as CoreEngine;
 use std::sync::Arc;
 
 #[tokio::test]

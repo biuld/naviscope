@@ -3,13 +3,13 @@
 //! The `CodeGraph` provides a cheap-to-clone, immutable view of the indexed codebase.
 //! All data is wrapped in `Arc`, so cloning only increments a reference counter.
 use crate::error::{NaviscopeError, Result};
-use crate::ingest::builder::CodeGraphBuilder;
+use crate::model::builder::CodeGraphBuilder;
 
+use naviscope_plugin::NodeMetadataCodec;
 use crate::features::CodeGraphLike;
 use crate::model::FqnManager;
 use crate::model::source::SourceFile;
 use crate::model::{GraphEdge, GraphNode};
-use crate::bridge::NodeMetadataCodec;
 use lasso::ThreadedRodeo;
 use naviscope_api::models::symbol::{FqnId, FqnReader, Symbol};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -447,11 +447,11 @@ mod tests {
 
     #[test]
     fn test_graph_serialization_roundtrip() {
-        use crate::ingest::builder::CodeGraphBuilder;
+        use crate::model::builder::CodeGraphBuilder;
         use crate::model::NodeKind;
 
         let mut builder = CodeGraphBuilder::new();
-        let node = crate::ingest::parser::IndexNode {
+        let node = crate::indexing::IndexNode {
             id: naviscope_api::models::symbol::NodeId::Flat("test_node".to_string()),
             name: "node".to_string(),
             kind: NodeKind::Class,

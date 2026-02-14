@@ -32,7 +32,7 @@ fn test_cross_file_resolution() {
 
     let res = resolver.resolve_at(b_tree, b_content, 0, a_pos, &index);
     assert!(res.is_some(), "Failed to resolve 'A' at {}", a_pos);
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.example.A");
     } else {
         panic!(
@@ -49,7 +49,7 @@ fn test_cross_file_resolution() {
 
     let res = resolver.resolve_at(b_tree, b_content, 0, hello_pos, &index);
     assert!(res.is_some(), "Failed to resolve 'hello' at {}", hello_pos);
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.example.A#hello");
     } else {
         panic!(
@@ -124,7 +124,7 @@ fn test_inner_class_resolution() {
     let res = resolver.resolve_at(client_tree, client_content, 0, inner_pos, &index);
 
     assert!(res.is_some(), "Failed to resolve 'Inner' at {}", inner_pos);
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.example.Outer.Inner");
     } else {
         panic!(
@@ -167,7 +167,7 @@ fn test_chained_calls_resolution() {
         .expect("Could not find 'getC()'");
     let res = resolver.resolve_at(main_tree, main_content, 0, get_c_pos, &index);
     assert!(res.is_some(), "Failed to resolve 'getC' at {}", get_c_pos);
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.chain.B#getC");
     } else {
         panic!(
@@ -186,7 +186,7 @@ fn test_chained_calls_resolution() {
         "Failed to resolve 'execute' at {}",
         execute_pos
     );
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.chain.C#execute");
     } else {
         panic!(
@@ -236,7 +236,7 @@ public class Main {
         "Failed to resolve chain middle node 'getContext'"
     );
 
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.web.HttpResponse#getContext");
     } else {
         panic!(
@@ -268,7 +268,7 @@ fn test_lambda_parameter_resolution() {
         "Failed to resolve lambda parameter 'it' at {}",
         it_usage_pos
     );
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Local(range, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Local(range, _)) = res {
         // The definition of 'it' should be at 'it ->'
         let it_def_pos = content.find("it ->").expect("Could not find 'it ->'");
         assert_eq!(range.start_col, it_def_pos);
@@ -308,7 +308,7 @@ fn test_lambda_explicit_type_resolution() {
         "Failed to resolve 'hello' on lambda parameter at {}",
         hello_pos
     );
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.A#hello");
     } else {
         panic!("Expected precise resolution for it.hello(), got {:?}", res);
@@ -343,7 +343,7 @@ fn test_lambda_heuristic_type_inference() {
         "Failed to resolve 'hello' on lambda parameter via heuristic at {}",
         hello_pos
     );
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "com.A#hello");
     } else {
         panic!(
@@ -392,7 +392,7 @@ public class DefaultApplicationArguments {
         line,
         col
     );
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "DefaultApplicationArguments");
     } else {
         panic!("Expected precise resolution for 'this', got {:?}", res);
@@ -465,7 +465,7 @@ public class DefaultApplicationArguments {
 
     let res = resolver.resolve_at(tree, source_content, line, col, &index);
 
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(
             fqn,
             "org.springframework.boot.DefaultApplicationArguments.Source#getNonOptionArgs"
@@ -514,7 +514,7 @@ fn test_field_method_call_resolution() {
         line,
         col
     );
-    if let Some(naviscope_core::ingest::parser::SymbolResolution::Precise(fqn, _)) = res {
+    if let Some(naviscope_api::models::SymbolResolution::Precise(fqn, _)) = res {
         assert_eq!(fqn, "B#doB");
     } else {
         panic!("Expected precise resolution to B.doB, got {:?}", res);

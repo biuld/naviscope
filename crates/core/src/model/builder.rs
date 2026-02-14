@@ -97,7 +97,7 @@ impl CodeGraphBuilder {
     }
 
     /// Add or update a node
-    pub fn add_node(&mut self, node_data: crate::ingest::parser::IndexNode) -> NodeIndex {
+    pub fn add_node(&mut self, node_data: crate::indexing::IndexNode) -> NodeIndex {
         // We have language info here! Use it to select convention.
         let lang = crate::model::Language::new(node_data.lang.clone());
         let fqn_id = if let Some(nc) = self.naming_conventions.get(&lang) {
@@ -271,7 +271,7 @@ impl CodeGraphBuilder {
 
                     // Heuristic for external node: use class/unknown kind
                     let name = to_id.to_string();
-                    let placeholder = crate::ingest::parser::IndexNode {
+                    let placeholder = crate::indexing::IndexNode {
                         id: to_id.clone(),
                         name,
                         kind: naviscope_api::models::graph::NodeKind::Class, // Default to class for external types
@@ -365,7 +365,7 @@ mod tests {
     fn test_build_from_scratch() {
         let mut builder = CodeGraphBuilder::new();
 
-        let node = crate::ingest::parser::IndexNode {
+        let node = crate::indexing::IndexNode {
             id: "test_project".into(),
             name: "test_project".to_string(),
             kind: NodeKind::Project,
@@ -390,7 +390,7 @@ mod tests {
 
         let mut builder = CodeGraphBuilder::from_graph(&graph);
 
-        let node = crate::ingest::parser::IndexNode {
+        let node = crate::indexing::IndexNode {
             id: "new_project".into(),
             name: "new_project".to_string(),
             kind: NodeKind::Project,

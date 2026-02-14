@@ -1,4 +1,4 @@
-use naviscope_core::runtime::orchestrator::NaviscopeEngine;
+use naviscope_core::runtime::NaviscopeEngine;
 use tempfile::tempdir;
 
 #[tokio::test]

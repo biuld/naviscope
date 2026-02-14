@@ -64,6 +64,17 @@ impl<P> IntakeHandle<P>
 where
     P: Clone + Send + Sync + 'static,
 {
+    pub fn try_submit(&self, message: Message<P>) -> Result<(), IngestError> {
+        self.tx.try_send(message).map_err(|err| match err {
+            tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                IngestError::Execution("ingest intake queue full".to_string())
+            }
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                IngestError::Execution("ingest intake handle closed".to_string())
+            }
+        })
+    }
+
     pub async fn submit(&self, message: Message<P>) -> Result<(), IngestError> {
         self.tx
             .send(message)

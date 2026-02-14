@@ -8,7 +8,7 @@ use std::sync::Arc;
 /// This function acts as the central factory for the Naviscope runtime,
 /// assembling the core engine with language-specific plugins like Java and Gradle.
 pub fn build_default_engine(path: PathBuf) -> Arc<dyn NaviscopeEngine> {
-    let mut builder = naviscope_core::runtime::orchestrator::NaviscopeEngine::builder(path);
+    let mut builder = naviscope_core::runtime::NaviscopeEngine::builder(path);
 
     // Register Build Tool Caps
     builder = builder.with_build_caps(naviscope_gradle::gradle_caps());
@@ -38,7 +38,7 @@ pub fn init_logging(component: &str, to_stderr: bool) -> Option<impl Drop> {
 
 /// Utility to clear all indices stored on the local system.
 pub fn clear_all_indices() -> ApiResult<()> {
-    naviscope_core::runtime::orchestrator::NaviscopeEngine::clear_all_indices()
+    naviscope_core::runtime::NaviscopeEngine::clear_all_indices()
         .map_err(|e: naviscope_core::error::NaviscopeError| ApiError::Internal(e.to_string()))
 }
 

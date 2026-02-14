@@ -1,5 +1,5 @@
 use naviscope_api::models::Language;
-use naviscope_core::ingest::builder::CodeGraphBuilder;
+use naviscope_core::model::builder::CodeGraphBuilder;
 use naviscope_java::JavaPlugin;
 use naviscope_java::parser::JavaParser;
 use naviscope_plugin::{
@@ -92,7 +92,7 @@ pub async fn setup_java_engine(
     files: Vec<(&str, &str)>,
 ) -> naviscope_core::facade::EngineHandle {
     ensure_test_index_dir();
-    use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
+    use naviscope_core::runtime::NaviscopeEngine as CoreEngine;
     let java_caps = naviscope_java::java_caps().expect("Failed to create Java caps");
     let engine = CoreEngine::builder(temp_dir.to_path_buf())
         .with_language_caps(java_caps)

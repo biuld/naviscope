@@ -4,7 +4,7 @@ use naviscope_api::models::{
 };
 use naviscope_api::semantic::{SymbolInfoProvider, SymbolNavigator};
 use naviscope_core::facade::EngineHandle;
-use naviscope_core::runtime::orchestrator::NaviscopeEngine as CoreEngine;
+use naviscope_core::runtime::NaviscopeEngine as CoreEngine;
 use naviscope_plugin::{
     AssetCap, CodecContext, FileMatcherCap, GlobalParseResult, LanguageCaps, LanguageParseCap,
     LspSyntaxService, MetadataCodecCap, NamingConvention, NodeMetadataCodec, NodePresenter,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::model::CodeGraph;
-use crate::runtime::orchestrator::NaviscopeEngine as InternalEngine;
+use crate::runtime::NaviscopeEngine as InternalEngine;
 use naviscope_api::NaviscopeEngine;
 
 mod graph;
@@ -47,28 +47,28 @@ impl EngineHandle {
         &self,
         language: crate::model::source::Language,
     ) -> Option<Arc<dyn naviscope_plugin::SemanticCap>> {
-        self.engine.get_resolver().get_semantic_cap(language)
+        self.engine.semantic_cap(language)
     }
 
     pub fn get_node_presenter(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::bridge::NodePresenter>> {
-        self.engine.get_resolver().get_node_presenter(language)
+    ) -> Option<Arc<dyn naviscope_plugin::NodePresenter>> {
+        self.engine.node_presenter(language)
     }
 
     pub fn get_metadata_codec(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::bridge::NodeMetadataCodec>> {
-        self.engine.get_resolver().get_metadata_codec(language)
+    ) -> Option<Arc<dyn naviscope_plugin::NodeMetadataCodec>> {
+        self.engine.metadata_codec(language)
     }
 
     pub fn get_language_for_path(
         &self,
         path: &std::path::Path,
     ) -> Option<crate::model::source::Language> {
-        self.engine.get_resolver().get_language_for_path(path)
+        self.engine.language_for_path(path)
     }
 
     pub fn get_services_for_path(
@@ -79,8 +79,8 @@ impl EngineHandle {
         crate::model::source::Language,
     )> {
         let lang = self.get_language_for_path(path)?;
-        let resolver = self.get_semantic_resolver(lang.clone())?;
-        Some((resolver, lang))
+        let semantic_cap = self.get_semantic_resolver(lang.clone())?;
+        Some((semantic_cap, lang))
     }
 
     /// Get naming convention for a specific language

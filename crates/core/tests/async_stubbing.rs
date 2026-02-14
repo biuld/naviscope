@@ -1,30 +1,12 @@
 //! Tests for async stubbing workflow
 
 use naviscope_api::models::graph::ResolutionStatus;
-use naviscope_core::ingest::resolver::StubbingManager;
+use naviscope_core::indexing::stub_planner::StubPlanner;
 use naviscope_core::model::GraphOp;
-use naviscope_core::runtime::orchestrator::NaviscopeEngine;
+use naviscope_core::runtime::NaviscopeEngine;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-
-/// Test that the stubbing manager correctly sends requests
-#[tokio::test]
-async fn test_stubbing_manager_sends_requests() {
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let manager = StubbingManager::new(tx);
-
-    manager.request("com.example.Foo".to_string(), Vec::new());
-    manager.request("com.example.Bar".to_string(), Vec::new());
-
-    // Verify requests are received
-    let req1 = rx.recv().await.expect("Should receive first request");
-    assert_eq!(req1.fqn, "com.example.Foo");
-
-    let req2 = rx.recv().await.expect("Should receive second request");
-    assert_eq!(req2.fqn, "com.example.Bar");
-}
 
 /// Test that JavaPlugin correctly reports external asset handling
 #[test]
@@ -63,6 +45,7 @@ async fn test_async_stubbing_with_jar() {
     let engine = NaviscopeEngine::builder(temp_dir.clone())
         .with_language_caps(java_caps)
         .build();
+    let _ = engine.scan_global_assets().await;
 
     // Find a real JAR file (use JDK's rt.jar or similar)
     let java_home = std::env::var("JAVA_HOME").ok();
@@ -73,8 +56,6 @@ async fn test_async_stubbing_with_jar() {
     if let Some(jmod) = jmod_path.filter(|p| p.exists()) {
         let mut routes = std::collections::HashMap::new();
         routes.insert("java.lang.String".to_string(), vec![jmod.clone()]);
-
-        let resolver = engine.get_resolver();
 
         let ops = vec![GraphOp::AddNode {
             data: Some(naviscope_plugin::IndexNode {
@@ -89,7 +70,10 @@ async fn test_async_stubbing_with_jar() {
             }),
         }];
 
-        resolver.schedule_stubs(&ops, &routes);
+        let reqs = StubPlanner::plan(&ops, &routes);
+        for req in reqs {
+            assert!(engine.request_stub_for_fqn(&req.fqn));
+        }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -104,30 +88,4 @@ async fn test_async_stubbing_with_jar() {
     }
 
     let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-/// Test that duplicate FQNs are deduplicated in the worker
-#[tokio::test]
-async fn test_stubbing_deduplication() {
-    let (tx, mut rx) = mpsc::unbounded_channel();
-
-    let mut seen = std::collections::HashSet::new();
-
-    let manager = StubbingManager::new(tx);
-
-    manager.request("com.example.Foo".to_string(), Vec::new());
-    manager.request("com.example.Foo".to_string(), Vec::new());
-    manager.request("com.example.Bar".to_string(), Vec::new());
-
-    let mut processed = Vec::new();
-    while let Ok(req) = rx.try_recv() {
-        if seen.insert(req.fqn.clone()) {
-            processed.push(req.fqn);
-        }
-    }
-
-    // Only unique FQNs should be processed
-    assert_eq!(processed.len(), 2);
-    assert!(processed.contains(&"com.example.Foo".to_string()));
-    assert!(processed.contains(&"com.example.Bar".to_string()));
 }

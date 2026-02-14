@@ -1,6 +1,6 @@
 use naviscope_api::models::graph::{NodeKind, NodeSource, ResolutionStatus};
 use naviscope_api::models::{BuildTool, EmptyMetadata, Range};
-use naviscope_core::runtime::orchestrator::NaviscopeEngine;
+use naviscope_core::runtime::NaviscopeEngine;
 use naviscope_plugin::{
     AssetCap, BuildCaps, BuildContent, BuildIndexCap, BuildParseCap, FileMatcherCap,
     MetadataCodecCap, ParsedFile, PresentationCap, ProjectContext, ResolvedUnit,

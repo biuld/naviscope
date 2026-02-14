@@ -1,4 +1,36 @@
 use super::*;
+use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher};
+use std::path::Path;
+use tokio::sync::mpsc;
+
+struct FsWatcher {
+    _watcher: RecommendedWatcher,
+    rx: mpsc::UnboundedReceiver<notify::Result<Event>>,
+}
+
+impl FsWatcher {
+    fn new(root: &Path) -> notify::Result<Self> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut watcher = RecommendedWatcher::new(
+            move |res| {
+                let _ = tx.send(res);
+            },
+            Config::default(),
+        )?;
+        watcher.watch(root, RecursiveMode::Recursive)?;
+        Ok(Self {
+            _watcher: watcher,
+            rx,
+        })
+    }
+
+    async fn next_event_async(&mut self) -> Option<Event> {
+        match self.rx.recv().await {
+            Some(Ok(event)) => Some(event),
+            _ => None,
+        }
+    }
+}
 
 impl NaviscopeEngine {
     /// Watch for filesystem changes and update incrementally.
@@ -7,13 +39,11 @@ impl NaviscopeEngine {
         self: Arc<Self>,
         cancel_token: tokio_util::sync::CancellationToken,
     ) -> Result<()> {
-        use crate::runtime::watcher::Watcher;
         use std::collections::HashSet;
         use std::time::Duration;
 
         let root = self.project_root.clone();
-        let mut watcher =
-            Watcher::new(&root).map_err(|e| NaviscopeError::Internal(e.to_string()))?;
+        let mut watcher = FsWatcher::new(&root).map_err(|e| NaviscopeError::Internal(e.to_string()))?;
 
         let engine_weak = Arc::downgrade(&self);
 
@@ -37,7 +67,7 @@ impl NaviscopeEngine {
                         let mut paths = HashSet::new();
                         for event in &pending_events {
                             for path in &event.paths {
-                                if crate::ingest::is_relevant_path(path) {
+                                if crate::indexing::is_relevant_path(path) {
                                     paths.insert(path.clone());
                                 }
                             }
