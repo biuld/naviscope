@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use rayon::prelude::*;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tracing::warn;
 
 use crate::error::IngestError;
-use crate::traits::{CommitSink, DeferredStore, Executor, RuntimeMetrics, Scheduler};
-use crate::types::{ExecutionResult, Message, PipelineEvent, RuntimeConfig};
+use crate::runtime::flow_control::{FlowControlConfig, FlowController};
+use crate::runtime::{
+    DynCommitSink, DynDeferredStore, DynExecutor, DynRuntimeMetrics, DynScheduler,
+};
+use crate::types::{ExecutionResult, Message, PipelineEvent};
 
 pub struct BusChannels<P>
 where
@@ -49,36 +52,6 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct KernelConfig {
-    pub channel_capacity: usize,
-    pub schedule_batch_size: usize,
-    pub execute_batch_size: usize,
-    pub idle_sleep_ms: u64,
-}
-
-impl Default for KernelConfig {
-    fn default() -> Self {
-        Self {
-            channel_capacity: 256,
-            schedule_batch_size: 256,
-            execute_batch_size: 256,
-            idle_sleep_ms: 10,
-        }
-    }
-}
-
-impl From<&RuntimeConfig> for KernelConfig {
-    fn from(value: &RuntimeConfig) -> Self {
-        Self {
-            channel_capacity: value.kernel_channel_capacity,
-            schedule_batch_size: value.schedule_batch_size,
-            execute_batch_size: value.execute_batch_size,
-            idle_sleep_ms: value.idle_sleep_ms,
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct KernelRunStats {
     pub runnable_messages: usize,
@@ -88,23 +61,35 @@ pub struct KernelRunStats {
     pub committed_batches: usize,
 }
 
-pub async fn run_pipeline<P, Op, SCH, EX, DS, C, RM>(
+#[derive(Default)]
+struct MessageRunStats {
+    runnable_messages: usize,
+    deferred_from_schedule: usize,
+    deferred_from_execute: usize,
+    committed_batches: usize,
+}
+
+impl KernelRunStats {
+    fn merge_message_stats(&mut self, msg: MessageRunStats) {
+        self.runnable_messages += msg.runnable_messages;
+        self.deferred_from_schedule += msg.deferred_from_schedule;
+        self.deferred_from_execute += msg.deferred_from_execute;
+        self.committed_batches += msg.committed_batches;
+    }
+}
+
+pub async fn run_pipeline<P, Op>(
     channels: BusChannels<P>,
-    scheduler: Arc<SCH>,
-    executor: Arc<EX>,
-    deferred_store: Arc<DS>,
-    commit_sink: Arc<C>,
-    metrics: Arc<RM>,
-    config: &KernelConfig,
+    scheduler: DynScheduler<P, Op>,
+    executor: DynExecutor<P, Op>,
+    deferred_store: DynDeferredStore<P>,
+    commit_sink: DynCommitSink<Op>,
+    metrics: DynRuntimeMetrics,
+    config: &FlowControlConfig,
 ) -> Result<KernelRunStats, IngestError>
 where
     P: Clone + Send + Sync + 'static,
     Op: Send + Sync + 'static,
-    SCH: Scheduler<P, Op> + Send + Sync + 'static + ?Sized,
-    EX: Executor<P, Op> + Send + Sync + 'static + ?Sized,
-    DS: DeferredStore<P> + Send + Sync + 'static + ?Sized,
-    C: CommitSink<Op> + Send + Sync + 'static + ?Sized,
-    RM: RuntimeMetrics + Send + Sync + 'static + ?Sized,
 {
     let BusChannels {
         intake_tx,
@@ -114,209 +99,255 @@ where
     } = channels;
     drop(intake_tx);
 
-    let deferred_handle = {
-        let store = Arc::clone(&deferred_store);
-        tokio::spawn(async move {
-            let mut persisted = 0usize;
-            while let Some(msg) = deferred_rx.recv().await {
-                let store_cloned = Arc::clone(&store);
-                tokio::task::spawn_blocking(move || store_cloned.push(msg))
-                    .await
-                    .map_err(|e| {
-                        IngestError::Execution(format!("deferred sink join failure: {e}"))
-                    })??;
-                persisted += 1;
-            }
-            Ok::<usize, IngestError>(persisted)
-        })
-    };
+    let flow = FlowController::new(config);
+    let mut replay_tick = tokio::time::interval(flow.idle_sleep());
 
-    let schedule_batch_size = config.schedule_batch_size.max(1);
-    let execute_batch_size = config.execute_batch_size.max(1);
     let mut stats = KernelRunStats::default();
-    let mut schedule_batch = Vec::with_capacity(schedule_batch_size);
-    let mut execute_batch = Vec::with_capacity(execute_batch_size);
+    let mut workers = JoinSet::new();
+    let mut intake_closed = false;
 
-    while let Some(msg) = intake_rx.recv().await {
-        schedule_batch.push(msg);
-        if schedule_batch.len() < schedule_batch_size {
-            continue;
-        }
+    loop {
+        // Central event loop:
+        // - waits on worker completions, deferred persistence, deferred replay ticks, and intake;
+        // - picks exactly one ready branch per iteration, then loops again;
+        // - `biased;` gives priority in source order to reduce completed-worker lag.
+        tokio::select! {
+            biased;
 
-        let scheduler_cloned = Arc::clone(&scheduler);
-        let input = std::mem::take(&mut schedule_batch);
-        let schedule_events = tokio::task::spawn_blocking(move || scheduler_cloned.schedule(input))
-            .await
-            .map_err(|e| IngestError::Execution(format!("schedule join failure: {e}")))??;
-
-        for event in schedule_events {
-            match event {
-                PipelineEvent::Runnable(msg) => {
-                    stats.runnable_messages += 1;
-                    execute_batch.push(msg);
+            joined = workers.join_next(), if !workers.is_empty() => {
+                match joined {
+                    Some(joined) => {
+                        let msg_stats = joined
+                            .map_err(|e| IngestError::Execution(format!("worker join failure: {e}")))??;
+                        stats.merge_message_stats(msg_stats);
+                    }
+                    None => {}
                 }
-                PipelineEvent::Deferred(msg) => {
-                    stats.deferred_from_schedule += 1;
-                    deferred_tx.send(msg).await.map_err(|_| {
-                        IngestError::Execution("kernel deferred channel closed".to_string())
-                    })?;
+            }
+
+            maybe_msg = deferred_rx.recv() => {
+                match maybe_msg {
+                    Some(msg) => {
+                        persist_deferred(Arc::clone(&deferred_store), msg).await?;
+                        stats.deferred_persisted += 1;
+                    }
+                    None => {
+                        if intake_closed && workers.is_empty() {
+                            break;
+                        }
+                    }
                 }
-                _ => {
-                    return Err(IngestError::Execution(
-                        "scheduler emitted invalid event".to_string(),
-                    ));
+            }
+
+            _ = replay_tick.tick(), if !intake_closed => {
+                let ready = pop_ready_messages(
+                    Arc::clone(&deferred_store),
+                    flow.deferred_poll_limit(),
+                ).await?;
+                if !ready.is_empty() {
+                    metrics.observe_replay_result(true);
+                }
+
+                for msg in ready {
+                    let permit = flow.acquire_in_flight().await?;
+                    let scheduler_cloned = Arc::clone(&scheduler);
+                    let executor_cloned = Arc::clone(&executor);
+                    let commit_sink_cloned = Arc::clone(&commit_sink);
+                    let deferred_tx_cloned = deferred_tx.clone();
+                    let metrics_cloned = Arc::clone(&metrics);
+                    workers.spawn(async move {
+                        let _permit = permit;
+                        process_message(
+                            msg,
+                            scheduler_cloned,
+                            executor_cloned,
+                            commit_sink_cloned,
+                            deferred_tx_cloned,
+                            metrics_cloned,
+                        )
+                        .await
+                    });
+                }
+            }
+
+            maybe_msg = intake_rx.recv(), if !intake_closed => {
+                match maybe_msg {
+                    Some(msg) => {
+                        let permit = flow.acquire_in_flight().await?;
+                        let scheduler_cloned = Arc::clone(&scheduler);
+                        let executor_cloned = Arc::clone(&executor);
+                        let commit_sink_cloned = Arc::clone(&commit_sink);
+                        let deferred_tx_cloned = deferred_tx.clone();
+                        let metrics_cloned = Arc::clone(&metrics);
+                        workers.spawn(async move {
+                            let _permit = permit;
+                            process_message(
+                                msg,
+                                scheduler_cloned,
+                                executor_cloned,
+                                commit_sink_cloned,
+                                deferred_tx_cloned,
+                                metrics_cloned,
+                            )
+                            .await
+                        });
+                    }
+                    None => intake_closed = true,
                 }
             }
         }
 
-        if execute_batch.len() < execute_batch_size {
-            continue;
-        }
-
-        let executor_cloned = Arc::clone(&executor);
-        let input = std::mem::take(&mut execute_batch);
-        let events_by_msg = tokio::task::spawn_blocking(move || {
-            let raw: Vec<Result<Vec<PipelineEvent<P, Op>>, IngestError>> =
-                input.into_par_iter().map(|m| executor_cloned.execute(m)).collect();
-            let mut out = Vec::with_capacity(raw.len());
-            for item in raw {
-                out.push(item?);
+        if intake_closed && workers.is_empty() {
+            while let Ok(msg) = deferred_rx.try_recv() {
+                persist_deferred(Arc::clone(&deferred_store), msg).await?;
+                stats.deferred_persisted += 1;
             }
-            Ok::<Vec<Vec<PipelineEvent<P, Op>>>, IngestError>(out)
-        })
-        .await
-        .map_err(|e| IngestError::Execution(format!("execute join failure: {e}")))??;
 
-        let mut by_epoch: BTreeMap<u64, Vec<ExecutionResult<Op>>> = BTreeMap::new();
-        for events in events_by_msg {
-            for event in events {
-                match event {
-                    PipelineEvent::Executed { epoch, result } => {
-                        by_epoch.entry(epoch).or_default().push(result);
-                    }
-                    PipelineEvent::Deferred(msg) => {
-                        stats.deferred_from_execute += 1;
-                        deferred_tx.send(msg).await.map_err(|_| {
-                            IngestError::Execution("kernel deferred channel closed".to_string())
-                        })?;
-                    }
-                    PipelineEvent::Fatal { msg_id, error } => {
-                        let emsg = error.unwrap_or_else(|| "unknown fatal error".to_string());
-                        warn!("fatal execute event for {msg_id}: {emsg}");
-                        return Err(IngestError::Execution(format!(
-                            "fatal execute event for {msg_id}: {emsg}"
-                        )));
-                    }
-                    PipelineEvent::Runnable(_) => {
-                        return Err(IngestError::Execution(
-                            "executor emitted invalid event".to_string(),
-                        ));
-                    }
-                }
+            drop(deferred_tx);
+            while let Some(msg) = deferred_rx.recv().await {
+                persist_deferred(Arc::clone(&deferred_store), msg).await?;
+                stats.deferred_persisted += 1;
             }
-        }
-
-        for (epoch, results) in by_epoch {
-            let sink = Arc::clone(&commit_sink);
-            let committed = tokio::task::spawn_blocking(move || sink.commit_epoch(epoch, results))
-                .await
-                .map_err(|e| IngestError::Execution(format!("commit join failure: {e}")))??;
-            stats.committed_batches += committed;
+            break;
         }
     }
-
-    if !schedule_batch.is_empty() {
-        let scheduler_cloned = Arc::clone(&scheduler);
-        let input = std::mem::take(&mut schedule_batch);
-        let schedule_events = tokio::task::spawn_blocking(move || scheduler_cloned.schedule(input))
-            .await
-            .map_err(|e| IngestError::Execution(format!("schedule join failure: {e}")))??;
-
-        for event in schedule_events {
-            match event {
-                PipelineEvent::Runnable(msg) => {
-                    stats.runnable_messages += 1;
-                    execute_batch.push(msg);
-                }
-                PipelineEvent::Deferred(msg) => {
-                    stats.deferred_from_schedule += 1;
-                    deferred_tx.send(msg).await.map_err(|_| {
-                        IngestError::Execution("kernel deferred channel closed".to_string())
-                    })?;
-                }
-                _ => {
-                    return Err(IngestError::Execution(
-                        "scheduler emitted invalid event".to_string(),
-                    ));
-                }
-            }
-        }
-    }
-
-    if !execute_batch.is_empty() {
-        let executor_cloned = Arc::clone(&executor);
-        let input = std::mem::take(&mut execute_batch);
-        let events_by_msg = tokio::task::spawn_blocking(move || {
-            let raw: Vec<Result<Vec<PipelineEvent<P, Op>>, IngestError>> =
-                input.into_par_iter().map(|m| executor_cloned.execute(m)).collect();
-            let mut out = Vec::with_capacity(raw.len());
-            for item in raw {
-                out.push(item?);
-            }
-            Ok::<Vec<Vec<PipelineEvent<P, Op>>>, IngestError>(out)
-        })
-        .await
-        .map_err(|e| IngestError::Execution(format!("execute join failure: {e}")))??;
-
-        let mut by_epoch: BTreeMap<u64, Vec<ExecutionResult<Op>>> = BTreeMap::new();
-        for events in events_by_msg {
-            for event in events {
-                match event {
-                    PipelineEvent::Executed { epoch, result } => {
-                        by_epoch.entry(epoch).or_default().push(result);
-                    }
-                    PipelineEvent::Deferred(msg) => {
-                        stats.deferred_from_execute += 1;
-                        deferred_tx.send(msg).await.map_err(|_| {
-                            IngestError::Execution("kernel deferred channel closed".to_string())
-                        })?;
-                    }
-                    PipelineEvent::Fatal { msg_id, error } => {
-                        let emsg = error.unwrap_or_else(|| "unknown fatal error".to_string());
-                        warn!("fatal execute event for {msg_id}: {emsg}");
-                        return Err(IngestError::Execution(format!(
-                            "fatal execute event for {msg_id}: {emsg}"
-                        )));
-                    }
-                    PipelineEvent::Runnable(_) => {
-                        return Err(IngestError::Execution(
-                            "executor emitted invalid event".to_string(),
-                        ));
-                    }
-                }
-            }
-        }
-
-        for (epoch, results) in by_epoch {
-            let sink = Arc::clone(&commit_sink);
-            let committed = tokio::task::spawn_blocking(move || sink.commit_epoch(epoch, results))
-                .await
-                .map_err(|e| IngestError::Execution(format!("commit join failure: {e}")))??;
-            stats.committed_batches += committed;
-        }
-    }
-
-    drop(deferred_tx);
-    stats.deferred_persisted = deferred_handle
-        .await
-        .map_err(|e| IngestError::Execution(format!("kernel deferred join failure: {e}")))??;
-
-    metrics.observe_queue_depth("kernel_runnable_total", stats.runnable_messages);
-    metrics.observe_queue_depth(
-        "kernel_deferred_total",
-        stats.deferred_from_schedule + stats.deferred_from_execute,
-    );
-    metrics.observe_queue_depth("kernel_deferred_persisted", stats.deferred_persisted);
 
     Ok(stats)
+}
+
+async fn process_message<P, Op>(
+    message: Message<P>,
+    scheduler: DynScheduler<P, Op>,
+    executor: DynExecutor<P, Op>,
+    commit_sink: DynCommitSink<Op>,
+    deferred_tx: mpsc::Sender<Message<P>>,
+    metrics: DynRuntimeMetrics,
+) -> Result<MessageRunStats, IngestError>
+where
+    P: Clone + Send + Sync + 'static,
+    Op: Send + Sync + 'static,
+{
+    let mut stats = MessageRunStats::default();
+
+    let scheduler_cloned = Arc::clone(&scheduler);
+    let schedule_events =
+        tokio::task::spawn_blocking(move || scheduler_cloned.schedule(vec![message]))
+            .await
+            .map_err(|e| IngestError::Execution(format!("schedule join failure: {e}")))??;
+
+    for event in schedule_events {
+        match event {
+            PipelineEvent::Runnable(msg) => {
+                stats.runnable_messages += 1;
+                let msg_stats = execute_runnable(
+                    msg,
+                    Arc::clone(&executor),
+                    Arc::clone(&commit_sink),
+                    deferred_tx.clone(),
+                )
+                .await?;
+                stats.deferred_from_execute += msg_stats.deferred_from_execute;
+                stats.committed_batches += msg_stats.committed_batches;
+            }
+            PipelineEvent::Deferred(msg) => {
+                stats.deferred_from_schedule += 1;
+                deferred_tx.send(msg).await.map_err(|_| {
+                    IngestError::Execution("kernel deferred channel closed".to_string())
+                })?;
+            }
+            _ => {
+                return Err(IngestError::Execution(
+                    "scheduler emitted invalid event".to_string(),
+                ));
+            }
+        }
+    }
+
+    metrics.observe_throughput("kernel_message", 1);
+    Ok(stats)
+}
+
+#[derive(Default)]
+struct RunnableRunStats {
+    deferred_from_execute: usize,
+    committed_batches: usize,
+}
+
+async fn execute_runnable<P, Op>(
+    message: Message<P>,
+    executor: DynExecutor<P, Op>,
+    commit_sink: DynCommitSink<Op>,
+    deferred_tx: mpsc::Sender<Message<P>>,
+) -> Result<RunnableRunStats, IngestError>
+where
+    P: Clone + Send + Sync + 'static,
+    Op: Send + Sync + 'static,
+{
+    let mut stats = RunnableRunStats::default();
+
+    let executor_cloned = Arc::clone(&executor);
+    let execute_events = tokio::task::spawn_blocking(move || executor_cloned.execute(message))
+        .await
+        .map_err(|e| IngestError::Execution(format!("execute join failure: {e}")))??;
+
+    let mut by_epoch: BTreeMap<u64, Vec<ExecutionResult<Op>>> = BTreeMap::new();
+    for event in execute_events {
+        match event {
+            PipelineEvent::Executed { epoch, result } => {
+                by_epoch.entry(epoch).or_default().push(result);
+            }
+            PipelineEvent::Deferred(msg) => {
+                stats.deferred_from_execute += 1;
+                deferred_tx.send(msg).await.map_err(|_| {
+                    IngestError::Execution("kernel deferred channel closed".to_string())
+                })?;
+            }
+            PipelineEvent::Fatal { msg_id, error } => {
+                let emsg = error.unwrap_or_else(|| "unknown fatal error".to_string());
+                warn!("fatal execute event for {msg_id}: {emsg}");
+                return Err(IngestError::Execution(format!(
+                    "fatal execute event for {msg_id}: {emsg}"
+                )));
+            }
+            PipelineEvent::Runnable(_) => {
+                return Err(IngestError::Execution(
+                    "executor emitted invalid event".to_string(),
+                ));
+            }
+        }
+    }
+
+    for (epoch, results) in by_epoch {
+        let sink = Arc::clone(&commit_sink);
+        let committed = tokio::task::spawn_blocking(move || sink.commit_epoch(epoch, results))
+            .await
+            .map_err(|e| IngestError::Execution(format!("commit join failure: {e}")))??;
+        stats.committed_batches += committed;
+    }
+
+    Ok(stats)
+}
+
+async fn persist_deferred<P>(
+    deferred_store: DynDeferredStore<P>,
+    message: Message<P>,
+) -> Result<(), IngestError>
+where
+    P: Clone + Send + Sync + 'static,
+{
+    tokio::task::spawn_blocking(move || deferred_store.push(message))
+        .await
+        .map_err(|e| IngestError::Execution(format!("deferred sink join failure: {e}")))?
+}
+
+async fn pop_ready_messages<P>(
+    deferred_store: DynDeferredStore<P>,
+    limit: usize,
+) -> Result<Vec<Message<P>>, IngestError>
+where
+    P: Clone + Send + Sync + 'static,
+{
+    tokio::task::spawn_blocking(move || deferred_store.pop_ready(limit.max(1)))
+        .await
+        .map_err(|e| IngestError::Execution(format!("deferred replay join failure: {e}")))?
 }

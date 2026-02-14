@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::{Mutex, mpsc};
 
@@ -7,9 +6,11 @@ use crate::error::IngestError;
 use crate::traits::{CommitSink, DeferredStore, Executor, RuntimeMetrics, Scheduler};
 use crate::types::{DependencyReadyEvent, Message, RuntimeConfig};
 
+pub mod flow_control;
 pub mod kernel;
 
-pub use kernel::{KernelConfig, PipelineBus, TokioPipelineBus};
+pub use flow_control::FlowControlConfig;
+pub use kernel::{PipelineBus, TokioPipelineBus};
 
 pub type DynScheduler<P, Op> = Arc<dyn Scheduler<P, Op> + Send + Sync>;
 pub type DynExecutor<P, Op> = Arc<dyn Executor<P, Op> + Send + Sync>;
@@ -82,8 +83,7 @@ where
     pub commit_sink: DynCommitSink<Op>,
     pub bus: DynPipelineBus<P, Op>,
     pub metrics: DynRuntimeMetrics,
-    pub kernel_config: KernelConfig,
-    deferred_poll_limit: usize,
+    pub flow_control: FlowControlConfig,
     intake_tx: mpsc::Sender<Message<P>>,
     pipeline_channels: Mutex<Option<kernel::BusChannels<P>>>,
     _marker: std::marker::PhantomData<Op>,
@@ -95,8 +95,8 @@ where
     Op: Send + Sync + 'static,
 {
     pub fn new(config: RuntimeConfig, components: RuntimeComponents<P, Op>) -> Self {
-        let kernel_config = KernelConfig::from(&config);
-        let channels = components.bus.open_channels(kernel_config.channel_capacity);
+        let flow_control = FlowControlConfig::from(&config);
+        let channels = components.bus.open_channels(flow_control.channel_capacity);
         let intake_tx = channels.intake_tx.clone();
 
         Self {
@@ -106,8 +106,7 @@ where
             commit_sink: components.commit_sink,
             bus: components.bus,
             metrics: components.metrics,
-            kernel_config,
-            deferred_poll_limit: config.deferred_poll_limit.max(1),
+            flow_control,
             intake_tx,
             pipeline_channels: Mutex::new(Some(channels)),
             _marker: std::marker::PhantomData,
@@ -137,42 +136,8 @@ where
             .await
             .take()
             .ok_or_else(|| IngestError::Execution("runtime already started".to_string()))?;
-        let replay_tx = self.intake_tx.clone();
 
-        let deferred_store = Arc::clone(&self.deferred_store);
-        let deferred_poll_limit = self.deferred_poll_limit;
-        let replay_task = {
-            let idle_sleep = Duration::from_millis(self.kernel_config.idle_sleep_ms.max(1));
-            tokio::spawn(async move {
-                loop {
-                    let store = Arc::clone(&deferred_store);
-                    let ready =
-                        tokio::task::spawn_blocking(move || store.pop_ready(deferred_poll_limit))
-                            .await
-                            .map_err(|e| {
-                                IngestError::Execution(format!(
-                                    "deferred replay join failure: {e}"
-                                ))
-                            })??;
-
-                    if ready.is_empty() {
-                        tokio::time::sleep(idle_sleep).await;
-                        continue;
-                    }
-                    for msg in ready {
-                        replay_tx.send(msg).await.map_err(|_| {
-                            IngestError::Execution(
-                                "deferred replay failed: intake channel closed".to_string(),
-                            )
-                        })?;
-                    }
-                }
-                #[allow(unreachable_code)]
-                Ok::<(), IngestError>(())
-            })
-        };
-
-        let kernel_config = self.kernel_config.clone();
+        let flow_control = self.flow_control.clone();
         let scheduler = Arc::clone(&self.scheduler);
         let executor = Arc::clone(&self.executor);
         let deferred_store = Arc::clone(&self.deferred_store);
@@ -186,27 +151,22 @@ where
                 deferred_store,
                 commit_sink,
                 metrics,
-                &kernel_config,
+                &flow_control,
             )
             .await
         });
 
-        tokio::select! {
-            res = replay_task => {
-                res.map_err(|e| IngestError::Execution(format!("replay task join failure: {e}")))??;
-                Err(IngestError::Execution("replay task exited unexpectedly".to_string()))
-            }
-            res = kernel_task => {
-                let stats = res.map_err(|e| IngestError::Execution(format!("kernel task join failure: {e}")))??;
-                Err(IngestError::Execution(format!(
-                    "kernel task exited unexpectedly (runnable={}, deferred_sched={}, deferred_exec={}, deferred_persisted={}, committed={})",
-                    stats.runnable_messages,
-                    stats.deferred_from_schedule,
-                    stats.deferred_from_execute,
-                    stats.deferred_persisted,
-                    stats.committed_batches
-                )))
-            }
-        }
+        let stats = kernel_task
+            .await
+            .map_err(|e| IngestError::Execution(format!("kernel task join failure: {e}")))??;
+
+        Err(IngestError::Execution(format!(
+            "kernel task exited unexpectedly (runnable={}, deferred_sched={}, deferred_exec={}, deferred_persisted={}, committed={})",
+            stats.runnable_messages,
+            stats.deferred_from_schedule,
+            stats.deferred_from_execute,
+            stats.deferred_persisted,
+            stats.committed_batches
+        )))
     }
 }

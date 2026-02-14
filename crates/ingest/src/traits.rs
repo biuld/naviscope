@@ -1,10 +1,9 @@
 use crate::error::IngestError;
-use crate::types::{
-    DependencyReadyEvent, ExecutionResult, Message, PipelineEvent,
-};
+use crate::types::{DependencyReadyEvent, ExecutionResult, Message, PipelineEvent};
 
 pub trait Scheduler<P, Op>: Send + Sync {
-    fn schedule(&self, messages: Vec<Message<P>>) -> Result<Vec<PipelineEvent<P, Op>>, IngestError>;
+    fn schedule(&self, messages: Vec<Message<P>>)
+    -> Result<Vec<PipelineEvent<P, Op>>, IngestError>;
 }
 
 pub trait Executor<P, Op>: Send + Sync {
@@ -18,8 +17,11 @@ pub trait DeferredStore<P>: Send + Sync {
 }
 
 pub trait CommitSink<Op>: Send + Sync {
-    fn commit_epoch(&self, epoch: u64, results: Vec<ExecutionResult<Op>>)
-    -> Result<usize, IngestError>;
+    fn commit_epoch(
+        &self,
+        epoch: u64,
+        results: Vec<ExecutionResult<Op>>,
+    ) -> Result<usize, IngestError>;
 }
 
 pub trait RuntimeMetrics: Send + Sync {

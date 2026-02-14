@@ -3,10 +3,13 @@ use std::sync::{Arc, Mutex};
 
 use naviscope_ingest::runtime::kernel;
 use naviscope_ingest::{
-    CommitSink, DeferredStore, Executor, IngestError, IngestRuntime, KernelConfig, PipelineBus,
-    PipelineEvent, RuntimeComponents, RuntimeConfig, RuntimeMetrics, Scheduler, TokioPipelineBus,
+    CommitSink, DeferredStore, Executor, FlowControlConfig, IngestError, IngestRuntime,
+    PipelineBus, PipelineEvent, RuntimeComponents, RuntimeConfig, RuntimeMetrics, Scheduler,
+    TokioPipelineBus,
 };
-use naviscope_ingest::{DependencyReadyEvent, DependencyRef, ExecutionResult, ExecutionStatus, Message};
+use naviscope_ingest::{
+    DependencyReadyEvent, DependencyRef, ExecutionResult, ExecutionStatus, Message,
+};
 
 fn message(id: &str, epoch: u64, payload: u8) -> Message<u8> {
     Message {
@@ -23,7 +26,10 @@ fn message(id: &str, epoch: u64, payload: u8) -> Message<u8> {
 
 struct TestScheduler;
 impl Scheduler<u8, String> for TestScheduler {
-    fn schedule(&self, messages: Vec<Message<u8>>) -> Result<Vec<PipelineEvent<u8, String>>, IngestError> {
+    fn schedule(
+        &self,
+        messages: Vec<Message<u8>>,
+    ) -> Result<Vec<PipelineEvent<u8, String>>, IngestError> {
         Ok(messages
             .into_iter()
             .map(|m| {
@@ -69,7 +75,10 @@ struct TestDeferredStore {
 }
 impl DeferredStore<u8> for TestDeferredStore {
     fn push(&self, message: Message<u8>) -> Result<(), IngestError> {
-        self.pushed.lock().expect("lock poisoned").push(message.msg_id);
+        self.pushed
+            .lock()
+            .expect("lock poisoned")
+            .push(message.msg_id);
         Ok(())
     }
 
@@ -99,7 +108,10 @@ impl CommitSink<String> for TestCommitSink {
         results: Vec<ExecutionResult<String>>,
     ) -> Result<usize, IngestError> {
         let size = results.len();
-        self.commits.lock().expect("lock poisoned").push((epoch, size));
+        self.commits
+            .lock()
+            .expect("lock poisoned")
+            .push((epoch, size));
         Ok(usize::from(size > 0))
     }
 }
@@ -114,7 +126,10 @@ impl RuntimeMetrics for TestMetrics {
 
 struct InvalidEventScheduler;
 impl Scheduler<u8, String> for InvalidEventScheduler {
-    fn schedule(&self, messages: Vec<Message<u8>>) -> Result<Vec<PipelineEvent<u8, String>>, IngestError> {
+    fn schedule(
+        &self,
+        messages: Vec<Message<u8>>,
+    ) -> Result<Vec<PipelineEvent<u8, String>>, IngestError> {
         let m = messages
             .into_iter()
             .next()
@@ -143,7 +158,9 @@ async fn kernel_commits_runnable_messages() {
     let channels = <TokioPipelineBus as PipelineBus<u8, String>>::open_channels(&bus, 8);
     let tx = channels.intake_tx.clone();
 
-    tx.send(message("m1", 7, 1)).await.expect("send should work");
+    tx.send(message("m1", 7, 1))
+        .await
+        .expect("send should work");
     drop(tx);
 
     let stats = kernel::run_pipeline(
@@ -153,10 +170,10 @@ async fn kernel_commits_runnable_messages() {
         store,
         sink.clone(),
         metrics,
-        &KernelConfig {
+        &FlowControlConfig {
             channel_capacity: 8,
-            schedule_batch_size: 1,
-            execute_batch_size: 1,
+            max_in_flight: 8,
+            deferred_poll_limit: 8,
             idle_sleep_ms: 1,
         },
     )
@@ -165,7 +182,10 @@ async fn kernel_commits_runnable_messages() {
 
     assert_eq!(stats.runnable_messages, 1);
     assert_eq!(stats.committed_batches, 1);
-    assert_eq!(sink.commits.lock().expect("lock poisoned").as_slice(), &[(7, 1)]);
+    assert_eq!(
+        sink.commits.lock().expect("lock poisoned").as_slice(),
+        &[(7, 1)]
+    );
 }
 
 #[tokio::test]
@@ -194,10 +214,10 @@ async fn kernel_persists_deferred_from_both_paths() {
         store.clone(),
         sink,
         metrics,
-        &KernelConfig {
+        &FlowControlConfig {
             channel_capacity: 8,
-            schedule_batch_size: 1,
-            execute_batch_size: 1,
+            max_in_flight: 8,
+            deferred_poll_limit: 8,
             idle_sleep_ms: 1,
         },
     )
@@ -262,10 +282,10 @@ async fn kernel_flushes_partial_batches_on_channel_close() {
         store,
         sink.clone(),
         metrics,
-        &KernelConfig {
+        &FlowControlConfig {
             channel_capacity: 8,
-            schedule_batch_size: 16,
-            execute_batch_size: 16,
+            max_in_flight: 8,
+            deferred_poll_limit: 8,
             idle_sleep_ms: 1,
         },
     )
@@ -274,7 +294,10 @@ async fn kernel_flushes_partial_batches_on_channel_close() {
 
     assert_eq!(stats.runnable_messages, 1);
     assert_eq!(stats.committed_batches, 1);
-    assert_eq!(sink.commits.lock().expect("lock poisoned").as_slice(), &[(9, 1)]);
+    assert_eq!(
+        sink.commits.lock().expect("lock poisoned").as_slice(),
+        &[(9, 1)]
+    );
 }
 
 #[tokio::test]
@@ -300,10 +323,10 @@ async fn kernel_errors_on_executor_fatal_event() {
         store,
         sink,
         metrics,
-        &KernelConfig {
+        &FlowControlConfig {
             channel_capacity: 8,
-            schedule_batch_size: 1,
-            execute_batch_size: 1,
+            max_in_flight: 8,
+            deferred_poll_limit: 8,
             idle_sleep_ms: 1,
         },
     )
@@ -338,10 +361,10 @@ async fn kernel_errors_on_invalid_scheduler_event() {
         store,
         sink,
         metrics,
-        &KernelConfig {
+        &FlowControlConfig {
             channel_capacity: 8,
-            schedule_batch_size: 1,
-            execute_batch_size: 1,
+            max_in_flight: 8,
+            deferred_poll_limit: 8,
             idle_sleep_ms: 1,
         },
     )

@@ -101,12 +101,12 @@ This unblocks replay via `DeferredStore`.
 ## Runtime Flow
 
 1. Producers push `Message<P>` into intake channel.
-2. Kernel batches intake messages and calls `Scheduler`.
+2. Kernel applies flow control (`max_in_flight`) and schedules each message.
 3. `Scheduler` emits `PipelineEvent` values.
-4. `Runnable` messages are batched and executed by `Executor` (rayon parallel path).
-5. `Executed` events are grouped by epoch and sent to `CommitSink`.
+4. `Runnable` messages are executed immediately by `Executor`.
+5. `Executed` events are grouped by epoch (within one message execution) and sent to `CommitSink`.
 6. `Deferred` events go to deferred channel and are persisted by deferred sink.
-7. Replay loop polls `DeferredStore::pop_ready(limit)` and re-enqueues ready messages.
+7. Kernel replay loop polls `DeferredStore::pop_ready(limit)` and reinjects ready messages.
 
 ## Backpressure and Memory
 
@@ -118,8 +118,7 @@ This unblocks replay via `DeferredStore`.
 
 - `deferred_poll_limit`: max replay load per poll cycle.
 - `kernel_channel_capacity`: channel capacity for intake/deferred.
-- `schedule_batch_size`: scheduler batch size.
-- `execute_batch_size`: executor batch size.
+- `max_in_flight`: max concurrent message workers inside kernel.
 - `idle_sleep_ms`: replay loop sleep when no ready deferred message exists.
 
 ## Correctness Assumptions

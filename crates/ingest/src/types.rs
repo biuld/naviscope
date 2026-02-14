@@ -82,16 +82,21 @@ pub struct DependencyReadyEvent {
 pub enum PipelineEvent<P, Op> {
     Runnable(Message<P>),
     Deferred(Message<P>),
-    Executed { epoch: u64, result: ExecutionResult<Op> },
-    Fatal { msg_id: MessageId, error: Option<String> },
+    Executed {
+        epoch: u64,
+        result: ExecutionResult<Op>,
+    },
+    Fatal {
+        msg_id: MessageId,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub deferred_poll_limit: usize,
     pub kernel_channel_capacity: usize,
-    pub schedule_batch_size: usize,
-    pub execute_batch_size: usize,
+    pub max_in_flight: usize,
     pub idle_sleep_ms: u64,
 }
 
@@ -100,8 +105,7 @@ impl Default for RuntimeConfig {
         Self {
             deferred_poll_limit: 256,
             kernel_channel_capacity: 256,
-            schedule_batch_size: 256,
-            execute_batch_size: 256,
+            max_in_flight: 256,
             idle_sleep_ms: 10,
         }
     }
