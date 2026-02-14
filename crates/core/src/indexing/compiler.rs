@@ -1,16 +1,25 @@
 use crate::error::Result;
 use crate::indexing::scanner::ParsedFile;
+use crate::indexing::source_runtime::{self, SourceCompilerRuntime};
 use crate::model::GraphOp;
-use naviscope_plugin::{BuildCaps, BuildContent, ParsedContent, ProjectContext};
+use naviscope_plugin::{BuildCaps, BuildContent, LanguageCaps, ParsedContent, ProjectContext};
 use std::fs;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 pub struct BatchCompiler {
     build_caps: Vec<BuildCaps>,
+    source_compiler_runtime: tokio::sync::OnceCell<Arc<SourceCompilerRuntime>>,
+    pending_stub_requests: Mutex<Vec<crate::indexing::StubRequest>>,
 }
 
 impl BatchCompiler {
     pub fn with_caps(build_caps: Vec<BuildCaps>) -> Self {
-        Self { build_caps }
+        Self {
+            build_caps,
+            source_compiler_runtime: tokio::sync::OnceCell::const_new(),
+            pending_stub_requests: Mutex::new(Vec::new()),
+        }
     }
 
     pub fn compile_build_batch(
@@ -40,6 +49,109 @@ impl BatchCompiler {
             }
         }
         Ok(all_ops)
+    }
+
+    pub async fn start_source_runtime(
+        current: Arc<tokio::sync::RwLock<Arc<crate::model::CodeGraph>>>,
+        naming_conventions: Arc<
+            std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>,
+        >,
+        build_caps: Arc<Vec<BuildCaps>>,
+        lang_caps: Arc<Vec<LanguageCaps>>,
+        stub_cache: Arc<crate::cache::GlobalStubCache>,
+    ) -> Result<SourceCompilerRuntime> {
+        SourceCompilerRuntime::start(
+            current,
+            naming_conventions,
+            build_caps,
+            lang_caps,
+            stub_cache,
+        )
+        .await
+    }
+
+    pub async fn ensure_source_compiler_runtime(
+        &self,
+        current: Arc<tokio::sync::RwLock<Arc<crate::model::CodeGraph>>>,
+        naming_conventions: Arc<
+            std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>,
+        >,
+        build_caps: Arc<Vec<BuildCaps>>,
+        lang_caps: Arc<Vec<LanguageCaps>>,
+        stub_cache: Arc<crate::cache::GlobalStubCache>,
+    ) -> Result<Arc<SourceCompilerRuntime>> {
+        let runtime = self
+            .source_compiler_runtime
+            .get_or_try_init(|| async {
+                Self::start_source_runtime(
+                    current,
+                    naming_conventions,
+                    build_caps,
+                    lang_caps,
+                    stub_cache,
+                )
+                .await
+                .map(Arc::new)
+            })
+            .await
+            .map(Arc::clone)?;
+
+        let drained = match self.pending_stub_requests.lock() {
+            Ok(mut pending) => pending.drain(..).collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
+        for req in drained {
+            if let Err(err) = Self::submit_stub_request(runtime.as_ref(), req).await {
+                tracing::warn!("Failed to submit deferred stub request: {}", err);
+            }
+        }
+
+        Ok(runtime)
+    }
+
+    pub async fn compile_source_batch(
+        runtime: &SourceCompilerRuntime,
+        source_files: Vec<ParsedFile>,
+        project_context: ProjectContext,
+        routes: std::collections::HashMap<String, Vec<PathBuf>>,
+    ) -> Result<()> {
+        runtime
+            .submit_source_batch(source_files, project_context, routes)
+            .await
+    }
+
+    pub async fn submit_stub_request(
+        runtime: &SourceCompilerRuntime,
+        req: crate::indexing::StubRequest,
+    ) -> Result<()> {
+        runtime.submit_stub_request(req).await
+    }
+
+    pub fn try_submit_stub_request(
+        runtime: &SourceCompilerRuntime,
+        req: crate::indexing::StubRequest,
+    ) -> Result<()> {
+        runtime.try_submit_stub_request(req)
+    }
+
+    pub fn try_submit_or_enqueue_stub_request(&self, req: crate::indexing::StubRequest) -> bool {
+        if let Some(runtime) = self.source_compiler_runtime.get() {
+            return runtime.try_submit_stub_request(req).is_ok();
+        }
+
+        if let Ok(mut pending) = self.pending_stub_requests.lock() {
+            pending.push(req);
+            return true;
+        }
+
+        false
+    }
+
+    pub fn plan_stub_requests(
+        ops: &[GraphOp],
+        routes: &std::collections::HashMap<String, Vec<PathBuf>>,
+    ) -> Vec<crate::indexing::StubRequest> {
+        source_runtime::plan_stub_requests(ops, routes)
     }
 
     fn prepare_build_file(caps: &BuildCaps, file: &ParsedFile) -> Result<ParsedFile> {

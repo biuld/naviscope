@@ -6,7 +6,6 @@ pub mod util;
 
 pub mod facade;
 pub mod features;
-pub mod ingest;
 pub mod indexing;
 pub mod model;
 pub mod runtime;

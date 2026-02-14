@@ -2,6 +2,7 @@
 
 use crate::asset::service::AssetStubService;
 use crate::error::{NaviscopeError, Result};
+use crate::indexing::compiler::BatchCompiler;
 use crate::indexing::scanner::Scanner;
 use crate::indexing::StubRequest;
 use crate::model::{CodeGraph, GraphOp};
@@ -10,7 +11,7 @@ use naviscope_plugin::{
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -52,11 +53,8 @@ pub struct NaviscopeEngine {
     /// Global asset service (new architecture)
     asset_service: Option<Arc<AssetStubService>>,
 
-    /// Resident ingest runtime for source/stub indexing.
-    ingest_adapter: tokio::sync::OnceCell<Arc<crate::ingest::IngestAdapter>>,
-
-    /// Stub requests captured before ingest runtime is initialized.
-    pending_stub_requests: Mutex<Vec<StubRequest>>,
+    /// Source compiler facade that owns source runtime lifecycle.
+    batch_compiler: Arc<BatchCompiler>,
 }
 
 pub struct NaviscopeEngineBuilder {
@@ -164,18 +162,21 @@ impl NaviscopeEngineBuilder {
             None
         };
 
+        let build_caps = Arc::new(self.build_caps);
+        let lang_caps = Arc::new(self.lang_caps);
+        let batch_compiler = Arc::new(BatchCompiler::with_caps((*build_caps).clone()));
+
         NaviscopeEngine {
             current: Arc::new(RwLock::new(Arc::new(CodeGraph::empty()))),
             project_root: canonical_root,
             index_path,
-            build_caps: Arc::new(self.build_caps),
-            lang_caps: Arc::new(self.lang_caps),
+            build_caps,
+            lang_caps,
             naming_conventions: Arc::new(conventions),
             cancel_token,
             stub_cache,
             asset_service,
-            ingest_adapter: tokio::sync::OnceCell::const_new(),
-            pending_stub_requests: Mutex::new(Vec::new()),
+            batch_compiler,
         }
     }
 }
@@ -260,6 +261,22 @@ impl NaviscopeEngine {
         self.naming_conventions.clone()
     }
 
+    pub(crate) fn build_caps_arc(&self) -> Arc<Vec<BuildCaps>> {
+        Arc::clone(&self.build_caps)
+    }
+
+    pub(crate) fn lang_caps_arc(&self) -> Arc<Vec<LanguageCaps>> {
+        Arc::clone(&self.lang_caps)
+    }
+
+    pub(crate) fn current_graph_arc(&self) -> Arc<RwLock<Arc<CodeGraph>>> {
+        Arc::clone(&self.current)
+    }
+
+    pub(crate) fn stub_cache_arc(&self) -> Arc<crate::cache::GlobalStubCache> {
+        Arc::clone(&self.stub_cache)
+    }
+
     /// Get the asset service (if available)
     pub fn asset_service(&self) -> Option<&Arc<AssetStubService>> {
         self.asset_service.as_ref()
@@ -283,16 +300,7 @@ impl NaviscopeEngine {
             candidate_paths,
         };
 
-        if let Some(runtime) = self.ingest_adapter.get() {
-            return runtime.try_submit_stub_request(req).is_ok();
-        }
-
-        if let Ok(mut pending) = self.pending_stub_requests.lock() {
-            pending.push(req);
-            return true;
-        }
-
-        false
+        self.batch_compiler.try_submit_or_enqueue_stub_request(req)
     }
 
     /// Run the global asset scan and populate routes

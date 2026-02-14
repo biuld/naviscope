@@ -24,7 +24,7 @@ use metrics::NoopRuntimeMetrics;
 pub use stub_ops::plan_stub_requests;
 
 #[derive(Clone)]
-pub enum IngestWorkItem {
+pub enum SourceCompileWorkItem {
     SourceCollect(ParsedFile),
     SourceAnalyze(ParsedFile),
     SourceLower(ParsedFile),
@@ -37,14 +37,14 @@ struct StagedSourceItem {
     collect_id: String,
 }
 
-pub struct IngestAdapter {
-    intake: IntakeHandle<IngestWorkItem>,
+pub struct SourceCompilerRuntime {
+    intake: IntakeHandle<SourceCompileWorkItem>,
     project_context: Arc<RwLock<ProjectContext>>,
     routes: Arc<RwLock<HashMap<String, Vec<PathBuf>>>>,
     runtime_task: tokio::task::JoinHandle<()>,
 }
 
-impl IngestAdapter {
+impl SourceCompilerRuntime {
     pub async fn start(
         current: Arc<tokio::sync::RwLock<Arc<CodeGraph>>>,
         naming_conventions: Arc<HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>>,
@@ -54,7 +54,7 @@ impl IngestAdapter {
     ) -> Result<Self> {
         let project_context = Arc::new(RwLock::new(ProjectContext::new()));
         let routes = Arc::new(RwLock::new(HashMap::new()));
-        let executor: naviscope_ingest::DynExecutor<IngestWorkItem, GraphOp> =
+        let executor: naviscope_ingest::DynExecutor<SourceCompileWorkItem, GraphOp> =
             Arc::new(IngestExecutor {
                 lang_caps,
                 project_context: Arc::clone(&project_context),
@@ -64,7 +64,7 @@ impl IngestAdapter {
                 collect_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 analyze_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
             });
-        let deferred_store: naviscope_ingest::DynDeferredStore<IngestWorkItem> =
+        let deferred_store: naviscope_ingest::DynDeferredStore<SourceCompileWorkItem> =
             Arc::new(InMemoryDeferredQueue::default());
         let commit_sink: naviscope_ingest::DynCommitSink<GraphOp> = Arc::new(CommitGraphSink {
             current,
@@ -91,7 +91,7 @@ impl IngestAdapter {
         let runtime_clone = Arc::clone(&runtime);
         let runtime_task = tokio::spawn(async move {
             if let Err(err) = runtime_clone.run_forever().await {
-                tracing::warn!("ingest runtime stopped: {}", err);
+                tracing::warn!("source compiler runtime stopped: {}", err);
             }
         });
 
@@ -149,7 +149,7 @@ impl IngestAdapter {
                 version: 1,
                 depends_on: Vec::new(),
                 epoch,
-                payload: IngestWorkItem::SourceCollect(file.clone()),
+                payload: SourceCompileWorkItem::SourceCollect(file.clone()),
                 metadata: BTreeMap::new(),
             };
             self.intake
@@ -176,7 +176,7 @@ impl IngestAdapter {
             version: 1,
             depends_on: Vec::new(),
             epoch: 0,
-            payload: IngestWorkItem::StubRequest(req),
+            payload: SourceCompileWorkItem::StubRequest(req),
             metadata: BTreeMap::new(),
         };
         self.intake
@@ -194,7 +194,7 @@ impl IngestAdapter {
             version: 1,
             depends_on: Vec::new(),
             epoch: 0,
-            payload: IngestWorkItem::StubRequest(req),
+            payload: SourceCompileWorkItem::StubRequest(req),
             metadata: BTreeMap::new(),
         };
         self.intake
@@ -203,7 +203,7 @@ impl IngestAdapter {
     }
 }
 
-impl Drop for IngestAdapter {
+impl Drop for SourceCompilerRuntime {
     fn drop(&mut self) {
         self.runtime_task.abort();
     }

@@ -75,38 +75,6 @@ impl NaviscopeEngine {
         self.update_files(paths).await
     }
 
-    async fn ensure_ingest_adapter(
-        &self,
-    ) -> Result<Arc<crate::ingest::IngestAdapter>> {
-        let runtime = self
-            .ingest_adapter
-            .get_or_try_init(|| async {
-                crate::ingest::IngestAdapter::start(
-                    self.current.clone(),
-                    self.naming_conventions.clone(),
-                    self.build_caps.clone(),
-                    self.lang_caps.clone(),
-                    self.stub_cache.clone(),
-                )
-                .await
-                .map(Arc::new)
-            })
-            .await
-            .map(Arc::clone)?;
-
-        let drained = match self.pending_stub_requests.lock() {
-            Ok(mut pending) => pending.drain(..).collect::<Vec<_>>(),
-            Err(_) => Vec::new(),
-        };
-        for req in drained {
-            if let Err(err) = runtime.submit_stub_request(req).await {
-                tracing::warn!("Failed to submit deferred stub request: {}", err);
-            }
-        }
-
-        Ok(runtime)
-    }
-
     fn collect_existing_metadata(
         base_graph: &CodeGraph,
     ) -> std::collections::HashMap<PathBuf, crate::model::source::SourceFile> {
@@ -206,7 +174,16 @@ impl NaviscopeEngine {
             return Ok(());
         }
 
-        let ingest_adapter = self.ensure_ingest_adapter().await?;
+        let source_runtime = self
+            .batch_compiler
+            .ensure_source_compiler_runtime(
+                self.current_graph_arc(),
+                self.naming_conventions(),
+                self.build_caps_arc(),
+                self.lang_caps_arc(),
+                self.stub_cache_arc(),
+            )
+            .await?;
         let routes = self.global_asset_routes();
 
         for chunk in source_paths.chunks(SOURCE_SUBMIT_CHUNK_SIZE) {
@@ -222,9 +199,13 @@ impl NaviscopeEngine {
                 continue;
             }
 
-            ingest_adapter
-                .submit_source_batch(source_files, project_context.clone(), routes.clone())
-                .await?;
+            crate::indexing::compiler::BatchCompiler::compile_source_batch(
+                source_runtime.as_ref(),
+                source_files,
+                project_context.clone(),
+                routes.clone(),
+            )
+            .await?;
         }
         Ok(())
     }

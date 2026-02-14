@@ -1,5 +1,6 @@
 pub mod compiler;
 pub mod scanner;
+pub(crate) mod source_runtime;
 
 pub use naviscope_plugin::IndexNode;
 

@@ -10,9 +10,9 @@ use naviscope_plugin::{
 };
 
 use crate::indexing::StubRequest;
-use crate::ingest::IngestWorkItem;
 use crate::model::{CodeGraph, GraphOp};
 
+use super::SourceCompileWorkItem;
 use super::stub_ops::{find_asset_for_fqn, generate_stub_ops, plan_stub_requests};
 
 pub struct IngestExecutor {
@@ -25,15 +25,15 @@ pub struct IngestExecutor {
     pub analyze_cache: Arc<Mutex<HashMap<PathBuf, Box<dyn SourceAnalyzeArtifact>>>>,
 }
 
-impl Executor<IngestWorkItem, GraphOp> for IngestExecutor {
+impl Executor<SourceCompileWorkItem, GraphOp> for IngestExecutor {
     fn execute(
         &self,
-        message: naviscope_ingest::Message<IngestWorkItem>,
-    ) -> Result<Vec<PipelineEvent<IngestWorkItem, GraphOp>>, IngestError> {
+        message: naviscope_ingest::Message<SourceCompileWorkItem>,
+    ) -> Result<Vec<PipelineEvent<SourceCompileWorkItem, GraphOp>>, IngestError> {
         let parent_msg_id = message.msg_id.clone();
         let epoch = message.epoch;
         match message.payload.clone() {
-            IngestWorkItem::SourceCollect(file) => {
+            SourceCompileWorkItem::SourceCollect(file) => {
                 let dep_state = self.execute_collect(file.clone())?;
                 let analyze_msg = naviscope_ingest::Message {
                     msg_id: next_stage_msg_id(&parent_msg_id, "collect", "analyze"),
@@ -47,7 +47,7 @@ impl Executor<IngestWorkItem, GraphOp> for IngestExecutor {
                         .map(|s| DependencyRef::resource(s, None))
                         .collect(),
                     epoch,
-                    payload: IngestWorkItem::SourceAnalyze(file),
+                    payload: SourceCompileWorkItem::SourceAnalyze(file),
                     metadata: BTreeMap::new(),
                 };
                 Ok(vec![
@@ -64,7 +64,7 @@ impl Executor<IngestWorkItem, GraphOp> for IngestExecutor {
                     PipelineEvent::Deferred(analyze_msg),
                 ])
             }
-            IngestWorkItem::SourceAnalyze(file) => {
+            SourceCompileWorkItem::SourceAnalyze(file) => {
                 self.execute_analyze(file.clone())?;
                 let lower_msg = naviscope_ingest::Message {
                     msg_id: next_stage_msg_id(&parent_msg_id, "analyze", "lower"),
@@ -73,7 +73,7 @@ impl Executor<IngestWorkItem, GraphOp> for IngestExecutor {
                     version: 1,
                     depends_on: vec![DependencyRef::message(parent_msg_id.clone())],
                     epoch,
-                    payload: IngestWorkItem::SourceLower(file),
+                    payload: SourceCompileWorkItem::SourceLower(file),
                     metadata: BTreeMap::new(),
                 };
                 Ok(vec![
@@ -90,7 +90,7 @@ impl Executor<IngestWorkItem, GraphOp> for IngestExecutor {
                     PipelineEvent::Deferred(lower_msg),
                 ])
             }
-            IngestWorkItem::SourceLower(file) => {
+            SourceCompileWorkItem::SourceLower(file) => {
                 let outcome = self.execute_lower(file)?;
                 Ok(vec![PipelineEvent::Executed {
                     epoch,
@@ -103,7 +103,7 @@ impl Executor<IngestWorkItem, GraphOp> for IngestExecutor {
                     },
                 }])
             }
-            IngestWorkItem::StubRequest(req) => {
+            SourceCompileWorkItem::StubRequest(req) => {
                 let operations = self.execute_stub(req);
                 Ok(vec![PipelineEvent::Executed {
                     epoch,
