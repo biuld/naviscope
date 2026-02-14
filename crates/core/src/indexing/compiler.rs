@@ -1,7 +1,8 @@
 use crate::error::Result;
 use crate::indexing::scanner::ParsedFile;
 use crate::model::{GraphOp, ResolvedUnit};
-use naviscope_plugin::{BuildCaps, LanguageCaps, ProjectContext};
+use naviscope_plugin::{BuildCaps, BuildContent, LanguageCaps, ParsedContent, ProjectContext};
+use std::fs;
 
 pub struct BatchCompiler {
     build_caps: Vec<BuildCaps>,
@@ -29,9 +30,14 @@ impl BatchCompiler {
                 .collect();
 
             if !tool_files.is_empty() {
+                let parsed_tool_files: Vec<ParsedFile> = tool_files
+                    .iter()
+                    .map(|f| Self::prepare_build_file(caps, f))
+                    .collect::<Result<Vec<_>>>()?;
+                let parsed_tool_file_refs: Vec<&ParsedFile> = parsed_tool_files.iter().collect();
                 let (unit, ctx) = caps
                     .indexing
-                    .compile_build(&tool_files)
+                    .compile_build(&parsed_tool_file_refs)
                     .map_err(crate::error::NaviscopeError::from)?;
                 all_ops.extend(unit.ops);
                 context.path_to_module.extend(ctx.path_to_module);
@@ -69,5 +75,37 @@ impl BatchCompiler {
             all_ops.extend(unit.ops);
         }
         Ok(all_ops)
+    }
+
+    fn prepare_build_file(caps: &BuildCaps, file: &ParsedFile) -> Result<ParsedFile> {
+        let source = match &file.content {
+            ParsedContent::Unparsed(s) => s.clone(),
+            ParsedContent::Lazy => fs::read_to_string(file.path()).map_err(|e| {
+                crate::error::NaviscopeError::Internal(format!(
+                    "Failed to read build file {}: {}",
+                    file.path().display(),
+                    e
+                ))
+            })?,
+            ParsedContent::Metadata(_) => return Ok(file.clone()),
+            ParsedContent::Language(_) => return Ok(file.clone()),
+        };
+
+        let parse_result = caps
+            .parser
+            .parse_build_file(&source)
+            .map_err(crate::error::NaviscopeError::from)?;
+
+        let content = match parse_result.content {
+            BuildContent::Metadata(value) => ParsedContent::Metadata(value),
+            BuildContent::Unparsed(text) => ParsedContent::Unparsed(text),
+            // Build indexing currently consumes Metadata/Unparsed; preserve source for this case.
+            BuildContent::Parsed(_) => ParsedContent::Unparsed(source),
+        };
+
+        Ok(ParsedFile {
+            file: file.file.clone(),
+            content,
+        })
     }
 }

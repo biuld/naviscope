@@ -37,20 +37,17 @@ impl Scanner {
             .collect()
     }
 
-    fn process_file_with_mtime(path: &Path, mtime: u64) -> Option<(SourceFile, Vec<u8>)> {
+    fn process_file_with_mtime(path: &Path, mtime: u64) -> Option<SourceFile> {
         let content = fs::read(path).ok()?;
         let mut hasher = Xxh3::new();
         hasher.write(&content);
         let hash = hasher.finish();
 
-        Some((
-            SourceFile {
-                path: path.to_path_buf(),
-                content_hash: hash,
-                last_modified: mtime,
-            },
-            content,
-        ))
+        Some(SourceFile {
+            path: path.to_path_buf(),
+            content_hash: hash,
+            last_modified: mtime,
+        })
     }
 
     fn parse_path(path: &Path, existing_files: &HashMap<PathBuf, SourceFile>) -> Option<ParsedFile> {
@@ -70,7 +67,7 @@ impl Scanner {
         }
 
         // 2. Read and hash content
-        let (source_file, content) = Self::process_file_with_mtime(path, modified)?;
+        let source_file = Self::process_file_with_mtime(path, modified)?;
 
         // 3. Double check hash (mtime might change but content remains same)
         if let Some(existing) = existing_files.get(path) {
@@ -79,19 +76,7 @@ impl Scanner {
             }
         }
 
-        let content_str = String::from_utf8(content).ok()?;
-        let file_name = path.file_name()?.to_str()?;
-
-        if file_name == "build.gradle"
-            || file_name == "build.gradle.kts"
-            || file_name == "settings.gradle"
-            || file_name == "settings.gradle.kts"
-        {
-            Some(ParsedFile {
-                file: source_file,
-                content: ParsedContent::Unparsed(content_str),
-            })
-        } else if path.extension().is_some() {
+        if path.extension().is_some() {
             Some(ParsedFile {
                 file: source_file,
                 content: ParsedContent::Lazy,

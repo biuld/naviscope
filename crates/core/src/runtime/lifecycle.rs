@@ -145,7 +145,10 @@ impl NaviscopeEngine {
             let mut build_files = Vec::new();
             let mut source_paths = Vec::new();
             for file in Scanner::scan_files_iter(to_scan, &existing_metadata) {
-                if file.is_build() {
+                if build_caps
+                    .iter()
+                    .any(|caps| caps.matcher.supports_path(file.path()))
+                {
                     build_files.push(file);
                 } else {
                     source_paths.push(file.path().to_path_buf());
