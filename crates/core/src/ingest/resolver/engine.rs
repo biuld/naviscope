@@ -269,22 +269,3 @@ impl IndexResolver {
         Ok(all_ops)
     }
 }
-
-impl crate::ingest::pipeline::PipelineStage<ProjectContext> for IndexResolver {
-    type Output = GraphOp;
-
-    fn process(
-        &self,
-        context: &ProjectContext,
-        paths: Vec<std::path::PathBuf>,
-    ) -> Result<Vec<Self::Output>> {
-        let files =
-            crate::ingest::scanner::Scanner::scan_files(paths, &std::collections::HashMap::new());
-        let (mut all_ops, _build, source) = self.prepare_and_partition(files);
-
-        let source_ops = self.resolve_source_batch(&source, context)?;
-        all_ops.extend(source_ops);
-
-        Ok(all_ops)
-    }
-}

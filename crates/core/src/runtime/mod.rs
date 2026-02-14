@@ -1,3 +1,4 @@
+pub mod ingest_adapter;
 pub mod orchestrator;
 pub mod watcher;
 

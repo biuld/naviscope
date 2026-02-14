@@ -1492,6 +1492,7 @@ dependencies = [
  "log",
  "lsp-types 0.97.0",
  "naviscope-api",
+ "naviscope-ingest",
  "naviscope-java",
  "naviscope-plugin",
  "notify",

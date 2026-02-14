@@ -30,6 +30,7 @@ lasso = { workspace = true }
 zstd = { workspace = true }
 naviscope-api = { workspace = true }
 naviscope-plugin = { workspace = true }
+naviscope-ingest = { workspace = true }
 async-trait = { workspace = true }
 url = { workspace = true }
 dirs = { workspace = true }
