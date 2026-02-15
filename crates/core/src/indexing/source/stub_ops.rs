@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
+use naviscope_api::models::EdgeType;
 use naviscope_api::models::graph::NodeSource;
 use naviscope_plugin::{AssetEntry, AssetSource, LanguageCaps};
 
@@ -85,16 +86,8 @@ pub fn generate_stub_ops(
     }
 
     for asset_path in &req.candidate_paths {
+        let entry = AssetEntry::new(asset_path.clone(), AssetSource::Unknown);
         let asset_key = crate::cache::AssetKey::from_path(asset_path).ok();
-
-        if let Some(ref key) = asset_key
-            && let Some(cached_stub) = stub_cache.lookup(key, &req.fqn)
-        {
-            ops.push(GraphOp::AddNode {
-                data: Some(cached_stub),
-            });
-            break;
-        }
 
         for caps in lang_caps.iter() {
             let Some(generator) = caps.asset.stub_generator() else {
@@ -103,20 +96,56 @@ pub fn generate_stub_ops(
             if !generator.can_generate(asset_path) {
                 continue;
             }
+            let cached_primary = asset_key
+                .as_ref()
+                .and_then(|k| stub_cache.lookup(k, &req.fqn));
 
-            let entry = AssetEntry::new(asset_path.clone(), AssetSource::Unknown);
-            match generator.generate(&req.fqn, &entry) {
-                Ok(stub) => {
-                    if let Some(ref key) = asset_key {
-                        stub_cache.store(key, &stub);
+            match generator.generate_stubs(&req.fqn, &entry) {
+                Ok(mut nodes) => {
+                    if let Some(cached) = cached_primary {
+                        let cached_fqn = cached.id.to_string();
+                        if !nodes.iter().any(|n| n.id.to_string() == cached_fqn) {
+                            nodes.insert(0, cached);
+                        }
                     }
-                    ops.push(GraphOp::AddNode { data: Some(stub) });
+
+                    if nodes.is_empty() {
+                        continue;
+                    }
+
+                    let primary_fqn = nodes
+                        .iter()
+                        .find(|n| n.id.to_string() == req.fqn)
+                        .map(|n| n.id.to_string())
+                        .unwrap_or_else(|| nodes[0].id.to_string());
+
+                    if let Some(ref key) = asset_key
+                        && let Some(primary) = nodes.iter().find(|n| n.id.to_string() == req.fqn)
+                    {
+                        stub_cache.store(key, primary);
+                    }
+
+                    let mut seen = std::collections::HashSet::new();
+                    for node in nodes {
+                        let fqn = node.id.to_string();
+                        if !seen.insert(fqn.clone()) {
+                            continue;
+                        }
+                        ops.push(GraphOp::AddNode { data: Some(node) });
+                        if fqn != primary_fqn {
+                            ops.push(GraphOp::AddEdge {
+                                from_id: naviscope_api::models::symbol::NodeId::Flat(
+                                    primary_fqn.clone(),
+                                ),
+                                to_id: naviscope_api::models::symbol::NodeId::Flat(fqn),
+                                edge: naviscope_api::models::GraphEdge::new(EdgeType::Contains),
+                            });
+                        }
+                    }
                     break;
                 }
-                Err(err) => {
-                    tracing::debug!("Failed to generate stub for {}: {}", req.fqn, err);
-                }
-            }
+                Err(err) => tracing::debug!("Failed to generate stub for {}: {}", req.fqn, err),
+            };
         }
 
         if !ops.is_empty() {

@@ -66,6 +66,155 @@ impl JavaExternalResolver {
 }
 
 impl JavaExternalResolver {
+    fn load_class_bytes_for_fqn(
+        &self,
+        class_fqn: &str,
+        asset: &Path,
+    ) -> std::result::Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        let file = File::open(asset)?;
+
+        if let Ok(mut archive) = ZipArchive::new(file) {
+            let class_path = class_fqn.replace('.', "/") + ".class";
+            if let Ok(mut entry) = archive.by_name(&class_path) {
+                let mut b = Vec::new();
+                entry.read_to_end(&mut b)?;
+                return Ok(b);
+            }
+
+            let inner_path = class_fqn.replace('.', "/");
+            if let Some(idx) = inner_path.rfind('/') {
+                let mut try_inner = inner_path.clone();
+                try_inner.replace_range(idx..idx + 1, "$");
+                if let Ok(mut entry) = archive.by_name(&(try_inner + ".class")) {
+                    let mut b = Vec::new();
+                    entry.read_to_end(&mut b)?;
+                    return Ok(b);
+                }
+            }
+        } else {
+            let image = Image::from_file(asset)?;
+            let class_path = class_fqn.replace('.', "/") + ".class";
+            for resource_result in image.iter() {
+                if let Ok(resource) = resource_result {
+                    let name = resource.name();
+                    if name == class_path || name.ends_with(&format!("/{}", class_path)) {
+                        return Ok(resource.data().to_vec());
+                    }
+                }
+            }
+
+            let inner_path = class_fqn.replace('.', "/");
+            if let Some(idx) = inner_path.rfind('/') {
+                let mut try_inner = inner_path.clone();
+                try_inner.replace_range(idx..idx + 1, "$");
+                let try_inner_path = try_inner + ".class";
+
+                for resource_result in image.iter() {
+                    if let Ok(resource) = resource_result {
+                        let name = resource.name();
+                        if name == try_inner_path || name.ends_with(&format!("/{}", try_inner_path))
+                        {
+                            return Ok(resource.data().to_vec());
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(format!("Class {} not found in {}", class_fqn, asset.display()).into())
+    }
+
+    fn generate_related_for_class(
+        &self,
+        class_fqn: &str,
+        asset: &Path,
+    ) -> std::result::Result<Vec<IndexNode>, Box<dyn std::error::Error + Send + Sync>> {
+        let bytes = self.load_class_bytes_for_fqn(class_fqn, asset)?;
+        let class = ClassFile::from_bytes(&mut Cursor::new(bytes))
+            .map_err(|e| format!("Failed to parse class: {e:?}"))?;
+
+        let mut out = Vec::new();
+        let class_simple_name = class_fqn.split('.').next_back().unwrap_or(class_fqn);
+
+        for field in &class.fields {
+            let field_name = class
+                .constant_pool
+                .try_get_utf8(field.name_index)
+                .map_err(|e| format!("Failed to parse field name: {e:?}"))?;
+            let node_fqn = crate::naming::build_member_fqn(class_fqn, field_name);
+            let type_ref = JavaTypeConverter::convert_field(&field.field_type);
+            let modifiers = JavaModifierConverter::parse_field(field.access_flags);
+            let metadata = crate::model::JavaIndexMetadata::Field {
+                modifiers,
+                type_ref,
+            };
+            out.push(IndexNode {
+                id: naviscope_api::models::symbol::NodeId::Flat(node_fqn),
+                name: field_name.to_string(),
+                kind: naviscope_api::models::graph::NodeKind::Field,
+                lang: "java".to_string(),
+                source: naviscope_api::models::graph::NodeSource::External,
+                status: naviscope_api::models::graph::ResolutionStatus::Stubbed,
+                location: None,
+                metadata: Arc::new(metadata),
+            });
+        }
+
+        for method in &class.methods {
+            let method_name = class
+                .constant_pool
+                .try_get_utf8(method.name_index)
+                .map_err(|e| format!("Failed to parse method name: {e:?}"))?;
+
+            if method_name == "<clinit>" {
+                continue;
+            }
+
+            let method_descriptor = class
+                .constant_pool
+                .try_get_utf8(method.descriptor_index)
+                .map_err(|e| format!("Failed to parse method descriptor: {e:?}"))?;
+            let is_varargs = method.access_flags.contains(MethodAccessFlags::VARARGS);
+            let (return_type, parameters) =
+                JavaTypeConverter::convert_method(method_descriptor, is_varargs)
+                    .map_err(|e| format!("Failed to parse method signature: {e:?}"))?;
+
+            let display_name = if method_name == "<init>" {
+                class_simple_name.to_string()
+            } else {
+                method_name.to_string()
+            };
+            let param_types: Vec<naviscope_api::models::TypeRef> =
+                parameters.iter().map(|p| p.type_ref.clone()).collect();
+            let signed_name = crate::naming::build_java_method_name(&display_name, &param_types);
+            let node_fqn = crate::naming::build_member_fqn(class_fqn, &signed_name);
+
+            let modifiers = JavaModifierConverter::parse_method(method.access_flags);
+            let metadata = crate::model::JavaIndexMetadata::Method {
+                modifiers,
+                return_type,
+                parameters,
+                is_constructor: method_name == "<init>",
+            };
+            out.push(IndexNode {
+                id: naviscope_api::models::symbol::NodeId::Flat(node_fqn),
+                name: display_name,
+                kind: if method_name == "<init>" {
+                    naviscope_api::models::graph::NodeKind::Constructor
+                } else {
+                    naviscope_api::models::graph::NodeKind::Method
+                },
+                lang: "java".to_string(),
+                source: naviscope_api::models::graph::NodeSource::External,
+                status: naviscope_api::models::graph::ResolutionStatus::Stubbed,
+                location: None,
+                metadata: Arc::new(metadata),
+            });
+        }
+
+        Ok(out)
+    }
+
     pub fn index_asset(
         &self,
         asset: &Path,
@@ -359,12 +508,20 @@ impl StubGenerator for JavaExternalResolver {
         self.can_index(asset)
     }
 
-    fn generate(
+    fn generate_stubs(
         &self,
         fqn: &str,
         entry: &AssetEntry,
-    ) -> std::result::Result<IndexNode, Box<dyn std::error::Error + Send + Sync>> {
-        self.generate_stub(fqn, &entry.path)
+    ) -> std::result::Result<Vec<IndexNode>, Box<dyn std::error::Error + Send + Sync>> {
+        if fqn.contains('#') {
+            return Ok(vec![self.generate_stub(fqn, &entry.path)?]);
+        }
+        let primary = self.generate_stub(fqn, &entry.path)?;
+        let mut nodes = vec![primary];
+        if let Ok(related) = self.generate_related_for_class(fqn, &entry.path) {
+            nodes.extend(related);
+        }
+        Ok(nodes)
     }
 }
 

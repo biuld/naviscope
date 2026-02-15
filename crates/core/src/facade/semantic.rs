@@ -19,6 +19,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 
+fn path_from_uri_like(uri: &str) -> PathBuf {
+    if uri.starts_with("file://") {
+        PathBuf::from(uri.strip_prefix("file://").unwrap_or(uri))
+    } else {
+        PathBuf::from(uri)
+    }
+}
+
 impl EngineHandle {
     async fn hydrate_symbol_if_missing(&self, fqn: &str) -> ApiResult<()> {
         if self
@@ -64,12 +72,7 @@ impl SymbolNavigator for EngineHandle {
         &self,
         ctx: &PositionContext,
     ) -> ApiResult<Option<SymbolResolution>> {
-        let uri_str = &ctx.uri;
-        let path = if uri_str.starts_with("file://") {
-            PathBuf::from(uri_str.strip_prefix("file://").unwrap())
-        } else {
-            PathBuf::from(uri_str)
-        };
+        let path = path_from_uri_like(&ctx.uri);
 
         let (semantic, _lang) = match self.get_services_for_path(&path) {
             Some(x) => x,
@@ -99,12 +102,7 @@ impl SymbolNavigator for EngineHandle {
     }
 
     async fn find_highlights(&self, ctx: &PositionContext) -> ApiResult<Vec<Range>> {
-        let uri_str = &ctx.uri;
-        let path = if uri_str.starts_with("file://") {
-            PathBuf::from(uri_str.strip_prefix("file://").unwrap())
-        } else {
-            PathBuf::from(uri_str)
-        };
+        let path = path_from_uri_like(&ctx.uri);
 
         let (semantic, _) = match self.get_services_for_path(&path) {
             Some(x) => x,
@@ -290,7 +288,10 @@ impl ReferenceAnalyzer for EngineHandle {
 
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
-                    Err(_) => return Vec::new(),
+                    Err(e) => {
+                        tracing::warn!("find_references failed to read {}: {}", path.display(), e);
+                        return Vec::new();
+                    }
                 };
 
                 let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
@@ -298,7 +299,10 @@ impl ReferenceAnalyzer for EngineHandle {
                 let uri_str = format!("file://{}", path.display());
                 let uri: lsp_types::Uri = match uri_str.parse() {
                     Ok(u) => u,
-                    Err(_) => return Vec::new(),
+                    Err(e) => {
+                        tracing::warn!("find_references failed to parse URI {}: {}", uri_str, e);
+                        return Vec::new();
+                    }
                 };
 
                 let locations = discovery.scan_file(semantic.as_ref(), &content, &resolution, &uri);
@@ -426,14 +430,28 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
-                    Err(_) => return vec![],
+                    Err(e) => {
+                        tracing::warn!(
+                            "find_incoming_calls failed to read {}: {}",
+                            path.display(),
+                            e
+                        );
+                        return vec![];
+                    }
                 };
 
                 let discovery = DiscoveryEngine::new(graph_snap.as_ref(), conventions_clone);
                 let uri_str = format!("file://{}", path.display());
                 let uri: lsp_types::Uri = match uri_str.parse() {
                     Ok(u) => u,
-                    Err(_) => return vec![],
+                    Err(e) => {
+                        tracing::warn!(
+                            "find_incoming_calls failed to parse URI {}: {}",
+                            uri_str,
+                            e
+                        );
+                        return vec![];
+                    }
                 };
 
                 // Verification
@@ -513,7 +531,9 @@ impl CallHierarchyAnalyzer for EngineHandle {
             None => return Ok(vec![]),
         };
 
-        let node = graph.get_node(node_idx).unwrap();
+        let node = graph
+            .get_node(node_idx)
+            .ok_or_else(|| ApiError::Internal(format!("missing node for index {}", node_idx.index())))?;
         let symbols = graph.symbols();
         let path_str = node
             .path(symbols)
@@ -549,7 +569,9 @@ impl CallHierarchyAnalyzer for EngineHandle {
             if n_range.end_point.row < range.start_line {
                 // Not in range, but children might be
                 for i in 0..n.child_count() {
-                    stack.push(n.child(i as u32).unwrap());
+                    if let Some(child) = n.child(i as u32) {
+                        stack.push(child);
+                    }
                 }
                 continue;
             }
@@ -586,7 +608,9 @@ impl CallHierarchyAnalyzer for EngineHandle {
 
             // Recurse children
             for i in 0..n.child_count() {
-                stack.push(n.child(i as u32).unwrap());
+                if let Some(child) = n.child(i as u32) {
+                    stack.push(child);
+                }
             }
         }
 
@@ -624,11 +648,7 @@ impl SymbolInfoProvider for EngineHandle {
     }
 
     async fn get_document_symbols(&self, uri: &str) -> ApiResult<Vec<DisplayGraphNode>> {
-        let path = if uri.starts_with("file://") {
-            PathBuf::from(uri.strip_prefix("file://").unwrap())
-        } else {
-            PathBuf::from(uri)
-        };
+        let path = path_from_uri_like(uri);
 
         let (semantic, _lang) = match self.get_services_for_path(&path) {
             Some(x) => x,
@@ -652,12 +672,26 @@ impl SymbolInfoProvider for EngineHandle {
     }
 
     async fn get_language_for_document(&self, uri: &str) -> ApiResult<Option<Language>> {
-        let path = if uri.starts_with("file://") {
-            PathBuf::from(uri.strip_prefix("file://").unwrap())
-        } else {
-            PathBuf::from(uri)
-        };
+        let path = path_from_uri_like(uri);
 
         Ok(self.get_language_for_path(&path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_from_uri_like;
+    use std::path::PathBuf;
+
+    #[test]
+    fn path_from_uri_like_handles_file_uri() {
+        let p = path_from_uri_like("file:///tmp/naviscope_test.java");
+        assert_eq!(p, PathBuf::from("/tmp/naviscope_test.java"));
+    }
+
+    #[test]
+    fn path_from_uri_like_keeps_plain_path() {
+        let p = path_from_uri_like("/tmp/naviscope_test.java");
+        assert_eq!(p, PathBuf::from("/tmp/naviscope_test.java"));
     }
 }

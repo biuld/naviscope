@@ -1,7 +1,24 @@
 use crate::LspServer;
-use naviscope_api::models::{PositionContext, SymbolQuery, SymbolResolution};
+use naviscope_api::models::{PositionContext, SymbolLocation, SymbolQuery, SymbolResolution};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
+
+fn to_lsp_location(loc: SymbolLocation) -> Option<Location> {
+    let uri = match Url::from_file_path(&*loc.path) {
+        Ok(uri) => uri,
+        Err(()) => {
+            tracing::warn!("failed to convert definition path to file URL: {:?}", loc.path);
+            return None;
+        }
+    };
+    Some(Location {
+        uri,
+        range: Range {
+            start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
+            end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
+        },
+    })
+}
 
 pub async fn definition(
     server: &LspServer,
@@ -32,7 +49,10 @@ pub async fn definition(
     let resolution = match engine.resolve_symbol_at(&ctx).await {
         Ok(Some(r)) => r,
         Ok(None) => return Ok(None),
-        Err(_) => return Ok(None), // Log error?
+        Err(e) => {
+            tracing::warn!("definition resolve_symbol_at failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
     if let SymbolResolution::Local(range, _) = resolution {
@@ -62,19 +82,13 @@ pub async fn definition(
 
     let definitions = match engine.find_definitions(&query).await {
         Ok(defs) => defs,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("find_definitions failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
-    let locations: Vec<Location> = definitions
-        .into_iter()
-        .map(|loc| Location {
-            uri: Url::from_file_path(&*loc.path).unwrap(),
-            range: Range {
-                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
-                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
-            },
-        })
-        .collect();
+    let locations: Vec<Location> = definitions.into_iter().filter_map(to_lsp_location).collect();
 
     if !locations.is_empty() {
         if locations.len() == 1 {
@@ -112,7 +126,10 @@ pub async fn type_definition(
     let resolution = match engine.resolve_symbol_at(&ctx).await {
         Ok(Some(r)) => r,
         Ok(None) => return Ok(None),
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("type_definition resolve_symbol_at failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
     let language = match server.documents.get(&uri).map(|d| d.language.clone()) {
@@ -127,19 +144,13 @@ pub async fn type_definition(
 
     let locations = match engine.find_type_definitions(&query).await {
         Ok(locs) => locs,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("find_type_definitions failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
-    let lsp_locations: Vec<Location> = locations
-        .into_iter()
-        .map(|loc| Location {
-            uri: Url::from_file_path(&*loc.path).unwrap(),
-            range: Range {
-                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
-                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
-            },
-        })
-        .collect();
+    let lsp_locations: Vec<Location> = locations.into_iter().filter_map(to_lsp_location).collect();
 
     if !lsp_locations.is_empty() {
         return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
@@ -172,7 +183,10 @@ pub async fn references(
     let resolution = match engine.resolve_symbol_at(&ctx).await {
         Ok(Some(r)) => r,
         Ok(None) => return Ok(None),
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("references resolve_symbol_at failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
     let language = match server.documents.get(&uri).map(|d| d.language.clone()) {
@@ -202,7 +216,10 @@ pub async fn references(
 
     let locations = match engine.find_references(&query).await {
         Ok(locs) => locs,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("find_references failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
     // If local references are found by engine, they are returned.
@@ -211,16 +228,7 @@ pub async fn references(
     // `scout_references` usually returns files containing the token. This includes the current file.
     // So the current file should be in the list and scanned.
 
-    let lsp_locations: Vec<Location> = locations
-        .into_iter()
-        .map(|loc| Location {
-            uri: Url::from_file_path(&*loc.path).unwrap(),
-            range: Range {
-                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
-                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
-            },
-        })
-        .collect();
+    let lsp_locations: Vec<Location> = locations.into_iter().filter_map(to_lsp_location).collect();
 
     if !lsp_locations.is_empty() {
         return Ok(Some(lsp_locations));
@@ -253,7 +261,10 @@ pub async fn implementation(
     let resolution = match engine.resolve_symbol_at(&ctx).await {
         Ok(Some(r)) => r,
         Ok(None) => return Ok(None),
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("implementation resolve_symbol_at failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
     let language = match server.documents.get(&uri).map(|d| d.language.clone()) {
@@ -268,23 +279,58 @@ pub async fn implementation(
 
     let locations = match engine.find_implementations(&query).await {
         Ok(locs) => locs,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("find_implementations failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
-    let lsp_locations: Vec<Location> = locations
-        .into_iter()
-        .map(|loc| Location {
-            uri: Url::from_file_path(&*loc.path).unwrap(),
-            range: Range {
-                start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
-                end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
-            },
-        })
-        .collect();
+    let lsp_locations: Vec<Location> = locations.into_iter().filter_map(to_lsp_location).collect();
 
     if !lsp_locations.is_empty() {
         return Ok(Some(GotoDefinitionResponse::Array(lsp_locations)));
     }
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_lsp_location;
+    use naviscope_api::models::{Range as ApiRange, SymbolLocation};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    #[test]
+    fn to_lsp_location_handles_absolute_path() {
+        let abs = std::env::temp_dir().join("naviscope_goto_test.java");
+        let loc = SymbolLocation {
+            path: Arc::from(abs.as_path()),
+            range: ApiRange {
+                start_line: 1,
+                start_col: 2,
+                end_line: 3,
+                end_col: 4,
+            },
+            selection_range: None,
+        };
+
+        let mapped = to_lsp_location(loc).expect("absolute path should map");
+        assert_eq!(mapped.range.start.line, 1);
+        assert_eq!(mapped.range.start.character, 2);
+        assert_eq!(mapped.range.end.line, 3);
+        assert_eq!(mapped.range.end.character, 4);
+    }
+
+    #[test]
+    fn to_lsp_location_rejects_relative_path() {
+        let rel = PathBuf::from("relative/path/Foo.java");
+        let loc = SymbolLocation {
+            path: Arc::from(rel.as_path()),
+            range: ApiRange::default(),
+            selection_range: None,
+        };
+
+        assert!(to_lsp_location(loc).is_none());
+    }
 }

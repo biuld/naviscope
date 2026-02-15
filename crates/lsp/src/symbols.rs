@@ -17,7 +17,10 @@ pub async fn document_symbol(
 
     let api_symbols = match engine.get_document_symbols(uri.as_str()).await {
         Ok(s) => s,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("get_document_symbols failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
     let lsp_symbols = convert_api_symbols(api_symbols);
@@ -25,11 +28,11 @@ pub async fn document_symbol(
 }
 
 fn convert_api_symbols(symbols: Vec<DisplayGraphNode>) -> Vec<DocumentSymbol> {
-    symbols.into_iter().map(convert_api_symbol).collect()
+    symbols.into_iter().filter_map(convert_api_symbol).collect()
 }
 
-fn convert_api_symbol(sym: DisplayGraphNode) -> DocumentSymbol {
-    let loc = sym.location.as_ref().expect("Symbol must have location");
+fn convert_api_symbol(sym: DisplayGraphNode) -> Option<DocumentSymbol> {
+    let loc = sym.location.as_ref()?;
     let range = Range {
         start: Position::new(loc.range.start_line as u32, loc.range.start_col as u32),
         end: Position::new(loc.range.end_line as u32, loc.range.end_col as u32),
@@ -43,7 +46,7 @@ fn convert_api_symbol(sym: DisplayGraphNode) -> DocumentSymbol {
         .unwrap_or(range);
 
     #[allow(deprecated)]
-    DocumentSymbol {
+    Some(DocumentSymbol {
         name: sym.name,
         detail: sym.detail,
         kind: node_kind_to_symbol_kind(&sym.kind),
@@ -52,7 +55,7 @@ fn convert_api_symbol(sym: DisplayGraphNode) -> DocumentSymbol {
         range,
         selection_range,
         children: sym.children.map(convert_api_symbols),
-    }
+    })
 }
 
 fn node_kind_to_symbol_kind(kind: &NodeKind) -> SymbolKind {
@@ -100,7 +103,10 @@ pub async fn workspace_symbol(
 
     let result = match engine.query(&query).await {
         Ok(r) => r,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("workspace_symbol query failed: {}", e);
+            return Ok(None);
+        }
     };
 
     let symbols: Vec<SymbolInformation> = result
@@ -130,4 +136,30 @@ pub async fn workspace_symbol(
         .collect();
 
     Ok(Some(symbols))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::convert_api_symbols;
+    use naviscope_api::models::graph::{DisplayGraphNode, NodeKind, NodeSource, ResolutionStatus};
+
+    #[test]
+    fn convert_api_symbols_skips_entries_without_location() {
+        let symbols = vec![DisplayGraphNode {
+            id: "com.example.Missing".to_string(),
+            name: "Missing".to_string(),
+            kind: NodeKind::Class,
+            lang: "java".to_string(),
+            source: NodeSource::Project,
+            status: ResolutionStatus::Resolved,
+            location: None,
+            detail: None,
+            signature: None,
+            modifiers: vec![],
+            children: None,
+        }];
+
+        let converted = convert_api_symbols(symbols);
+        assert!(converted.is_empty());
+    }
 }

@@ -144,9 +144,11 @@ pub trait StubGenerator: Send + Sync {
     /// Check if this generator can handle the asset
     fn can_generate(&self, asset: &Path) -> bool;
 
-    /// Generate stub for the specified FQN from asset
-    /// source is used to set the source info on generated nodes
-    fn generate(&self, fqn: &str, entry: &AssetEntry) -> Result<IndexNode, BoxError>;
+    /// Generate one or more stubs for the specified FQN from asset.
+    ///
+    /// Implementations should include the primary requested node when possible,
+    /// and may include related nodes (e.g. class members) for richer resolution.
+    fn generate_stubs(&self, fqn: &str, entry: &AssetEntry) -> Result<Vec<IndexNode>, BoxError>;
 }
 
 /// Stub request (with source info)

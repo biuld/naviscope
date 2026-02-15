@@ -31,6 +31,7 @@ fn format_fallback_hover(
 pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hover>> {
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
+    let content = server.documents.get(&uri).map(|d| d.content.clone());
 
     let engine_lock = server.engine.read().await;
     let engine = match engine_lock.as_ref() {
@@ -42,7 +43,7 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         uri: uri.to_string(),
         line: position.line,
         char: position.character,
-        content: None, // Engine will read from disk if needed
+        content,
     };
 
     // 1. Resolve the symbol at position
@@ -50,10 +51,8 @@ pub async fn hover(server: &LspServer, params: HoverParams) -> Result<Option<Hov
         Ok(Some(res)) => res,
         Ok(None) => return Ok(None),
         Err(e) => {
-            return Err(tower_lsp::jsonrpc::Error::invalid_params(format!(
-                "Resolution error: {}",
-                e
-            )));
+            tracing::warn!("hover resolve_symbol_at failed for {}: {}", uri, e);
+            return Ok(None);
         }
     };
 
