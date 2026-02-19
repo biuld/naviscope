@@ -64,6 +64,7 @@ lasso = { version = "0.7", features = ["serialize", "multi-threaded"] }
 zstd = "0.13"
 async-trait = "0.1"
 url = "2.5.8"
+rayon = "1.10.0"
 tree-sitter-java = "0.23.5"
 tree-sitter-groovy = "0.1.2"
 mimalloc = "0.1"

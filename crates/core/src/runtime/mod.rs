@@ -296,7 +296,13 @@ impl NaviscopeEngine {
             candidate_paths,
         };
 
-        self.source_compiler.try_submit_or_enqueue_stub_request(req)
+        self.source_compiler.try_submit_or_enqueue_stub_request(
+            req,
+            self.current_graph_arc(),
+            self.naming_conventions(),
+            self.lang_caps_arc(),
+            self.stub_cache_arc(),
+        )
     }
 
     /// Run the global asset scan and populate routes

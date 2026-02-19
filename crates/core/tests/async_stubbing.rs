@@ -371,3 +371,122 @@ async fn test_stub_request_replayed_after_runtime_start() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+/// Regression: source indexing with external imports should not deadlock waiting for
+/// unreachable resource dependencies.
+#[tokio::test]
+async fn test_update_files_with_external_import_does_not_hang() {
+    use std::time::Duration;
+    ensure_test_index_dir();
+
+    let temp_dir = std::env::temp_dir().join("naviscope_external_import_no_hang");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let java_caps = naviscope_java::java_caps().expect("Failed to create Java caps");
+    let engine = NaviscopeEngine::builder(temp_dir.clone())
+        .with_language_caps(java_caps)
+        .build();
+
+    let a_file = temp_dir.join("A.java");
+    let b_file = temp_dir.join("B.java");
+
+    std::fs::write(
+        &a_file,
+        r#"
+import java.util.List;
+
+class A {
+    B ref;
+    List<String> names;
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &b_file,
+        r#"
+class B {
+    String value;
+}
+"#,
+    )
+    .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(10), engine.update_files(vec![a_file, b_file]))
+        .await
+        .expect("update_files should finish within timeout")
+        .expect("update_files should succeed");
+
+    let graph = engine.snapshot().await;
+    assert!(graph.node_count() > 0, "graph should contain indexed nodes");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Regression: with collect->analyze phase barrier, cross-file type resolution should
+/// remain stable and resolve to FQN.
+#[tokio::test]
+async fn test_cross_file_type_resolution_stays_fqn_precise() {
+    ensure_test_index_dir();
+
+    let temp_dir = std::env::temp_dir().join("naviscope_cross_file_fqn_precise");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    std::fs::create_dir_all(temp_dir.join("p")).unwrap();
+
+    let java_caps = naviscope_java::java_caps().expect("Failed to create Java caps");
+    let engine = Arc::new(
+        NaviscopeEngine::builder(temp_dir.clone())
+            .with_language_caps(java_caps)
+            .build(),
+    );
+
+    let a_file = temp_dir.join("p").join("A.java");
+    let b_file = temp_dir.join("p").join("B.java");
+
+    let a_source = r#"
+package p;
+
+class A {
+    B ref;
+}
+"#;
+    let b_source = r#"
+package p;
+
+class B {
+    String value;
+}
+"#;
+
+    std::fs::write(&a_file, a_source).unwrap();
+    std::fs::write(&b_file, b_source).unwrap();
+
+    engine.update_files(vec![a_file.clone(), b_file]).await.unwrap();
+
+    let handle = EngineHandle::from_engine(Arc::clone(&engine));
+    let type_off = a_source.find("B ref").expect("B ref should exist");
+    let (line, col) = offset_to_point(a_source, type_off);
+    let resolution = handle
+        .resolve_symbol_at(&PositionContext {
+            uri: format!("file://{}", a_file.display()),
+            line: line as u32,
+            char: col as u32,
+            content: Some(a_source.to_string()),
+        })
+        .await
+        .expect("resolve_symbol_at should succeed")
+        .expect("type usage should resolve");
+
+    let fqn = match resolution {
+        SymbolResolution::Precise(fqn, _) | SymbolResolution::Global(fqn) => fqn,
+        SymbolResolution::Local(_, _) => panic!("expected global/precise resolution for type"),
+    };
+    assert_eq!(fqn, "p.B");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

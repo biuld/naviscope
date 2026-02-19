@@ -71,16 +71,40 @@ pub fn generate_stub_ops(
     let mut ops = Vec::new();
 
     // Skip if node already exists and resolved.
-    let already_resolved = tokio::runtime::Handle::current().block_on(async {
-        let lock = current.read().await;
-        let graph = &**lock;
-        if let Some(idx) = graph.find_node(&req.fqn)
-            && let Some(node) = graph.get_node(idx)
-        {
-            return node.status == naviscope_api::models::graph::ResolutionStatus::Resolved;
-        }
-        false
-    });
+    let already_resolved = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let current = Arc::clone(&current);
+        let fqn = req.fqn.clone();
+        std::thread::spawn(move || {
+            handle.block_on(async move {
+                let lock = current.read().await;
+                let graph = &**lock;
+                if let Some(idx) = graph.find_node(&fqn)
+                    && let Some(node) = graph.get_node(idx)
+                {
+                    return node.status == naviscope_api::models::graph::ResolutionStatus::Resolved;
+                }
+                false
+            })
+        })
+            .join()
+            .unwrap_or(false)
+    } else {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build temporary tokio runtime for stub lookup");
+        let fqn = req.fqn.clone();
+        runtime.handle().block_on(async move {
+            let lock = current.read().await;
+            let graph = &**lock;
+            if let Some(idx) = graph.find_node(&fqn)
+                && let Some(node) = graph.get_node(idx)
+            {
+                return node.status == naviscope_api::models::graph::ResolutionStatus::Resolved;
+            }
+            false
+        })
+    };
     if already_resolved {
         return ops;
     }
@@ -154,4 +178,25 @@ pub fn generate_stub_ops(
     }
 
     ops
+}
+
+pub fn resolve_stub_requests(
+    requests: Vec<StubRequest>,
+    current: Arc<tokio::sync::RwLock<Arc<CodeGraph>>>,
+    lang_caps: Arc<Vec<LanguageCaps>>,
+    stub_cache: Arc<crate::cache::GlobalStubCache>,
+) -> Vec<GraphOp> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for req in requests {
+        if seen.insert(req.fqn.clone()) {
+            out.extend(generate_stub_ops(
+                &req,
+                Arc::clone(&current),
+                Arc::clone(&lang_caps),
+                Arc::clone(&stub_cache),
+            ));
+        }
+    }
+    out
 }

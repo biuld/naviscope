@@ -58,8 +58,10 @@ impl NaviscopeEngine {
         let existing_metadata = Self::collect_existing_metadata(&base_graph);
         let (graph_after_build, source_paths, project_context) =
             self.run_build_phase(base_graph, files, existing_metadata).await?;
-        self.apply_graph_snapshot(graph_after_build).await;
-        self.submit_source_stream(source_paths, project_context).await?;
+        let next_graph = self
+            .run_source_phase(graph_after_build, source_paths, project_context)
+            .await?;
+        self.apply_graph_snapshot(next_graph).await;
         self.finalize_update().await?;
         Ok(())
     }
@@ -163,49 +165,40 @@ impl NaviscopeEngine {
         *lock = Arc::new(graph);
     }
 
-    async fn submit_source_stream(
+    async fn run_source_phase(
         &self,
+        base_graph: CodeGraph,
         source_paths: Vec<PathBuf>,
         project_context: naviscope_plugin::ProjectContext,
-    ) -> Result<()> {
-        const SOURCE_SUBMIT_CHUNK_SIZE: usize = 256;
+    ) -> Result<CodeGraph> {
         if source_paths.is_empty() {
-            return Ok(());
+            return Ok(base_graph);
         }
 
-        let source_runtime = self
-            .source_compiler
-            .ensure_runtime(
+        let routes = self.global_asset_routes();
+        let source_files = tokio::task::spawn_blocking(move || {
+            let existing = std::collections::HashMap::new();
+            Scanner::scan_files_iter(source_paths, &existing).collect::<Vec<_>>()
+        })
+        .await
+        .map_err(|e| NaviscopeError::Internal(e.to_string()))?;
+
+        if source_files.is_empty() {
+            return Ok(base_graph);
+        }
+
+        self.source_compiler
+            .compile_source_files(
+                base_graph,
+                source_files,
+                project_context,
+                routes,
                 self.current_graph_arc(),
                 self.naming_conventions(),
                 self.lang_caps_arc(),
                 self.stub_cache_arc(),
             )
-            .await?;
-        let routes = self.global_asset_routes();
-
-        for chunk in source_paths.chunks(SOURCE_SUBMIT_CHUNK_SIZE) {
-            let chunk_paths = chunk.to_vec();
-            let source_files = tokio::task::spawn_blocking(move || {
-                let existing = std::collections::HashMap::new();
-                Scanner::scan_files_iter(chunk_paths, &existing).collect::<Vec<_>>()
-            })
             .await
-            .map_err(|e| NaviscopeError::Internal(e.to_string()))?;
-
-            if source_files.is_empty() {
-                continue;
-            }
-
-            crate::indexing::source::SourceCompiler::compile_source_batch(
-                source_runtime.as_ref(),
-                source_files,
-                project_context.clone(),
-                routes.clone(),
-            )
-            .await?;
-        }
-        Ok(())
     }
 
     async fn finalize_update(&self) -> Result<()> {
