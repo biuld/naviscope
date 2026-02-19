@@ -1567,17 +1567,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "naviscope-ingest"
-version = "0.5.5"
-dependencies = [
- "async-trait",
- "naviscope-api",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "naviscope-java"
 version = "0.5.5"
 dependencies = [
