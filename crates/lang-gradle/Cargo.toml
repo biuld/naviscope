@@ -1,6 +1,6 @@
 [package]
 name = "naviscope-gradle"
-version = "0.5.5"
+version = "0.7.0"
 edition = "2024"
 
 [dependencies]
@@ -16,3 +16,9 @@ petgraph = { workspace = true }
 once_cell = { workspace = true }
 rmp-serde = { workspace = true }
 lasso = { workspace = true }
+dirs = { workspace = true }
+walkdir = { workspace = true }
+lsp-types = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

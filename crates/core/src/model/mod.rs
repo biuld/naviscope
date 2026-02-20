@@ -1,3 +1,4 @@
+pub mod builder;
 pub mod fqn;
 pub mod graph;
 pub mod metadata;

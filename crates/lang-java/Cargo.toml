@@ -1,6 +1,6 @@
 [package]
 name = "naviscope-java"
-version = "0.5.5"
+version = "0.7.0"
 edition = "2024"
 
 [dependencies]
@@ -15,6 +15,13 @@ lsp-types = { workspace = true }
 tree-sitter-java = { workspace = true }
 rmp-serde = { workspace = true }
 lasso = { workspace = true }
+zip = { workspace = true }
+ristretto_jimage = { workspace = true }
+ristretto_classfile = { workspace = true }
+dirs = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 naviscope-core = { workspace = true }
+tokio = { workspace = true }
+tempfile = { workspace = true }

@@ -1,30 +1,27 @@
+use crate::ApiResult;
 use async_trait::async_trait;
 
-#[derive(Debug, thiserror::Error)]
-pub enum EngineError {
-    #[error("Internal error: {0}")]
-    Internal(String),
+pub trait EngineWatchHandle: Send + Sync {
+    fn stop(&self);
 }
-
-pub type EngineResult<T> = std::result::Result<T, EngineError>;
 
 #[async_trait]
 pub trait EngineLifecycle: Send + Sync {
     /// Rebuild the index from scratch
-    async fn rebuild(&self) -> EngineResult<()>;
+    async fn rebuild(&self) -> ApiResult<()>;
 
     /// Load the index from disk
-    async fn load(&self) -> EngineResult<bool>;
+    async fn load(&self) -> ApiResult<bool>;
 
     /// Save the index to disk
-    async fn save(&self) -> EngineResult<()>;
+    async fn save(&self) -> ApiResult<()>;
 
     /// Refresh the index (find new files, etc.)
-    async fn refresh(&self) -> EngineResult<()>;
+    async fn refresh(&self) -> ApiResult<()>;
 
     /// Watch for filesystem changes
-    async fn watch(&self) -> EngineResult<()>;
+    async fn start_watch(&self) -> ApiResult<std::sync::Arc<dyn EngineWatchHandle>>;
 
     /// Clear the index for the current project
-    async fn clear_index(&self) -> EngineResult<()>;
+    async fn clear_index(&self) -> ApiResult<()>;
 }

@@ -1,13 +1,14 @@
 use crate::model::FqnStorage;
 use crate::model::{GraphEdge, NodeKind, Range};
 use lasso::{Key, ThreadedRodeo};
+use naviscope_api::models::graph::{NodeSource, ResolutionStatus};
 use naviscope_api::models::symbol::Symbol;
 use naviscope_plugin::FqnInterner;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Context for interning and resolving symbols during storage conversion.
-pub trait StorageContext: crate::model::metadata::SymbolInterner {
+pub trait CodecContext: crate::model::metadata::SymbolInterner {
     fn intern_path(&mut self, p: &std::path::Path) -> u32;
     fn resolve_str(&self, sid: u32) -> &str;
     fn resolve_path(&self, pid: u32) -> &std::path::Path;
@@ -17,7 +18,7 @@ pub struct GenericStorageContext {
     pub rodeo: Arc<ThreadedRodeo>,
 }
 
-impl naviscope_plugin::StorageContext for GenericStorageContext {
+impl naviscope_plugin::CodecContext for GenericStorageContext {
     fn interner(&mut self) -> &mut dyn FqnInterner {
         self
     }
@@ -72,7 +73,7 @@ impl crate::model::metadata::SymbolInterner for GenericStorageContext {
     }
 }
 
-impl StorageContext for GenericStorageContext {
+impl CodecContext for GenericStorageContext {
     fn intern_path(&mut self, p: &std::path::Path) -> u32 {
         let s = p.to_string_lossy();
         crate::model::metadata::SymbolInterner::intern_str(self, s.as_ref())
@@ -117,6 +118,8 @@ pub struct StorageNode {
     pub name_sid: u32,
     pub kind: NodeKind,
     pub lang_sid: u32,
+    pub source: NodeSource,
+    pub status: ResolutionStatus,
     pub location: Option<StorageLocation>,
     pub metadata: Box<[u8]>,
 }

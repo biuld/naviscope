@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::model::CodeGraph;
-use crate::runtime::orchestrator::NaviscopeEngine as InternalEngine;
+use crate::runtime::NaviscopeEngine as InternalEngine;
 use naviscope_api::NaviscopeEngine;
 
 mod graph;
@@ -25,7 +25,7 @@ impl EngineHandle {
     /// Create a new engine handle
     pub fn new(project_root: PathBuf) -> Self {
         Self {
-            engine: Arc::new(InternalEngine::new(project_root)),
+            engine: Arc::new(InternalEngine::builder(project_root).build()),
         }
     }
 
@@ -43,42 +43,44 @@ impl EngineHandle {
 
     // ---- Language specific services (internal) ----
 
-    pub fn get_lsp_parser(
-        &self,
-        language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::ingest::parser::LspParser>> {
-        self.engine.get_resolver().get_lsp_parser(language)
-    }
-
     pub fn get_semantic_resolver(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::ingest::resolver::SemanticResolver>> {
-        self.engine.get_resolver().get_semantic_resolver(language)
+    ) -> Option<Arc<dyn naviscope_plugin::SemanticCap>> {
+        self.engine.semantic_cap(language)
     }
 
-    pub fn get_node_adapter(
+    pub fn get_node_presenter(
         &self,
         language: crate::model::source::Language,
-    ) -> Option<Arc<dyn crate::plugin::NodeAdapter>> {
-        self.engine.get_resolver().get_node_adapter(language)
+    ) -> Option<Arc<dyn naviscope_plugin::NodePresenter>> {
+        self.engine.node_presenter(language)
     }
 
-    pub fn get_language_by_extension(&self, ext: &str) -> Option<crate::model::source::Language> {
-        self.engine.get_resolver().get_language_by_extension(ext)
+    pub fn get_metadata_codec(
+        &self,
+        language: crate::model::source::Language,
+    ) -> Option<Arc<dyn naviscope_plugin::NodeMetadataCodec>> {
+        self.engine.metadata_codec(language)
     }
 
-    pub fn get_parser_and_lang_for_path(
+    pub fn get_language_for_path(
+        &self,
+        path: &std::path::Path,
+    ) -> Option<crate::model::source::Language> {
+        self.engine.language_for_path(path)
+    }
+
+    pub fn get_services_for_path(
         &self,
         path: &std::path::Path,
     ) -> Option<(
-        Arc<dyn crate::ingest::parser::LspParser>,
+        Arc<dyn naviscope_plugin::SemanticCap>,
         crate::model::source::Language,
     )> {
-        let ext = path.extension()?.to_str()?;
-        let lang = self.get_language_by_extension(ext)?;
-        let parser = self.get_lsp_parser(lang.clone())?;
-        Some((parser, lang))
+        let lang = self.get_language_for_path(path)?;
+        let semantic_cap = self.get_semantic_resolver(lang.clone())?;
+        Some((semantic_cap, lang))
     }
 
     /// Get naming convention for a specific language
@@ -88,9 +90,11 @@ impl EngineHandle {
     ) -> Option<Arc<dyn naviscope_plugin::NamingConvention>> {
         self.engine.naming_conventions().get(language).cloned()
     }
-    
+
     /// Get all naming conventions (cheap Arc clone)
-    pub(crate) fn naming_conventions(&self) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
+    pub(crate) fn naming_conventions(
+        &self,
+    ) -> Arc<std::collections::HashMap<String, Arc<dyn naviscope_plugin::NamingConvention>>> {
         self.engine.naming_conventions()
     }
 
@@ -102,7 +106,11 @@ impl EngineHandle {
     }
 }
 
-impl NaviscopeEngine for EngineHandle {}
+impl NaviscopeEngine for EngineHandle {
+    fn get_stub_cache_manager(&self) -> Arc<dyn naviscope_api::StubCacheManager> {
+        self.engine.get_stub_cache()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -112,7 +120,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_graph_access() {
-        let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+        let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
         let handle = EngineHandle::from_engine(engine);
 
         let graph = handle.graph().await;
@@ -123,12 +131,12 @@ mod tests {
     fn test_blocking_graph_access() {
         // Create runtime in a separate thread without any existing runtime context
         std::thread::spawn(|| {
-            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
-            let handle = EngineHandle::from_engine(engine);
-
             // Test that blocking API works via async runtime
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _guard = rt.enter();
+
+            let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
+            let handle = EngineHandle::from_engine(engine);
 
             let _graph = rt.block_on(handle.graph());
         })
@@ -140,7 +148,7 @@ mod tests {
     async fn test_concurrent_queries() {
         use tokio::task::JoinSet;
 
-        let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+        let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
         let handle = Arc::new(EngineHandle::from_engine(engine));
 
         let mut set = JoinSet::new();
@@ -164,13 +172,14 @@ mod tests {
     async fn test_query_functionality() {
         use naviscope_api::models::GraphQuery;
 
-        let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
+        let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
         let handle = EngineHandle::from_engine(engine);
 
         // Test async query
         let query = GraphQuery::Find {
             pattern: "test".to_string(),
             kind: vec![],
+            sources: vec![],
             limit: 10,
         };
 
@@ -184,15 +193,16 @@ mod tests {
         use naviscope_api::models::GraphQuery;
 
         std::thread::spawn(|| {
-            let engine = Arc::new(InternalEngine::new(PathBuf::from(".")));
-            let handle = EngineHandle::from_engine(engine);
-
             let rt = tokio::runtime::Runtime::new().unwrap();
             let _guard = rt.enter();
+
+            let engine = Arc::new(InternalEngine::builder(PathBuf::from(".")).build());
+            let handle = EngineHandle::from_engine(engine);
 
             let query = GraphQuery::Find {
                 pattern: "test".to_string(),
                 kind: vec![],
+                sources: vec![],
                 limit: 10,
             };
 

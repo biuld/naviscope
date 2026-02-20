@@ -19,6 +19,7 @@ pub async fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let query = naviscope_api::models::GraphQuery::Ls {
         fqn: None,
         kind: vec![],
+        sources: vec![],
         modifiers: vec![],
     };
     if let Ok(res) = engine.query(&query).await {

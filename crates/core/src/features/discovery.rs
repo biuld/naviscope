@@ -1,7 +1,7 @@
 use super::CodeGraphLike;
-use crate::ingest::parser::LspParser;
-use lsp_types::{Location, Url};
+use lsp_types::{Location, Uri};
 pub use naviscope_api::models::SymbolResolution;
+use naviscope_plugin::SemanticCap;
 use std::collections::HashSet;
 
 /// DiscoveryEngine bridges Meso-level graph knowledge with Micro-level file scanning.
@@ -148,30 +148,38 @@ impl<'a> DiscoveryEngine<'a> {
     /// Now performs SEMANTIC VERIFICATION using the Resolver.
     pub fn scan_file(
         &self,
-        parser: &dyn LspParser,
-        resolver: &dyn crate::ingest::resolver::SemanticResolver,
+        semantic: &dyn SemanticCap,
         source: &str,
         target_resolution: &SymbolResolution,
-        uri: &Url,
+        uri: &Uri,
     ) -> Vec<Location> {
-        if let Some(tree) = parser.parse(source, None) {
+        if let Some(tree) = semantic.parse(source, None) {
             // 1. Syntactic Scan (Fast)
-            let candidates = parser.find_occurrences(source, &tree, target_resolution);
+            let candidates = semantic.find_occurrences(
+                source,
+                &tree,
+                target_resolution,
+                Some(self.index.as_plugin_graph()),
+            );
 
             // 2. Semantic Verification (Precise)
             let mut valid_locations = Vec::new();
 
             for range in candidates {
                 // Resolve what is truly at this location
-                if let Some(resolved_at_loc) = resolver.resolve_at(
+                if let Some(resolved_at_loc) = semantic.resolve_at(
                     &tree,
                     source,
                     range.start_line,
                     range.start_col,
                     self.index.as_plugin_graph(),
                 ) {
-                    // 3. Identity Check
-                    if &resolved_at_loc == target_resolution {
+                    // 3. Identity & inheritance check
+                    if semantic.is_reference_to(
+                        self.index.as_plugin_graph(),
+                        &resolved_at_loc,
+                        target_resolution,
+                    ) {
                         valid_locations.push(Location {
                             uri: uri.clone(),
                             range: lsp_types::Range {

@@ -1,6 +1,6 @@
 [package]
 name = "naviscope-core"
-version = "0.5.5"
+version = "0.7.0"
 edition = "2024"
 
 [dependencies]
@@ -13,7 +13,6 @@ thiserror = { workspace = true }
 walkdir = { workspace = true }
 log = { workspace = true }
 ignore = { workspace = true }
-rayon = { workspace = true }
 notify = { workspace = true }
 xxhash-rust = { workspace = true }
 regex = { workspace = true }
@@ -32,7 +31,11 @@ naviscope-api = { workspace = true }
 naviscope-plugin = { workspace = true }
 async-trait = { workspace = true }
 url = { workspace = true }
+dirs = { workspace = true }
+serde_bytes = { workspace = true }
+rayon = { workspace = true }
 
 [dev-dependencies]
 tree-sitter-java = { workspace = true }
 tempfile = { workspace = true }
+naviscope-java = { workspace = true }

@@ -9,9 +9,11 @@ use std::sync::Arc;
 pub enum JavaIndexMetadata {
     Class {
         modifiers: Vec<String>,
+        type_parameters: Vec<String>,
     },
     Interface {
         modifiers: Vec<String>,
+        type_parameters: Vec<String>,
     },
     Enum {
         modifiers: Vec<String>,
@@ -41,6 +43,10 @@ impl IndexMetadata for JavaIndexMetadata {
     fn intern(&self, interner: &mut dyn SymbolInterner) -> Arc<dyn NodeMetadata> {
         Arc::new(self.to_storage(interner))
     }
+
+    fn to_cached_metadata(&self) -> naviscope_plugin::CachedMetadata {
+        self.to_cached_metadata()
+    }
 }
 
 /// Interned metadata stored in the graph
@@ -48,9 +54,11 @@ impl IndexMetadata for JavaIndexMetadata {
 pub enum JavaNodeMetadata {
     Class {
         modifiers_sids: Vec<u32>,
+        type_parameters_sids: Vec<u32>,
     },
     Interface {
         modifiers_sids: Vec<u32>,
+        type_parameters_sids: Vec<u32>,
     },
     Enum {
         modifiers_sids: Vec<u32>,
@@ -73,13 +81,43 @@ pub enum JavaNodeMetadata {
 }
 
 impl JavaIndexMetadata {
+    pub fn deserialize_for_cache(_version: u32, bytes: &[u8]) -> Arc<dyn IndexMetadata> {
+        // In the future, we can switch on version here to handle migrations
+        match rmp_serde::from_slice::<Self>(bytes) {
+            Ok(meta) => Arc::new(meta),
+            Err(_) => Arc::new(naviscope_api::models::graph::EmptyMetadata),
+        }
+    }
+
+    pub fn to_cached_metadata(&self) -> naviscope_plugin::CachedMetadata {
+        naviscope_plugin::CachedMetadata {
+            type_tag: "java".to_string(),
+            version: 1, // Current version
+            data: rmp_serde::to_vec(self).unwrap_or_default(),
+        }
+    }
+
     pub fn to_storage(&self, ctx: &mut dyn SymbolInterner) -> JavaNodeMetadata {
         match self {
-            JavaIndexMetadata::Class { modifiers } => JavaNodeMetadata::Class {
+            JavaIndexMetadata::Class {
+                modifiers,
+                type_parameters,
+            } => JavaNodeMetadata::Class {
                 modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+                type_parameters_sids: type_parameters
+                    .iter()
+                    .map(|s| ctx.intern_str(s))
+                    .collect(),
             },
-            JavaIndexMetadata::Interface { modifiers } => JavaNodeMetadata::Interface {
+            JavaIndexMetadata::Interface {
+                modifiers,
+                type_parameters,
+            } => JavaNodeMetadata::Interface {
                 modifiers_sids: modifiers.iter().map(|s| ctx.intern_str(s)).collect(),
+                type_parameters_sids: type_parameters
+                    .iter()
+                    .map(|s| ctx.intern_str(s))
+                    .collect(),
             },
             JavaIndexMetadata::Enum {
                 modifiers,
@@ -104,6 +142,7 @@ impl JavaIndexMetadata {
                     .map(|p| JavaParameterStorage {
                         name_sid: ctx.intern_str(&p.name),
                         type_ref: p.type_ref.clone(),
+                        is_varargs: p.is_varargs,
                     })
                     .collect(),
                 is_constructor: *is_constructor,
@@ -130,12 +169,16 @@ impl NodeMetadata for JavaNodeMetadata {
 pub struct JavaParameter {
     pub name: String,
     pub type_ref: TypeRef,
+    #[serde(default)]
+    pub is_varargs: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JavaParameterStorage {
     pub name_sid: u32,
     pub type_ref: TypeRef,
+    #[serde(default)]
+    pub is_varargs: bool,
 }
 
 pub fn fmt_type(t: &TypeRef) -> String {

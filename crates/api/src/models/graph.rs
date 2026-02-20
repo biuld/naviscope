@@ -116,6 +116,34 @@ impl NodeMetadata for EmptyMetadata {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
+pub enum NodeSource {
+    /// Defined in the current project (source code available)
+    Project,
+    /// External dependency (library, vendor code)
+    External,
+    /// Language builtin / Primitive type
+    Builtin,
+}
+
+impl Default for NodeSource {
+    fn default() -> Self {
+        Self::Project
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq, Hash, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ResolutionStatus {
+    /// Just a placeholder (name and ID known, metadata may be empty)
+    Unresolved,
+    /// Structure known from bytecode or partial scan (stubs available)
+    Stubbed,
+    /// Full details known from source code or complete parsing
+    #[default]
+    Resolved,
+}
+
 #[derive(Debug, Clone)]
 pub struct GraphNode {
     /// Unique Identifier (Structured FQN)
@@ -126,6 +154,10 @@ pub struct GraphNode {
     pub kind: NodeKind,
     /// Language identifier (Symbol)
     pub lang: Symbol,
+    /// Source origin
+    pub source: NodeSource,
+    /// Current resolution depth/state
+    pub status: ResolutionStatus,
     /// Physical Location
     pub location: Option<super::symbol::InternedLocation>,
     /// Extension metadata
@@ -139,6 +171,8 @@ impl Default for GraphNode {
             name: Symbol(lasso::Spur::default()),
             kind: NodeKind::Custom("unknown".to_string()),
             lang: Symbol(lasso::Spur::default()),
+            source: NodeSource::Project,
+            status: ResolutionStatus::Resolved,
             location: None,
             metadata: Arc::new(EmptyMetadata),
         }
@@ -187,6 +221,10 @@ pub struct DisplayGraphNode {
     pub name: String,
     pub kind: NodeKind,
     pub lang: String,
+    #[serde(default)]
+    pub source: NodeSource,
+    #[serde(default)]
+    pub status: ResolutionStatus,
     pub location: Option<DisplaySymbolLocation>,
 
     // Rendering fields
@@ -196,6 +234,7 @@ pub struct DisplayGraphNode {
     pub modifiers: Vec<String>,
 
     // Hierarchy support
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<DisplayGraphNode>>,
 }
 
@@ -209,6 +248,8 @@ pub enum GraphQuery {
         #[serde(default)]
         kind: Vec<NodeKind>,
         #[serde(default)]
+        sources: Vec<NodeSource>,
+        #[serde(default)]
         modifiers: Vec<String>,
     },
 
@@ -217,6 +258,8 @@ pub enum GraphQuery {
         pattern: String,
         #[serde(default)]
         kind: Vec<NodeKind>,
+        #[serde(default)]
+        sources: Vec<NodeSource>,
         #[serde(default = "default_limit")]
         limit: usize,
     },

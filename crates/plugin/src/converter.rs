@@ -1,4 +1,4 @@
-use crate::interner::FqnInterner;
+use crate::core::FqnInterner;
 use naviscope_api::models::graph::{DisplayGraphNode, DisplaySymbolLocation, GraphNode};
 use naviscope_api::models::symbol::InternedLocation;
 use std::sync::Arc;
@@ -29,6 +29,8 @@ impl ModelConverter for DisplayGraphNode {
             name: interner.intern_atom(&self.name),
             kind: self.kind.clone(),
             lang: interner.intern_atom(&self.lang),
+            source: self.source.clone(),
+            status: self.status,
             location: self.location.as_ref().map(|l| l.to_internal(interner)),
             metadata: Arc::new(naviscope_api::models::graph::EmptyMetadata),
         }

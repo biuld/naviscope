@@ -18,7 +18,7 @@ impl CommandHandler for CdHandler {
         context: &mut ShellContext,
     ) -> Result<String, Box<dyn std::error::Error>> {
         if let ShellCommand::Cd { path } = cmd {
-            match context.resolve_node(path) {
+            match context.resolve_node(path)? {
                 ResolveResult::Found(fqn) => {
                     let new_curr = if fqn.is_empty() { None } else { Some(fqn) };
                     context.set_current_fqn(new_curr);
@@ -48,7 +48,7 @@ impl CommandHandler for CatHandler {
     ) -> Result<String, Box<dyn std::error::Error>> {
         if let ShellCommand::Cat { target } = cmd {
             // First resolve the target to a concrete FQN
-            let fqn = match context.resolve_node(target) {
+            let fqn = match context.resolve_node(target)? {
                 ResolveResult::Found(f) => f,
                 ResolveResult::Ambiguous(candidates) => {
                     let mut msg =
@@ -96,18 +96,22 @@ impl CommandHandler for GenericQueryHandler {
             ShellCommand::Ls {
                 fqn: Some(target),
                 kind,
+                source,
                 modifiers,
                 long,
+                all,
             } => {
                 resolved_target_fqn = match context.resolve_node(target) {
-                    ResolveResult::Found(f) => Some(f),
+                    Ok(ResolveResult::Found(f)) => Some(f),
                     _ => Some(target.clone()),
                 };
                 ShellCommand::Ls {
                     fqn: resolved_target_fqn.clone(),
                     kind: kind.clone(),
+                    source: source.clone(),
                     modifiers: modifiers.clone(),
                     long: *long,
+                    all: *all,
                 }
             }
             ShellCommand::Deps {
@@ -116,7 +120,7 @@ impl CommandHandler for GenericQueryHandler {
                 edge_types,
             } => {
                 resolved_target_fqn = match context.resolve_node(target) {
-                    ResolveResult::Found(f) => Some(f),
+                    Ok(ResolveResult::Found(f)) => Some(f),
                     _ => Some(target.clone()),
                 };
                 ShellCommand::Deps {

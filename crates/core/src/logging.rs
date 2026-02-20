@@ -20,9 +20,7 @@ pub fn init_logging(component: &str, to_stderr: bool) -> WorkerGuard {
         .with_ansi(false)
         .with_target(true);
 
-    let registry = tracing_subscriber::registry()
-        .with(filter)
-        .with(file_layer);
+    let registry = tracing_subscriber::registry().with(filter).with(file_layer);
 
     if to_stderr {
         let stderr_layer = fmt::layer()

@@ -1,6 +1,6 @@
 use super::view::{ShellNodeView, ShellNodeViewShort, get_kind_weight};
 use clap::{Parser, ValueEnum};
-use naviscope_api::models::{EdgeType, GraphQuery, NodeKind, QueryResult};
+use naviscope_api::models::{EdgeType, GraphQuery, NodeKind, NodeSource, QueryResult};
 use shlex;
 use tabled::{Table, settings::Style};
 
@@ -24,6 +24,24 @@ pub enum CliNodeKind {
     Task,
     Plugin,
     Other,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub enum CliNodeSource {
+    Project,
+    External,
+    Builtin,
+}
+
+impl From<CliNodeSource> for NodeSource {
+    fn from(source: CliNodeSource) -> Self {
+        match source {
+            CliNodeSource::Project => NodeSource::Project,
+            CliNodeSource::External => NodeSource::External,
+            CliNodeSource::Builtin => NodeSource::Builtin,
+        }
+    }
 }
 
 impl From<CliNodeKind> for NodeKind {
@@ -81,12 +99,18 @@ pub enum ShellCommand {
         /// Filter by node kind (e.g. class, interface, method)
         #[arg(long, value_delimiter = ',')]
         kind: Vec<CliNodeKind>,
+        /// Filter by node source (e.g. project, external, builtin)
+        #[arg(long, value_delimiter = ',')]
+        source: Vec<CliNodeSource>,
         /// Filter by modifiers (e.g. public, static)
         #[arg(long, value_delimiter = ',')]
         modifiers: Vec<String>,
         /// Use long listing format
         #[arg(short, long)]
         long: bool,
+        /// Show all nodes (including external and builtins)
+        #[arg(short, long)]
+        all: bool,
     },
     /// Change current node context (internal shell command)
     Cd {
@@ -104,6 +128,9 @@ pub enum ShellCommand {
         /// Filter by node kind
         #[arg(long, value_delimiter = ',')]
         kind: Vec<CliNodeKind>,
+        /// Filter by node source
+        #[arg(long, value_delimiter = ',')]
+        source: Vec<CliNodeSource>,
         /// Limit number of results
         #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
         limit: usize,
@@ -169,23 +196,42 @@ impl ShellCommand {
             ShellCommand::Ls {
                 fqn,
                 kind,
+                source,
                 modifiers,
+                all,
                 ..
             } => {
                 let target_fqn = fqn.clone().or_else(|| current_node.clone());
+                let sources = if *all {
+                    vec![]
+                } else if source.is_empty() {
+                    vec![NodeSource::Project]
+                } else {
+                    source
+                        .iter()
+                        .map(|s| s.clone().into())
+                        .collect::<Vec<NodeSource>>()
+                };
+
                 Ok(GraphQuery::Ls {
                     fqn: target_fqn,
                     kind: kind.iter().map(|k| k.clone().into()).collect(),
+                    sources,
                     modifiers: modifiers.clone(),
                 })
             }
             ShellCommand::Find {
                 pattern,
                 kind,
+                source,
                 limit,
             } => Ok(GraphQuery::Find {
                 pattern: pattern.clone(),
                 kind: kind.iter().map(|k| k.clone().into()).collect(),
+                sources: source
+                    .iter()
+                    .map(|s| s.clone().into())
+                    .collect::<Vec<NodeSource>>(),
                 limit: *limit,
             }),
             ShellCommand::Cat { target } => Ok(GraphQuery::Cat {

@@ -3,13 +3,13 @@
 //! The `CodeGraph` provides a cheap-to-clone, immutable view of the indexed codebase.
 //! All data is wrapped in `Arc`, so cloning only increments a reference counter.
 use crate::error::{NaviscopeError, Result};
-use crate::ingest::builder::CodeGraphBuilder;
+use crate::model::builder::CodeGraphBuilder;
 
+use naviscope_plugin::NodeMetadataCodec;
 use crate::features::CodeGraphLike;
 use crate::model::FqnManager;
 use crate::model::source::SourceFile;
 use crate::model::{GraphEdge, GraphNode};
-use crate::plugin::NodeAdapter;
 use lasso::ThreadedRodeo;
 use naviscope_api::models::symbol::{FqnId, FqnReader, Symbol};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -103,6 +103,16 @@ impl CodeGraph {
         CodeGraphBuilder::from_inner((*self.inner).clone())
     }
 
+    /// Register a new naming convention for this graph instance.
+    /// This allows plugins to provide language-specific FQN parsing logic.
+    /// Note: This affects global query behavior for this graph instance.
+    pub fn register_naming_convention(
+        &self,
+        convention: Box<dyn naviscope_plugin::NamingConvention>,
+    ) {
+        self.inner.fqns.register_convention(convention);
+    }
+
     // ---- Read-only accessors ----
 
     /// Get the unique instance ID for this graph version
@@ -168,7 +178,7 @@ impl CodeGraph {
     /// Find node at a specific location in a file (by name range)
     pub fn find_node_at(&self, path: &Path, line: usize, col: usize) -> Option<NodeIndex> {
         let path_str = path.to_string_lossy();
-        let key = self.inner.symbols.get(path_str.as_ref())?;
+        let key = self.inner.symbols.get(&path_str)?;
         let entry = self.inner.file_index.get(&Symbol(key))?;
 
         for &idx in &entry.nodes {
@@ -192,7 +202,7 @@ impl CodeGraph {
         col: usize,
     ) -> Option<NodeIndex> {
         let path_str = path.to_string_lossy();
-        let key = self.inner.symbols.get(path_str.as_ref())?;
+        let key = self.inner.symbols.get(&path_str)?;
         let entry = self.inner.file_index.get(&Symbol(key))?;
 
         let mut best_node = None;
@@ -243,10 +253,10 @@ impl CodeGraph {
     /// Serialize to bytes for persistence
     pub fn serialize(
         &self,
-        get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+        get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
     ) -> Result<Vec<u8>> {
         use super::storage::to_storage;
-        let storage = to_storage(&self.inner, get_plugin);
+        let storage = to_storage(&self.inner, get_codec);
         let bytes = rmp_serde::to_vec(&storage)
             .map_err(|e| NaviscopeError::Internal(format!("MSGPACK error: {}", e)))?;
 
@@ -259,7 +269,7 @@ impl CodeGraph {
     /// Deserialize from bytes
     pub fn deserialize(
         bytes: &[u8],
-        get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+        get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
     ) -> Result<Self> {
         use super::storage::{StorageGraph, from_storage};
 
@@ -270,7 +280,7 @@ impl CodeGraph {
         let storage: StorageGraph = rmp_serde::from_read(decoder)
             .map_err(|e| NaviscopeError::Internal(format!("MSGPACK error: {}", e)))?;
 
-        let inner = from_storage(storage, get_plugin);
+        let inner = from_storage(storage, get_codec);
         Ok(Self::from_inner(inner))
     }
 
@@ -278,12 +288,12 @@ impl CodeGraph {
     pub fn save_to_json<P: AsRef<std::path::Path>>(
         &self,
         path: P,
-        get_plugin: impl Fn(&str) -> Option<Arc<dyn NodeAdapter>>,
+        get_codec: impl Fn(&str) -> Option<Arc<dyn NodeMetadataCodec>>,
     ) -> crate::error::Result<()> {
         use super::storage::to_storage;
         let file = std::fs::File::create(path)?;
         let writer = std::io::BufWriter::new(file);
-        let storage = to_storage(&self.inner, get_plugin);
+        let storage = to_storage(&self.inner, get_codec);
         serde_json::to_writer_pretty(writer, &storage)
             .map_err(|e| crate::error::NaviscopeError::Parsing(e.to_string()))?;
         Ok(())
@@ -406,7 +416,7 @@ impl naviscope_plugin::CodeGraph for CodeGraph {
 }
 #[cfg(test)]
 mod tests {
-    use super::{CURRENT_VERSION, CodeGraph};
+    use super::*;
 
     #[test]
     fn test_arc_clone_is_cheap() {
@@ -437,15 +447,17 @@ mod tests {
 
     #[test]
     fn test_graph_serialization_roundtrip() {
-        use crate::ingest::builder::CodeGraphBuilder;
+        use crate::model::builder::CodeGraphBuilder;
         use crate::model::NodeKind;
 
         let mut builder = CodeGraphBuilder::new();
-        let node = crate::ingest::parser::IndexNode {
+        let node = crate::indexing::IndexNode {
             id: naviscope_api::models::symbol::NodeId::Flat("test_node".to_string()),
             name: "node".to_string(),
             kind: NodeKind::Class,
             lang: "java".to_string(),
+            source: naviscope_api::models::graph::NodeSource::Project,
+            status: naviscope_api::models::graph::ResolutionStatus::Resolved,
             location: None,
             metadata: std::sync::Arc::new(crate::model::EmptyMetadata),
         };

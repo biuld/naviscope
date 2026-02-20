@@ -1,10 +1,11 @@
+pub use super::fqn::{FqnNode, FqnReader};
 use super::graph::{DisplayGraphNode, NodeKind};
 use super::language::Language;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Symbol(pub lasso::Spur);
 
 impl JsonSchema for Symbol {
@@ -72,7 +73,7 @@ impl NodeId {
 
 pub type SymbolAtom = Symbol;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FqnId(pub u32);
 
 impl JsonSchema for FqnId {
@@ -83,18 +84,6 @@ impl JsonSchema for FqnId {
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         u32::json_schema(generator)
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
-pub struct FqnNode {
-    pub parent: Option<FqnId>,
-    pub name: Symbol,
-    pub kind: NodeKind,
-}
-
-pub trait FqnReader {
-    fn resolve_node(&self, id: FqnId) -> Option<FqnNode>;
-    fn resolve_atom(&self, atom: Symbol) -> &str;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
@@ -158,6 +147,16 @@ pub enum SymbolResolution {
     Local(Range, Option<String>), // Range of declaration, and optional type name
     Precise(String, SymbolIntent),
     Global(String),
+}
+
+impl SymbolResolution {
+    pub fn fqn(&self) -> Option<&str> {
+        match self {
+            SymbolResolution::Local(_, _) => None,
+            SymbolResolution::Precise(fqn, _) => Some(fqn),
+            SymbolResolution::Global(fqn) => Some(fqn),
+        }
+    }
 }
 
 // --- New Core API Types ---

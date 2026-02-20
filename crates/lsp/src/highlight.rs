@@ -27,7 +27,10 @@ pub async fn highlight(
 
     let highlights = match engine.find_highlights(&ctx).await {
         Ok(h) => h,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            tracing::warn!("find_highlights failed for {}: {}", uri, e);
+            return Ok(None);
+        }
     };
 
     let lsp_highlights: Vec<DocumentHighlight> = highlights

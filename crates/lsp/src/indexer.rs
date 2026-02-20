@@ -58,7 +58,7 @@ pub fn spawn_indexer(
         client.log_message(MessageType::INFO, stats_msg).await;
 
         // 2. Setup file watcher
-        if let Err(e) = engine.watch().await {
+        if let Err(e) = engine.start_watch().await {
             client
                 .log_message(
                     MessageType::ERROR,

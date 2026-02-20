@@ -70,7 +70,15 @@ impl JavaParser {
                 if let Some(n_node) = parent.child_by_field_name("name") {
                     if seen_ids.insert(n_node.id()) {
                         if let Ok(n_text) = n_node.utf8_text(source.as_bytes()) {
-                            hierarchy.push((pk, n_text.to_string()));
+                            let id_pk = match pk {
+                                naviscope_api::models::graph::NodeKind::Interface
+                                | naviscope_api::models::graph::NodeKind::Enum
+                                | naviscope_api::models::graph::NodeKind::Annotation => {
+                                    naviscope_api::models::graph::NodeKind::Class
+                                }
+                                _ => pk,
+                            };
+                            hierarchy.push((id_pk, n_text.to_string()));
                         }
                     }
                 }
@@ -82,7 +90,40 @@ impl JavaParser {
         parts.extend(hierarchy);
 
         // Add self at the end
-        parts.push((kind, self_name));
+        // STABILITY NOTE: For Java, we use NodeKind::Class for all Type-like entities
+        // in the ID to ensure cross-file references (which often don't know the exact kind)
+        // can resolve correctly. The actual node.kind will still be accurate.
+        let id_kind = match kind {
+            naviscope_api::models::graph::NodeKind::Interface
+            | naviscope_api::models::graph::NodeKind::Enum
+            | naviscope_api::models::graph::NodeKind::Annotation => {
+                naviscope_api::models::graph::NodeKind::Class
+            }
+            _ => kind,
+        };
+
+        // For methods and constructors, produce a signature-based name like
+        // `target(int,java.lang.String)` so that overloaded methods get
+        // distinct FQN IDs in the graph.
+        let id_name = match id_kind {
+            naviscope_api::models::graph::NodeKind::Method
+            | naviscope_api::models::graph::NodeKind::Constructor => {
+                if let Some(decl_node) = name_node.parent() {
+                    let param_types = self
+                        .extract_method_parameters(decl_node, source)
+                        .into_iter()
+                        .map(|p| p.type_ref)
+                        .collect::<Vec<_>>();
+                    crate::naming::build_java_method_name(&self_name, &param_types)
+                } else {
+                    // Fallback: no parent available, use bare name with empty params
+                    crate::naming::format_method_name(&self_name, &[])
+                }
+            }
+            _ => self_name,
+        };
+
+        parts.push((id_kind, id_name));
 
         naviscope_api::models::symbol::NodeId::Structured(parts)
     }

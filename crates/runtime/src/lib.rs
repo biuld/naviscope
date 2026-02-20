@@ -1,5 +1,5 @@
 use naviscope_api::NaviscopeEngine;
-use naviscope_api::lifecycle::EngineResult;
+use naviscope_api::{ApiError, ApiResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,16 +8,21 @@ use std::sync::Arc;
 /// This function acts as the central factory for the Naviscope runtime,
 /// assembling the core engine with language-specific plugins like Java and Gradle.
 pub fn build_default_engine(path: PathBuf) -> Arc<dyn NaviscopeEngine> {
-    let mut engine = naviscope_core::runtime::orchestrator::NaviscopeEngine::new(path);
+    let mut builder = naviscope_core::runtime::NaviscopeEngine::builder(path);
 
-    // Register Build Tool Plugins
-    engine.register_build_tool(Arc::new(naviscope_gradle::GradlePlugin::new()));
+    // Register Build Tool Caps
+    builder = builder.with_build_caps(naviscope_gradle::gradle_caps());
 
-    // Register Language Plugins
-    match naviscope_java::JavaPlugin::new() {
-        Ok(plugin) => engine.register_language(Arc::new(plugin)),
-        Err(e) => tracing::error!("Failed to load Java plugin: {}", e),
-    }
+    // Register Language Caps
+    builder = match naviscope_java::java_caps() {
+        Ok(caps) => builder.with_language_caps(caps),
+        Err(e) => {
+            tracing::error!("Failed to load Java plugin: {}", e);
+            builder
+        }
+    };
+
+    let engine = builder.build();
 
     // Wrap in the standard EngineHandle which implements all API traits
     Arc::new(naviscope_core::facade::EngineHandle::from_engine(Arc::new(
@@ -32,10 +37,12 @@ pub fn init_logging(component: &str, to_stderr: bool) -> Option<impl Drop> {
 }
 
 /// Utility to clear all indices stored on the local system.
-pub fn clear_all_indices() -> EngineResult<()> {
-    naviscope_core::runtime::orchestrator::NaviscopeEngine::clear_all_indices().map_err(
-        |e: naviscope_core::error::NaviscopeError| {
-            naviscope_api::lifecycle::EngineError::Internal(e.to_string())
-        },
-    )
+pub fn clear_all_indices() -> ApiResult<()> {
+    naviscope_core::runtime::NaviscopeEngine::clear_all_indices()
+        .map_err(|e: naviscope_core::error::NaviscopeError| ApiError::Internal(e.to_string()))
+}
+
+/// Get the global stub cache manager.
+pub fn get_cache_manager() -> std::sync::Arc<dyn naviscope_api::StubCacheManager> {
+    std::sync::Arc::new(naviscope_core::cache::GlobalStubCache::at_default_location())
 }

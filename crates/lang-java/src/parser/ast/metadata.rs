@@ -96,7 +96,7 @@ impl JavaParser {
         }
 
         match element {
-            JavaIndexMetadata::Class { modifiers: _ } => {
+            JavaIndexMetadata::Class { .. } => {
                 if let Some(s) = captures
                     .iter()
                     .find(|c| c.index == self.indices.class_super)
@@ -123,7 +123,7 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(s_name),
                         rel_type: EdgeType::InheritsFrom,
-                        range: None,
+                        range: Some(range_from_ts(s.node.range())),
                     });
                 }
                 for cc in captures
@@ -139,11 +139,11 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(i),
                         rel_type: EdgeType::Implements,
-                        range: None,
+                        range: Some(range_from_ts(cc.node.range())),
                     });
                 }
             }
-            JavaIndexMetadata::Interface { modifiers: _ } => {
+            JavaIndexMetadata::Interface { .. } => {
                 for cc in captures
                     .iter()
                     .filter(|c| c.index == self.indices.inter_ext)
@@ -157,7 +157,7 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(e),
                         rel_type: EdgeType::InheritsFrom,
-                        range: None,
+                        range: Some(range_from_ts(cc.node.range())),
                     });
                 }
             }
@@ -178,7 +178,7 @@ impl JavaParser {
                         source_id: fqn_id.clone(),
                         target_id: naviscope_api::models::symbol::NodeId::Flat(i),
                         rel_type: EdgeType::Implements,
-                        range: None,
+                        range: Some(range_from_ts(cc.node.range())),
                     });
                 }
             }
@@ -207,13 +207,19 @@ impl JavaParser {
                         .utf8_text(source.as_bytes())
                         .unwrap_or_default()
                         .to_string();
+                    let is_varargs = captures
+                        .iter()
+                        .find(|c| c.index == self.indices.param_match)
+                        .map(|c| c.node.kind() == "spread_parameter")
+                        .unwrap_or(false);
                     if !parameters
                         .iter()
-                        .any(|p| p.name == n && p.type_ref == t_ref)
+                        .any(|p| p.name == n && p.type_ref == t_ref && p.is_varargs == is_varargs)
                     {
                         parameters.push(JavaParameter {
                             type_ref: t_ref,
                             name: n,
+                            is_varargs,
                         });
                     }
                     self.generate_typed_as_edges(t_node, source, &fqn_id, relations);
@@ -234,12 +240,12 @@ impl JavaParser {
 
     fn add_modifier(&self, element: &mut JavaIndexMetadata, m_str: String) {
         match element {
-            JavaIndexMetadata::Class { modifiers } => {
+            JavaIndexMetadata::Class { modifiers, .. } => {
                 if !modifiers.contains(&m_str) {
                     modifiers.push(m_str);
                 }
             }
-            JavaIndexMetadata::Interface { modifiers } => {
+            JavaIndexMetadata::Interface { modifiers, .. } => {
                 if !modifiers.contains(&m_str) {
                     modifiers.push(m_str);
                 }
