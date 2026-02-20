@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-api"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "lasso",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-cli"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "clap",
  "dirs",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-core"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "dashmap 6.1.0",
@@ -1546,7 +1546,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-gradle"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "dirs",
  "lasso",
@@ -1568,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-java"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "dirs",
  "lasso",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-lsp"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "dashmap 6.1.0",
  "naviscope-api",
@@ -1610,7 +1610,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-mcp"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1630,7 +1630,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-plugin"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "lsp-types 0.97.0",
@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "naviscope-runtime"
-version = "0.5.5"
+version = "0.7.0"
 dependencies = [
  "naviscope-api",
  "naviscope-core",

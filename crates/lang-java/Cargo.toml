@@ -1,6 +1,6 @@
 [package]
 name = "naviscope-java"
-version = "0.5.5"
+version = "0.7.0"
 edition = "2024"
 
 [dependencies]
